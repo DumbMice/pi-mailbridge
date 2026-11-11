@@ -157,3 +157,14 @@ test("the README shows a notification naming both device and session", () => {
 	assert.match(readme, /session: /, "the sample notification should show the session line")
 	assert.match(readme, /@ .*is waiting for you/, "the sample subject should name the device")
 })
+
+test("the reply identification rule is documented in README and ARCHITECTURE", () => {
+	for (const doc of [readme, read("../docs/ARCHITECTURE.md")]) {
+		assert.match(doc, /In-Reply-To/, "must name In-Reply-To")
+		assert.match(doc, /References/, "must name References")
+		assert.match(doc, /no-token/, "must say what happens when nothing matches")
+	}
+	assert.ok(readme.includes("security.allowHeaderThreading"), "README must document the switch")
+	const security = example["security"] as Record<string, unknown>
+	assert.equal(security["allowHeaderThreading"], true, "example config must ship the default")
+})

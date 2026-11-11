@@ -49,6 +49,31 @@ With more than one machine, each daemon has its own `device.name`; a reply is on
 claimed by the daemon whose device the token names, so two machines sharing one
 mailbox never fight over the same message.
 
+## How a reply is identified
+
+A reply is matched to a session by the **first rule that succeeds**:
+
+| # | Rule | Survives | Notes |
+| --- | --- | --- | --- |
+| 1 | **Signed token in the subject** — `[pi:<payload>.<mac>]`, matched anywhere in the subject | subject intact | Authoritative: HMAC-signed, TTL-bounded. `Re:`, `RE:`, `Aw:`, `Re[2]:` prefixes are fine because the token is not anchored. |
+| 2 | **The reply chain** — `In-Reply-To`, or any id in `References`, equals a Message-ID we minted | subject edited, rewritten or purged | The id is recorded when the notification is sent, and kept for the last 2,000 sends. |
+| 3 | Neither | — | Rejected as `no-token`; the mail is left **unread** so you can retry. |
+
+What this means in practice:
+
+- **Reply normally.** Every mail client sets `In-Reply-To`, so a plain Reply works
+  either way.
+- **Editing the subject is safe** — the chain still routes it.
+- **Composing a brand-new email** with no token and no reference is *not*
+  identified. Use Reply, or keep the `[pi:…]` tag in the subject.
+- **Quoted text is stripped** before the agent sees it, so leave the quote in.
+- **A reply to a reply** still works: the chain carries the original id.
+
+Rule 2 is a convenience fallback, not authentication — a Message-ID is only
+visible to the recipient, but it is unsigned. Set
+`security.allowHeaderThreading: false` if you want the signed token to be the only
+way in.
+
 ## Security first
 
 This package makes your inbox a control channel for an agent that can run shell
@@ -123,6 +148,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | `security.allowFrom` | `[]` | senders allowed to command the agent; empty denies all |
 | `security.requireDmarcPass` | `true` | require a DMARC pass from the pinned relay |
 | `security.trustedAuthservId` | — | the only `Authentication-Results` host that is trusted |
+| `security.allowHeaderThreading` | `true` | accept a reply whose subject token was lost, by matching `In-Reply-To` / `References` against Message-IDs we minted |
 | `security.tokenTtlHours` | `720` | routing-token lifetime; stale replies are refused |
 | `daemon.host` / `.port` | `127.0.0.1` / `4177` | loopback HTTP for the extension; the port is the instance lock |
 | `notify.onSettled` | `true` | email when an agent settles |
@@ -164,7 +190,7 @@ map and the port from `opencode-afk`: [docs/MAPPING.md](./docs/MAPPING.md).
 ## Status
 
 `0.1.0` — feature-complete for the single-user, one-mailbox case, not yet
-battle-tested against a live mailbox. 189 hermetic tests cover the token, authz,
+battle-tested against a live mailbox. 202 hermetic tests cover the token, authz,
 scan pipeline, stores, daemon HTTP surface, lifecycle, extension surface, tools,
 attachments and the full end-to-end loop.
 

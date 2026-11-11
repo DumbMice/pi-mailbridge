@@ -58,6 +58,14 @@ a live mailbox.
 - Reply deliveries drain on `session_start` and on a 10 s poll, injected as
   `followUp` with attachments as content blocks.
 
+### Reply identification
+
+A reply is identified by the first rule that succeeds: the **signed subject
+token**, then the **reply chain** (`In-Reply-To` / `References` matched against
+Message-IDs recorded at send time in `store/threads.ts`), then rejected as
+`no-token` and left unread. The chain fallback means editing the subject no longer
+loses a reply; `security.allowHeaderThreading: false` disables it.
+
 ### Device identity
 
 An idle notification identifies the machine as well as the session, and the

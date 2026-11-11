@@ -95,6 +95,22 @@ Subject format:
 - Expiry bounds replay: a token older than `tokenTtlHours` is refused even if
   the MAC is valid.
 
+### What identifies a reply
+
+An inbound message is matched to a session by the first rule that succeeds:
+
+1. **Signed subject token** — `[pi:<payload>.<mac>]`, matched anywhere in the
+   subject, so `Re:` / `RE:` / `Aw:` / `Re[2]:` prefixes are irrelevant. It
+   carries `sessionId`, expiry and the minting device, and is HMAC-signed.
+2. **Reply chain** — `In-Reply-To`, or any id in `References`, equals a Message-ID
+   recorded in `store/threads.ts`. This is what survives a human editing the
+   subject or a client rewriting it. The chain is searched newest-first, so the
+   closest ancestor wins.
+3. Otherwise the message is rejected (`no-token`) and left unread.
+
+The token is authoritative because it is signed; the chain is unsigned and only a
+convenience. `security.allowHeaderThreading: false` disables rule 2.
+
 The token is **not** authentication. It routes; it does not authorize. See
 SECURITY.md.
 

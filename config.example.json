@@ -27,6 +27,7 @@
   "security": {
     "allowFrom": ["you@example.com"],
     "requireDmarcPass": true,
+    "allowHeaderThreading": true,
     "trustedAuthservId": "mx.example.com",
     "tokenTtlHours": 720
   },
