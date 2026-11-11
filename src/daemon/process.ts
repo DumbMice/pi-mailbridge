@@ -18,6 +18,7 @@ import { authorize } from "../core/authz.ts"
 import { stripQuoted, type HeaderLike } from "../core/reply-parse.ts"
 import { tokenFromSubject } from "../core/token.ts"
 import { selectAttachments, type RawAttachment } from "../core/attachments.ts"
+import { parseMessageIds, lookupChain } from "../store/threads.ts"
 import { addPending, type PendingRecord } from "../store/pending-store.ts"
 import { isJournaled } from "../store/journal.ts"
 import { advanceCursor, readCursor } from "../store/uid-cursor.ts"
@@ -131,19 +132,46 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		// token names a device, only that device may persist it — otherwise several
 		// machines sharing one mailbox would each hold a stale copy of the same reply.
 		const token = tokenFromSubject(message.subject, deps.secret, now())
-		if (!token) {
+		let sessionId: string | undefined
+		let tokenDevice: string | undefined
+
+		if (token) {
+			if (token.device && token.device !== config.device.name) {
+				result.rejected++
+				bump(result.reasons, "other-device")
+				result.cursor = advanceCursor(env, uid)
+				continue
+			}
+			sessionId = token.sessionId
+			tokenDevice = token.device
+		} else if (config.security.allowHeaderThreading !== false) {
+			// Fallback: the reply chain itself. A human editing the subject, or a client
+			// rewriting it, still leaves In-Reply-To/References intact — that is how
+			// "reply to this mail" works.
+			const ids = [
+				...parseMessageIds(message.headers.inReplyTo),
+				...parseMessageIds((message.headers.references ?? []).join(" ")),
+			]
+			const thread = lookupChain(env, ids)
+			if (thread?.device && thread.device !== config.device.name) {
+				result.rejected++
+				bump(result.reasons, "other-device")
+				result.cursor = advanceCursor(env, uid)
+				continue
+			}
+			if (thread) {
+				sessionId = thread.sessionId
+				tokenDevice = thread.device
+				bump(result.reasons, "threaded")
+			}
+		}
+
+		if (!sessionId) {
 			result.rejected++
 			bump(result.reasons, "no-token")
 			result.cursor = advanceCursor(env, uid)
 			continue
 		}
-		if (token.device && token.device !== config.device.name) {
-			result.rejected++
-			bump(result.reasons, "other-device")
-			result.cursor = advanceCursor(env, uid)
-			continue
-		}
-		const sessionId = token.sessionId
 
 		const body = stripQuoted(message.text)
 		if (!body) {

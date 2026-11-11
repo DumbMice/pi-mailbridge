@@ -139,3 +139,19 @@ test("buildTransportOptions is inspectable without sending", async () => {
 	assert.equal(opts.host, "smtp.example.com")
 	assert.equal((opts.auth as Record<string, unknown>).pass, "app-password")
 })
+
+test("sendMail returns the Message-ID so replies can be traced", async () => {
+	const factory = (): TransportLike => ({
+		async sendMail() {
+			return { messageId: "<generated@pi.local>" }
+		},
+	})
+	const result = await sendMail(config(), { to: "you@example.com", subject: "s", text: "b" }, { transportFactory: factory })
+	assert.equal(result.messageId, "<generated@pi.local>")
+})
+
+test("sendMail tolerates a transport that returns nothing", async () => {
+	const factory = (): TransportLike => ({ async sendMail() {} })
+	const result = await sendMail(config(), { to: "you@example.com", subject: "s", text: "b" }, { transportFactory: factory })
+	assert.deepEqual(result, {})
+})

@@ -31,7 +31,13 @@ export interface DaemonDeps {
 	token: string
 	source: MailSource
 	/** Sends mail. Injected so tests never open a socket. */
-	send: (message: { to: string; subject: string; text: string }) => Promise<void>
+	send: (message: { to: string; subject: string; text: string }) => Promise<{ messageId?: string } | void>
+	/**
+	 * Called after a successful send with the assigned Message-ID, so the caller can
+	 * record it for reply-chain routing. Kept out of this module so the service does
+	 * not need the routing secret.
+	 */
+	onSent?: (info: { messageId?: string; subject: string }) => void
 	env?: NodeJS.ProcessEnv
 	now?: () => number
 	registry?: Registry
@@ -206,7 +212,10 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					const to = typeof body?.to === "string" && body.to ? body.to : deps.config.mail.to
 					if (!subject || !text) return fail(400, "bad_request")
 					try {
-						await deps.send({ to, subject, text })
+						const result = await deps.send({ to, subject, text })
+						// Record the outbound id so a reply reaches this session even if a
+						// client or a human rewrites the subject token away.
+						deps.onSent?.({ messageId: (result as { messageId?: string } | undefined)?.messageId, subject })
 					} catch (error) {
 						return fail(502, "send_failed", { message: (error as Error).message })
 					}

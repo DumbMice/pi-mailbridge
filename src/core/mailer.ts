@@ -68,8 +68,15 @@ export async function buildTransportOptions(config: ResolvedConfig, deps: SendDe
 /**
  * Send one plain-text message.
  * Throws on any transport failure — there is no partial-success path.
+ *
+ * Returns the Message-ID the server assigned when available, so the daemon can
+ * record it and route replies that lost their subject token.
  */
-export async function sendMail(config: ResolvedConfig, message: OutboundMessage, deps: SendDeps = {}): Promise<void> {
+export async function sendMail(
+	config: ResolvedConfig,
+	message: OutboundMessage,
+	deps: SendDeps = {},
+): Promise<{ messageId?: string }> {
 	if (!config.mail.smtp.host) throw new Error("pi-mailbridge: mail.smtp.host is not configured")
 	if (!message.to) throw new Error("pi-mailbridge: no recipient (mail.to)")
 
@@ -77,10 +84,12 @@ export async function sendMail(config: ResolvedConfig, message: OutboundMessage,
 	const transportOptions = await buildTransportOptions(config, deps)
 	const transporter = factory(transportOptions)
 
-	await transporter.sendMail({
+	const info = (await transporter.sendMail({
 		from: message.from ?? config.mail.smtp.user,
 		to: message.to,
 		subject: message.subject,
 		text: message.text,
-	})
+	})) as { messageId?: string } | undefined
+
+	return info?.messageId ? { messageId: info.messageId } : {}
 }

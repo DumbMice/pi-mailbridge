@@ -40,6 +40,11 @@ export interface ResolvedConfig {
 		requireDmarcPass: boolean
 		/** Only AR headers whose authserv-id equals this are trusted. See SECURITY.md §2.1. */
 		trustedAuthservId?: string
+		/**
+		 * Accept a reply whose subject token was lost, by matching `In-Reply-To` /
+		 * `References` against Message-IDs we minted. Default true; see SECURITY.md.
+		 */
+		allowHeaderThreading?: boolean
 		tokenTtlHours: number
 	}
 	daemon: { host: string; port: number }
@@ -56,7 +61,7 @@ const DEFAULTS: Omit<ResolvedConfig, "warnings"> = {
 		to: "",
 	},
 	device: { name: "" }, // resolved below: hostname() unless configured
-	security: { allowFrom: [], requireDmarcPass: true, tokenTtlHours: 30 * 24 },
+	security: { allowFrom: [], requireDmarcPass: true, allowHeaderThreading: true, tokenTtlHours: 30 * 24 },
 	daemon: { host: "127.0.0.1", port: 4177 },
 	notify: { onSettled: true, debounceMs: 10_000, notifyOnAborted: false, subject: "pi: finished" },
 	tuning: {

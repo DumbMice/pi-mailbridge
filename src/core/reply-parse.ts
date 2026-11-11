@@ -63,6 +63,10 @@ export interface HeaderLike {
 	subject?: string
 	/** Every `Authentication-Results` value, in the order received (top first). */
 	authResults?: string[]
+	/** `In-Reply-To`, the message this one directly answers. */
+	inReplyTo?: string
+	/** `References`, the ancestor chain. */
+	references?: string[]
 	/** `Auto-Submitted`, `Precedence`, `X-Auto-Response-Suppress`, `List-Id`. */
 	autoSubmitted?: string
 	precedence?: string

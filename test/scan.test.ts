@@ -10,6 +10,7 @@ import { scanAndProcess, type MailSource, type RawMessage } from "../src/daemon/
 import { listPending } from "../src/store/pending-store.ts"
 import { journal } from "../src/store/journal.ts"
 import { readCursor } from "../src/store/uid-cursor.ts"
+import { recordOutbound } from "../src/store/threads.ts"
 
 const SECRET = Buffer.alloc(32, 3)
 const SESSION = "01a1c453-f2fc-7169-8c89-69c93fa1a152"
@@ -272,4 +273,87 @@ test("a token with no device still works (single-device installs)", async () => 
 	// tokenSubject() signs without a device claim.
 	const r = await scanAndProcess(config(), { source: source([msg(1)]), secret: SECRET, env: e })
 	assert.equal(r.persisted, 1, "pre-device tokens must not be rejected")
+})
+
+// --- reply-chain fallback (In-Reply-To / References) ----------------------
+
+test("a reply with no token still routes via In-Reply-To", async () => {
+	const e = env()
+	recordOutbound(e, { messageId: "<out-1@pi.local>", sessionId: SESSION, device: "test-device", subject: "pi: x" })
+	const r = await scanAndProcess(config(), {
+		source: source([msg(1, { subject: "Re: pi: x", headers: { authResults: [GOOD_AR], inReplyTo: "<out-1@pi.local>" } })]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.persisted, 1, "the reply chain identifies the session")
+	assert.equal(r.reasons["threaded"], 1)
+	assert.equal(listPending(e)[0]!.sessionId, SESSION)
+})
+
+test("a reply whose subject was edited still routes via References", async () => {
+	const e = env()
+	recordOutbound(e, { messageId: "<out-2@pi.local>", sessionId: SESSION, device: "test-device", subject: "pi: y" })
+	const r = await scanAndProcess(config(), {
+		source: source([
+			msg(1, {
+				subject: "unrelated subject now",
+				headers: {
+					authResults: [GOOD_AR],
+					references: ["<older@x> <out-2@pi.local>"],
+				},
+			}),
+		]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.persisted, 1, "References is the chain and must be honoured")
+	assert.equal(listPending(e)[0]!.sessionId, SESSION)
+})
+
+test("the token wins over the chain when both are present", async () => {
+	const e = env()
+	recordOutbound(e, { messageId: "<out-3@pi.local>", sessionId: "session-from-chain", device: "test-device", subject: "x" })
+	const otherSession = "01a1c453-f2fc-7169-8c89-69c93fa1a999"
+	const signed = `[pi:${signToken(otherSession, SECRET)}] pi: finished`
+	const r = await scanAndProcess(config(), {
+		source: source([msg(1, { subject: signed, headers: { authResults: [GOOD_AR], inReplyTo: "<out-3@pi.local>" } })]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.persisted, 1)
+	assert.equal(listPending(e)[0]!.sessionId, otherSession, "signed token is authoritative")
+})
+
+test("an unknown In-Reply-To is rejected as no-token", async () => {
+	const e = env()
+	const r = await scanAndProcess(config(), {
+		source: source([msg(1, { subject: "Re: nothing", headers: { authResults: [GOOD_AR], inReplyTo: "<stranger@elsewhere>" } })]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.reasons["no-token"], 1)
+	assert.equal(listPending(e).length, 0)
+})
+
+test("a threaded reply recorded for another device is rejected", async () => {
+	const e = env()
+	recordOutbound(e, { messageId: "<out-4@pi.local>", sessionId: SESSION, device: "other-machine", subject: "x" })
+	const r = await scanAndProcess(config(), {
+		source: source([msg(1, { subject: "Re: x", headers: { authResults: [GOOD_AR], inReplyTo: "<out-4@pi.local>" } })]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.reasons["other-device"], 1)
+	assert.equal(listPending(e).length, 0)
+})
+
+test("header threading can be disabled", async () => {
+	const e = env()
+	recordOutbound(e, { messageId: "<out-5@pi.local>", sessionId: SESSION, device: "test-device", subject: "x" })
+	const r = await scanAndProcess(config({ allowHeaderThreading: false }), {
+		source: source([msg(1, { subject: "Re: x", headers: { authResults: [GOOD_AR], inReplyTo: "<out-5@pi.local>" } })]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.reasons["no-token"], 1)
 })

@@ -31,6 +31,10 @@ export const WANTED_HEADERS = [
 	"list-id",
 	"from",
 	"subject",
+	// Reply-chain fallback: threading headers, so a reply reaches the session even
+	// when the subject token was rewritten by a client or a human.
+	"in-reply-to",
+	"references",
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -103,6 +107,8 @@ export function toHeaderLike(extracted: ExtractedHeaders): HeaderLike {
 		from: extracted.from,
 		subject: extracted.subject,
 		authResults: extracted.headerValues.get("authentication-results"),
+		...(one("in-reply-to") ? { inReplyTo: one("in-reply-to") } : {}),
+		...(extracted.headerValues.get("references") ? { references: extracted.headerValues.get("references") } : {}),
 		autoSubmitted: one("auto-submitted"),
 		precedence: one("precedence"),
 		autoResponseSuppress: one("x-auto-response-suppress"),

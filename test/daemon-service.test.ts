@@ -311,3 +311,28 @@ test("malformed JSON is a 400, unknown route is a 404", async () => {
 		await h.close()
 	}
 })
+
+test("/send reports the Message-ID to the caller so it can be recorded", async () => {
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-daemon-")) }
+	const seen: { messageId?: string; subject: string }[] = []
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env,
+		source: { searchAfter: async () => [], fetch: async () => undefined },
+		send: async () => ({ messageId: "<m1@pi.local>" }),
+		onSent: (info) => seen.push(info),
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	try {
+		const res = await fetch(`http://127.0.0.1:${port}/send`, {
+			method: "POST",
+			headers: { ...auth(), "content-type": "application/json" },
+			body: JSON.stringify({ subject: "[pi:a.b] pi: x", text: "t" }),
+		})
+		assert.equal(res.status, 200)
+		assert.deepEqual(seen, [{ messageId: "<m1@pi.local>", subject: "[pi:a.b] pi: x" }])
+	} finally {
+		await service.close()
+	}
+})

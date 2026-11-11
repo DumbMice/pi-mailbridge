@@ -23,6 +23,8 @@ import { createImapWatcher, type ImapWatcher } from "./watcher.ts"
 import { createImapflowFactory } from "./imapflow.ts"
 import { createDaemonService, type DaemonService } from "./service.ts"
 import { listPending } from "../store/pending-store.ts"
+import { recordOutbound } from "../store/threads.ts"
+import { tokenFromSubject } from "../core/token.ts"
 
 const EXIT_CONFIG = 2
 const EXIT_AUTH = 3
@@ -105,6 +107,19 @@ async function run(config: ResolvedConfig): Promise<void> {
 		source: watcher,
 		send: (message) =>
 			sendMail(config, message, { getAccessToken: tokenProvider ? () => tokenProvider.getToken() : undefined }),
+		// Record the outbound Message-ID so a reply still routes when the subject
+		// token is missing (client rewrite, human edit).
+		onSent: ({ messageId, subject }) => {
+			if (!messageId) return
+			const parsed = tokenFromSubject(subject, ensureSecret())
+			if (!parsed) return
+			recordOutbound(process.env, {
+				messageId,
+				sessionId: parsed.sessionId,
+				...(parsed.device ? { device: parsed.device } : {}),
+				subject,
+			})
+		},
 	})
 
 	async function scanOnce(why: string): Promise<void> {
