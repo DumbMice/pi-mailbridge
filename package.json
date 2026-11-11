@@ -1,0 +1,60 @@
+{
+  "name": "pi-mailbridge",
+  "version": "0.1.0",
+  "description": "Drive Pi coding-agent sessions from your mailbox: get an email when an agent settles, reply to resume that exact session.",
+  "keywords": [
+    "pi",
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
+    "email",
+    "imap",
+    "smtp",
+    "idle",
+    "notifications",
+    "afk"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "src",
+    "docs",
+    "config.example.json"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/extension.ts"
+    ]
+  },
+  "main": "./src/extension.ts",
+  "exports": {
+    ".": "./src/extension.ts"
+  },
+  "bin": {
+    "pi-mailbridge": "./src/daemon/main.ts"
+  },
+  "scripts": {
+    "daemon": "node --experimental-strip-types src/daemon/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "dependencies": {
+    "imapflow": "^1.7.8",
+    "mailparser": "^3.9.20",
+    "nodemailer": "^9.1.1"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@sinclair/typebox": "*"
+  },
+  "devDependencies": {
+    "@types/mailparser": "^3.4.5",
+    "@types/node": "^22.10.0",
+    "@types/nodemailer": "^6.4.17",
+    "typescript": "^5.7.0"
+  }
+}

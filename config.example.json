@@ -1,0 +1,39 @@
+{
+  "mail": {
+    "imap": {
+      "host": "imap.example.com",
+      "port": 993,
+      "secure": true,
+      "user": "you@example.com",
+      "password": "APP_PASSWORD_NOT_LOGIN_PASSWORD",
+      "folder": "INBOX"
+    },
+    "smtp": {
+      "host": "smtp.example.com",
+      "port": 465,
+      "secure": true,
+      "user": "you@example.com",
+      "password": "APP_PASSWORD_NOT_LOGIN_PASSWORD"
+    },
+    "to": "you@example.com"
+  },
+  "security": {
+    "allowFrom": ["you@example.com"],
+    "requireDmarcPass": true,
+    "trustedAuthservId": "mx.example.com"
+  },
+  "daemon": {
+    "host": "127.0.0.1",
+    "port": 4177
+  },
+  "notify": {
+    "onSettled": true,
+    "debounceMs": 10000,
+    "notifyOnAborted": false
+  },
+  "tuning": {
+    "idleRenewMs": 1500000,
+    "backoffInitialMs": 1000,
+    "backoffMaxMs": 60000
+  }
+}

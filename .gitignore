@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.log
+.env
+config.json
+.DS_Store
+
+# Runtime state (never commit secrets or mail journals)
+state/
+*.journal.json
+secret.key
