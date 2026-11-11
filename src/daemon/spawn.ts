@@ -104,21 +104,32 @@ export interface DaemonClientOptions {
 }
 
 /** Tiny typed client used by the extension and by `/mailbridge`. */
+export type DaemonResult<T> = { ok: true; data: T } | { ok: false; status: number; code?: string }
+
 export function createDaemonClient(options: DaemonClientOptions) {
 	const doFetch = options.fetchImpl ?? fetch
 	const headers = { authorization: `Bearer ${options.token}`, "content-type": "application/json" }
 
-	async function call<T>(method: string, path: string, body?: unknown): Promise<T | undefined> {
+	async function call<T>(method: string, path: string, body?: unknown): Promise<DaemonResult<T>> {
 		try {
 			const response = await doFetch(`${options.baseUrl}${path}`, {
 				method,
 				headers,
 				...(body === undefined ? {} : { body: JSON.stringify(body) }),
 			})
-			if (!response.ok) return undefined
-			return (await response.json()) as T
+			const text = await response.text()
+			if (!response.ok) {
+				let code: string | undefined
+				try {
+					code = (JSON.parse(text) as { error?: { code?: string } }).error?.code
+				} catch {
+					/* non-JSON error body */
+				}
+				return { ok: false, status: response.status, ...(code ? { code } : {}) }
+			}
+			return { ok: true, data: (text ? JSON.parse(text) : {}) as T }
 		} catch {
-			return undefined
+			return { ok: false, status: 0, code: "network" }
 		}
 	}
 
