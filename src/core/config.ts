@@ -35,6 +35,12 @@ export interface ResolvedConfig {
 	mail: { imap: ImapConfig; smtp: SmtpConfig; to: string }
 	/** Who this daemon is. Named in every notification and in the routing token. */
 	device: { name: string }
+	/**
+	 * Device-code OAuth2, provider-agnostic. When present it is preferred over
+	 * `tokenCommand` for XOAUTH2, because it refreshes itself and needs no external
+	 * broker. See core/oauth-device.ts.
+	 */
+	oauth?: { issuer: string; clientId: string; clientSecret?: string; scope: string }
 	security: {
 		allowFrom: string[]
 		requireDmarcPass: boolean
@@ -173,13 +179,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 	if (!resolved.security.trustedAuthservId && resolved.security.requireDmarcPass) {
 		warnings.push("security.trustedAuthservId unset — DMARC cannot be pinned safely; treating as unreachable")
 	}
-	// XOAUTH2 without a command can never authenticate.
+	// XOAUTH2 needs exactly one token source: a built-in device-code flow or a command.
 	for (const side of ["imap", "smtp"] as const) {
 		const account = resolved.mail[side]
-		if (account.authType === "XOAUTH2" && !account.tokenCommand?.length) {
-			warnings.push(`mail.${side}.authType is XOAUTH2 but mail.${side}.tokenCommand is empty`)
+		if (account.authType !== "XOAUTH2") continue
+		const hasCommand = Boolean(account.tokenCommand?.length)
+		const hasOAuth = Boolean(resolved.oauth?.issuer && resolved.oauth?.clientId)
+		if (!hasCommand && !hasOAuth) {
+			warnings.push(
+				`mail.${side}.authType is XOAUTH2 but neither mail.${side}.tokenCommand nor oauth.issuer/oauth.clientId is set`,
+			)
 		}
-		if (account.authType === "XOAUTH2" && account.password) {
+		if (hasOAuth && !/\boffline_access\b/.test(resolved.oauth?.scope ?? "")) {
+			warnings.push("oauth.scope should include offline_access, otherwise no refresh token is issued")
+		}
+		if (account.password) {
 			warnings.push(`mail.${side}.password is set but authType is XOAUTH2 — the password will be ignored`)
 		}
 	}

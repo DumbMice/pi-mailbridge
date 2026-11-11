@@ -39,7 +39,8 @@
   "dependencies": {
     "imapflow": "^2.11.0",
     "mailparser": "^3.14.3",
-    "nodemailer": "^10.5.0"
+    "nodemailer": "^10.5.0",
+    "openid-client": "^6.8.9"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

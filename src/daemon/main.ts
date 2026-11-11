@@ -18,6 +18,9 @@ import { loadConfig, hasUsableMailConfig, type ResolvedConfig } from "../core/co
 import { ensureSecret } from "../store/secret.ts"
 import { sendMail } from "../core/mailer.ts"
 import { createCommandTokenProvider } from "../core/oauth.ts"
+import { createDeviceCodeProvider } from "../core/oauth-device.ts"
+import { createOpenidClient } from "../core/oauth-openid.ts"
+import { fileTokenStore } from "../store/oauth-store.ts"
 import { scanAndProcess } from "./process.ts"
 import { createImapWatcher, type ImapWatcher } from "./watcher.ts"
 import { createImapflowFactory } from "./imapflow.ts"
@@ -28,6 +31,67 @@ import { tokenFromSubject } from "../core/token.ts"
 
 const EXIT_CONFIG = 2
 const EXIT_AUTH = 3
+
+// ---------------------------------------------------------------------------
+// Token supply
+// ---------------------------------------------------------------------------
+
+/**
+ * Pick the token source for this installation.
+ *
+ * Precedence: built-in device-code OAuth2 (self-refreshing) -> a configured
+ * command -> none (LOGIN auth). Returning `undefined` is not an error: it means
+ * the account does not use XOAUTH2.
+ */
+async function buildTokenProvider(config: ResolvedConfig) {
+	if (config.oauth?.issuer && config.oauth.clientId) {
+		const client = await createOpenidClient(config.oauth)
+		return createDeviceCodeProvider({ client, store: fileTokenStore() })
+	}
+
+	const command = config.mail.smtp.tokenCommand ?? config.mail.imap.tokenCommand ?? []
+	if (command.length > 0) return createCommandTokenProvider({ command })
+
+	return undefined
+}
+
+/**
+ * `--auth`: approve the device grant once and persist the refresh token.
+ * Prints the URL and code, waits for approval, then exits.
+ */
+async function login(config: ResolvedConfig): Promise<number> {
+	if (!config.oauth?.issuer || !config.oauth.clientId) {
+		log("oauth.issuer and oauth.clientId are required for device login — see docs/OAUTH.md")
+		return EXIT_CONFIG
+	}
+
+	const client = await createOpenidClient(config.oauth)
+
+	// Start the grant and show the human what to do BEFORE waiting on them.
+	const authorization = await client.deviceAuthorization()
+	process.stdout.write(`\nApprove this login:\n  ${authorization.verificationUri}\n`)
+	if (authorization.userCode) process.stdout.write(`Code: ${authorization.userCode}\n`)
+	process.stdout.write("\nWaiting for approval…\n")
+
+	try {
+		const tokens = await client.pollDeviceAuthorization()
+		if (!tokens.refreshToken) {
+			log("the provider returned no refresh_token — add offline_access to oauth.scope")
+			return EXIT_AUTH
+		}
+		fileTokenStore().write({
+			refreshToken: tokens.refreshToken,
+			accessToken: tokens.accessToken,
+			expiresAt: tokens.expiresAt,
+		})
+	} catch (error) {
+		log(`login failed: ${(error as Error).message}`)
+		return EXIT_AUTH
+	}
+
+	log("authorised; refresh token stored")
+	return 0
+}
 
 function log(message: string): void {
 	console.error(`pi-mailbridge: ${message}`)
@@ -51,9 +115,18 @@ async function check(config: ResolvedConfig): Promise<number> {
 	}
 
 	if (config.mail.imap.authType === "XOAUTH2" || config.mail.smtp.authType === "XOAUTH2") {
+		const hasOAuth = Boolean(config.oauth?.issuer && config.oauth?.clientId)
 		const command = config.mail.smtp.tokenCommand ?? config.mail.imap.tokenCommand ?? []
-		if (command.length === 0) {
-			add("XOAUTH2 selected but no tokenCommand configured")
+		if (hasOAuth) {
+			const stored = fileTokenStore().read()
+			if (stored?.refreshToken) {
+				log("oauth: refresh token present")
+			} else {
+				add("oauth is configured but no refresh token yet — run `pi-mailbridge --auth`")
+				code = EXIT_AUTH
+			}
+		} else if (command.length === 0) {
+			add("XOAUTH2 selected but neither oauth.* nor tokenCommand is configured")
 			code = EXIT_AUTH
 		} else {
 			const provider = createCommandTokenProvider({ command })
@@ -84,8 +157,7 @@ async function run(config: ResolvedConfig): Promise<void> {
 	const token = ensureSecret().toString("base64url")
 
 	// One token provider per process, shared by IMAP and SMTP XOAUTH2.
-	const tokenCommand = config.mail.smtp.tokenCommand ?? config.mail.imap.tokenCommand ?? []
-	const tokenProvider = tokenCommand.length > 0 ? createCommandTokenProvider({ command: tokenCommand }) : undefined
+	const tokenProvider = await buildTokenProvider(config)
 
 	const watcher: ImapWatcher = createImapWatcher(config, {
 		factory: createImapflowFactory({ getAccessToken: tokenProvider ? () => tokenProvider.getToken() : undefined }),
@@ -181,6 +253,10 @@ async function main(): Promise<void> {
 	}
 	if (argv.includes("--check")) {
 		process.exitCode = await check(config)
+		return
+	}
+	if (argv.includes("--auth")) {
+		process.exitCode = await login(config)
 		return
 	}
 
