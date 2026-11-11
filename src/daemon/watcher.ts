@@ -130,13 +130,16 @@ export interface ImapClientLike {
 	mailboxOpen(path: string): Promise<unknown>
 	search(query: Record<string, unknown>, options?: { uid?: boolean }): Promise<number[]>
 	fetchOne(uid: number, query: Record<string, unknown>, options?: { uid?: boolean }): Promise<unknown>
+	/** Adds flags (e.g. \\Seen). Only called from the ack path. */
+	messageFlagsAdd?(uid: number, flags: string[], options?: { uid?: boolean }): Promise<unknown>
 	on(event: string, listener: (...args: unknown[]) => void): void
 	/** imapflow sets this false when the connection is gone. */
 	usable?: boolean
 }
 
 export interface ImapClientFactory {
-	(config: ResolvedConfig, tuning: { idleRenewMs: number }): ImapClientLike
+	/** May be async: XOAUTH2 has to fetch an access token before connecting. */
+	(config: ResolvedConfig, tuning: { idleRenewMs: number }): ImapClientLike | Promise<ImapClientLike>
 }
 
 export interface WatcherTimers {
@@ -217,7 +220,7 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 	async function connectOnce(): Promise<void> {
 		if (stopped) return
 		try {
-			const c = factory(config, { idleRenewMs })
+			const c = await factory(config, { idleRenewMs })
 			client = c
 			await c.connect()
 			await c.mailboxOpen(config.mail.imap.folder || "INBOX")
@@ -284,6 +287,13 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 				headers: toHeaderLike(extracted),
 				receivedAt: Date.now(),
 			}
+		},
+
+		/** Mailbox hygiene, invoked by the daemon's /ack handler only. */
+		async markSeen(uid: number): Promise<void> {
+			const c = client
+			if (!c?.messageFlagsAdd) return
+			await c.messageFlagsAdd(uid, ["\\Seen"], { uid: true })
 		},
 	}
 }

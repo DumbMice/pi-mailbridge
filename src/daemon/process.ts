@@ -40,6 +40,11 @@ export interface MailSource {
 	searchAfter(afterUid: number): Promise<number[]>
 	/** The message, or undefined when it vanished between search and fetch. */
 	fetch(uid: number): Promise<RawMessage | undefined>
+	/**
+	 * Mark the message seen on the server. Called only from `/ack`, i.e. after a
+	 * session has injected the reply — never at parse time.
+	 */
+	markSeen?(uid: number): Promise<void>
 }
 
 export interface ScanDeps {

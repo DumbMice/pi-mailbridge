@@ -1,141 +1,184 @@
-// pi-mailbridge daemon — one instance per machine.
+// pi-mailbridge daemon — process entry.
 //
-// Single-instance lock is the port itself: EADDRINUSE means a daemon already
-// owns the mailbox, so this process exits quietly. Two daemons would mean two
-// IMAP IDLE connections and two claim sets — the exact race the design avoids.
+// Boot order matters:
+//   1. load config, surface warnings
+//   2. resolve the shared secret (also the HTTP bearer token)
+//   3. start the HTTP service (so /health answers while IMAP is still dialling)
+//   4. catch-up scan, then the IDLE watcher
 //
-// Scaffold status: lock, auth gate, routing table and lifecycle are real; the
-// handlers below return 501 until the watcher/process/store modules land. Run:
-//   node --experimental-strip-types src/daemon/main.ts --print-token
+// Single-instance: the port IS the lock. EADDRINUSE means another daemon already
+// owns the mailbox, so this process exits 0 rather than fighting it.
+//
+// Modes:
+//   (none)          run the daemon
+//   --check         validate config + secrets + token command, touch no mail
+//   --print-token   print the shared secret (for scripts and tests)
 
-import http from "node:http"
-import { timingSafeEqual } from "node:crypto"
-
-import { loadConfig, hasUsableMailConfig } from "../core/config.ts"
+import { loadConfig, hasUsableMailConfig, type ResolvedConfig } from "../core/config.ts"
 import { ensureSecret } from "../store/secret.ts"
+import { sendMail } from "../core/mailer.ts"
+import { createCommandTokenProvider } from "../core/oauth.ts"
+import { scanAndProcess } from "./process.ts"
+import { createImapWatcher, type ImapWatcher } from "./watcher.ts"
+import { createImapflowFactory } from "./imapflow.ts"
+import { createDaemonService, type DaemonService } from "./service.ts"
+import { listPending } from "../store/pending-store.ts"
 
-const MAX_BODY_BYTES = 1_000_000
-const MAX_SSE_CLIENTS = 100
+const EXIT_CONFIG = 2
+const EXIT_AUTH = 3
 
-function constantTimeEquals(a: string, b: string): boolean {
-	const ab = Buffer.from(a)
-	const bb = Buffer.from(b)
-	return ab.length === bb.length && timingSafeEqual(ab, bb)
+function log(message: string): void {
+	console.error(`pi-mailbridge: ${message}`)
 }
 
-function readBody(req: http.IncomingMessage): Promise<string> {
-	return new Promise((resolve, reject) => {
-		let size = 0
-		const chunks: Buffer[] = []
-		req.on("data", (c: Buffer) => {
-			size += c.length
-			if (size > MAX_BODY_BYTES) {
-				reject(new Error("request body too large"))
-				req.destroy()
-				return
+/**
+ * `--check`: report every problem distinctly and exit with a code a supervisor
+ * can act on. Never touches mail.
+ */
+async function check(config: ResolvedConfig): Promise<number> {
+	let code = 0
+	const problems: string[] = []
+	const add = (problem: string) => {
+		if (!problems.includes(problem)) problems.push(problem)
+	}
+	// config.warnings already covers missing host/user/to and an empty allowlist.
+	for (const warning of config.warnings) add(warning)
+
+	if (!hasUsableMailConfig(config)) {
+		add("mail.imap.host / mail.imap.user / mail.smtp.host / mail.to must all be set")
+	}
+
+	if (config.mail.imap.authType === "XOAUTH2" || config.mail.smtp.authType === "XOAUTH2") {
+		const command = config.mail.smtp.tokenCommand ?? config.mail.imap.tokenCommand ?? []
+		if (command.length === 0) {
+			add("XOAUTH2 selected but no tokenCommand configured")
+			code = EXIT_AUTH
+		} else {
+			const provider = createCommandTokenProvider({ command })
+			try {
+				await provider.getToken()
+				log(`token command ok (${command[0]})`)
+			} catch (error) {
+				add((error as Error).message)
+				code = EXIT_AUTH
 			}
-			chunks.push(c)
-		})
-		req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")))
-		req.on("error", reject)
-	})
+		}
+	}
+
+	try {
+		ensureSecret()
+		log("shared secret ok")
+	} catch (error) {
+		add(`secret: ${(error as Error).message}`)
+		code = code || EXIT_CONFIG
+	}
+
+	for (const problem of problems) log(`  ! ${problem}`)
+	if (problems.length === 0) log("config ok")
+	return code || (problems.length > 0 ? EXIT_CONFIG : 0)
 }
 
-export function createDaemon(token: string, config = loadConfig()) {
-	let sseClients = 0
+async function run(config: ResolvedConfig): Promise<void> {
+	const token = ensureSecret().toString("base64url")
 
-	const server = http.createServer(async (req, res) => {
-		const url = new URL(req.url ?? "/", "http://127.0.0.1")
-		const json = (status: number, body: unknown) => {
-			const payload = JSON.stringify(body)
-			res.writeHead(status, { "content-type": "application/json", "content-length": Buffer.byteLength(payload) })
-			res.end(payload)
-		}
+	// One token provider per process, shared by IMAP and SMTP XOAUTH2.
+	const tokenCommand = config.mail.smtp.tokenCommand ?? config.mail.imap.tokenCommand ?? []
+	const tokenProvider = tokenCommand.length > 0 ? createCommandTokenProvider({ command: tokenCommand }) : undefined
 
-		if (url.pathname === "/health") return json(200, { ok: true, mode: "scaffold" })
+	const watcher: ImapWatcher = createImapWatcher(config, {
+		factory: createImapflowFactory({ getAccessToken: tokenProvider ? () => tokenProvider.getToken() : undefined }),
+		callbacks: {
+			onReady: () => {
+				log("imap ready; running catch-up scan")
+				void scanOnce("catch-up")
+			},
+			onMail: () => {
+				void scanOnce("idle")
+			},
+			onError: (error, delay) => log(`imap error (${error.message}); reconnecting in ${delay}ms`),
+		},
+	})
 
-		// Every non-health route is authenticated. Loopback is not authorization.
-		const auth = req.headers.authorization ?? ""
-		const presented = auth.startsWith("Bearer ") ? auth.slice(7) : ""
-		if (!constantTimeEquals(presented, token)) {
-			// No detail, no timing signal.
-			return json(401, { error: { code: "unauthorized" } })
-		}
+	const service: DaemonService = createDaemonService({
+		config,
+		token,
+		source: watcher,
+		send: (message) =>
+			sendMail(config, message, { getAccessToken: tokenProvider ? () => tokenProvider.getToken() : undefined }),
+	})
 
+	async function scanOnce(why: string): Promise<void> {
+		const before = new Set(listPending().map((r) => r.uid))
 		try {
-			switch (`${req.method} ${url.pathname}`) {
-				case "GET /events":
-					if (sseClients >= MAX_SSE_CLIENTS) return json(503, { error: { code: "too_many_clients" } })
-					res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" })
-					sseClients++
-					req.on("close", () => { sseClients-- })
-					res.write(": connected\n\n")
-					// TODO: subscribe to delivery/mode events.
-					return
-				case "GET /pending":
-					// TODO: return durable pending deliveries for catch-up.
-					return json(200, { pending: [] })
-				case "POST /claim":
-				case "POST /ack":
-				case "POST /register":
-				case "DELETE /register":
-				case "POST /send":
-					await readBody(req)
-					return json(501, { error: { code: "not_implemented", path: url.pathname } })
-				case "GET /mode":
-					return json(200, { mode: "off" })
-				case "POST /mode":
-					await readBody(req)
-					return json(501, { error: { code: "not_implemented", path: url.pathname } })
-				default:
-					return json(404, { error: { code: "not_found" } })
+			const result = await scanAndProcess(config, { source: watcher, secret: ensureSecret() })
+			if (result.persisted > 0) {
+				log(`${why}: persisted ${result.persisted} of ${result.examined} (rejected ${result.rejected})`)
+				for (const record of listPending()) {
+					if (!before.has(record.uid)) service.broadcast({ type: "delivery", pending: record })
+				}
+			} else if (result.examined > 0) {
+				log(`${why}: examined ${result.examined}, nothing for us`)
 			}
 		} catch (error) {
-			return json(400, { error: { code: "bad_request", message: (error as Error).message } })
+			// A scan failure must not kill the daemon: the cursor did not advance,
+			// so the next IDLE event or catch-up retries the same UIDs.
+			log(`${why}: scan failed: ${(error as Error).message}`)
 		}
+	}
+
+	service.server.on("error", (error: NodeJS.ErrnoException) => {
+		if (error.code === "EADDRINUSE") {
+			log(`another daemon already owns port ${config.daemon.port}; exiting`)
+			process.exit(0)
+		}
+		log(`http server failed: ${error.message}`)
+		process.exit(1)
 	})
 
-	return server
+	const { port, host } = await service.listen()
+	log(`listening on http://${host}:${port}`)
+
+	await watcher.start()
+
+	let stopping = false
+	const shutdown = async (signal: string) => {
+		if (stopping) return
+		stopping = true
+		log(`${signal}: shutting down`)
+		await watcher.stop()
+		await service.close()
+		process.exit(0)
+	}
+	process.on("SIGTERM", () => void shutdown("SIGTERM"))
+	process.on("SIGINT", () => void shutdown("SIGINT"))
 }
 
-function main(): void {
-	const config = loadConfig()
+async function main(): Promise<void> {
 	const argv = process.argv.slice(2)
+	const config = loadConfig()
 
 	if (argv.includes("--print-token")) {
-		// Convenience for scripts and tests; the token never goes to logs.
 		process.stdout.write(`${ensureSecret().toString("base64url")}\n`)
+		return
+	}
+	if (argv.includes("--check")) {
+		process.exitCode = await check(config)
 		return
 	}
 
 	if (!hasUsableMailConfig(config)) {
-		console.error("pi-mailbridge: mail config incomplete — see config.example.json")
-		for (const w of config.warnings) console.error(`  ! ${w}`)
-		process.exitCode = 2
-		return
+		for (const warning of config.warnings) log(`  ! ${warning}`)
+		log("mail config incomplete — run with --check for details")
+		process.exit(EXIT_CONFIG)
 	}
-	for (const w of config.warnings) console.error(`pi-mailbridge: warning: ${w}`)
+	for (const warning of config.warnings) log(`warning: ${warning}`)
 
-	const token = ensureSecret().toString("base64url")
-	const server = createDaemon(token, config)
-
-	server.on("error", (error: NodeJS.ErrnoException) => {
-		if (error.code === "EADDRINUSE") {
-			// Expected when a daemon already owns the mailbox: not an error.
-			process.exit(0)
-		}
-		console.error(`pi-mailbridge: daemon failed: ${error.message}`)
-		process.exit(1)
-	})
-
-	server.listen(config.daemon.port, config.daemon.host, () => {
-		console.error(`pi-mailbridge: daemon listening on http://${config.daemon.host}:${config.daemon.port}`)
-		// TODO: startWatcher(), catch-up scan, pending recovery.
-	})
-
-	const shutdown = () => server.close(() => process.exit(0))
-	process.on("SIGTERM", shutdown)
-	process.on("SIGINT", shutdown)
+	await run(config)
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main()
+if (import.meta.url === `file://${process.argv[1]}`) {
+	main().catch((error: unknown) => {
+		log(`fatal: ${error instanceof Error ? error.message : String(error)}`)
+		process.exit(1)
+	})
+}

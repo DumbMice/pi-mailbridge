@@ -12,6 +12,10 @@ export interface ImapConfig {
 	user: string
 	password: string
 	folder: string
+	/** "XOAUTH2" needs a token command (Outlook). "LOGIN" uses an app password. */
+	authType?: "LOGIN" | "XOAUTH2"
+	/** argv whose stdout is an access token. Required when authType is XOAUTH2. */
+	tokenCommand?: string[]
 }
 
 export interface SmtpConfig {
@@ -22,6 +26,8 @@ export interface SmtpConfig {
 	password: string
 	/** "XOAUTH2" needs an OAuth broker; "LOGIN" is a provider app password. */
 	authType?: "LOGIN" | "XOAUTH2"
+	/** argv whose stdout is an access token. Required when authType is XOAUTH2. */
+	tokenCommand?: string[]
 }
 
 export interface ResolvedConfig {
@@ -61,6 +67,23 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 	return typeof v === "object" && v !== null && !Array.isArray(v)
 }
 
+/** Parse a token command from env: JSON array, or comma-separated argv. */
+function parseArgv(raw: string): string[] {
+	const trimmed = raw.trim()
+	if (trimmed.startsWith("[")) {
+		try {
+			const parsed = JSON.parse(trimmed)
+			if (Array.isArray(parsed)) return parsed.map(String)
+		} catch {
+			/* fall through to comma splitting */
+		}
+	}
+	return trimmed
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean)
+}
+
 /** Shallow-by-section merge: enough for this config shape, and predictable. */
 function merge(base: any, over: any): any {
 	if (!isRecord(base) || !isRecord(over)) return over ?? base
@@ -84,7 +107,7 @@ function readJson(path: string, warnings: string[]): Record<string, unknown> {
 
 function envOverrides(env: NodeJS.ProcessEnv): Record<string, unknown> {
 	const o: Record<string, unknown> = {}
-	const set = (path: string[], value: string | undefined) => {
+	const set = (path: string[], value: unknown) => {
 		if (value === undefined) return
 		let cur = o
 		for (const key of path.slice(0, -1)) {
@@ -101,6 +124,9 @@ function envOverrides(env: NodeJS.ProcessEnv): Record<string, unknown> {
 	set(["mail", "smtp", "password"], env.PI_MAILBRIDGE_SMTP_PASS)
 	set(["mail", "to"], env.PI_MAILBRIDGE_TO)
 	set(["daemon", "port"], env.PI_MAILBRIDGE_PORT)
+	// Token commands are argv lists; accept JSON or a comma-separated argv.
+	if (env.PI_MAILBRIDGE_IMAP_TOKEN_CMD) set(["mail", "imap", "tokenCommand"], parseArgv(env.PI_MAILBRIDGE_IMAP_TOKEN_CMD))
+	if (env.PI_MAILBRIDGE_SMTP_TOKEN_CMD) set(["mail", "smtp", "tokenCommand"], parseArgv(env.PI_MAILBRIDGE_SMTP_TOKEN_CMD))
 	return o
 }
 
@@ -120,6 +146,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 	}
 	if (!resolved.security.trustedAuthservId && resolved.security.requireDmarcPass) {
 		warnings.push("security.trustedAuthservId unset — DMARC cannot be pinned safely; treating as unreachable")
+	}
+	// XOAUTH2 without a command can never authenticate.
+	for (const side of ["imap", "smtp"] as const) {
+		const account = resolved.mail[side]
+		if (account.authType === "XOAUTH2" && !account.tokenCommand?.length) {
+			warnings.push(`mail.${side}.authType is XOAUTH2 but mail.${side}.tokenCommand is empty`)
+		}
+		if (account.authType === "XOAUTH2" && account.password) {
+			warnings.push(`mail.${side}.password is set but authType is XOAUTH2 — the password will be ignored`)
+		}
 	}
 	return resolved
 }
