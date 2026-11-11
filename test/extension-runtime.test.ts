@@ -4,6 +4,7 @@ import assert from "node:assert/strict"
 import mailbridge, { type ExtensionCtxLike, type ExtensionLike, type SettleTimers } from "../src/extension.ts"
 import type { ResolvedConfig } from "../src/core/config.ts"
 import type { DaemonResult } from "../src/daemon/spawn.ts"
+import type { UserContent } from "../src/core/attachments.ts"
 import type { PendingRecord } from "../src/store/pending-store.ts"
 import { sessionIdFromSubject } from "../src/core/token.ts"
 
@@ -56,8 +57,14 @@ function fakePi(ctx: ExtensionCtxLike): FakePi {
 		registerTool(spec) {
 			tools.push(spec.name)
 		},
-		sendUserMessage(text) {
-			sent.push(text)
+		sendUserMessage(content) {
+			sent.push(
+				typeof content === "string"
+					? content
+					: content
+							.map((c: UserContent) => (c.type === "text" ? c.text : `[image ${c.mimeType}]`))
+							.join("\n"),
+			)
 		},
 		async fire(event, payload = {}) {
 			await handlers.get(event)?.(payload, ctx)

@@ -17,6 +17,7 @@ import type { ResolvedConfig } from "../core/config.ts"
 import { authorize } from "../core/authz.ts"
 import { stripQuoted, type HeaderLike } from "../core/reply-parse.ts"
 import { sessionIdFromSubject } from "../core/token.ts"
+import { selectAttachments, type RawAttachment } from "../core/attachments.ts"
 import { addPending, type PendingRecord } from "../store/pending-store.ts"
 import { isJournaled } from "../store/journal.ts"
 import { advanceCursor, readCursor } from "../store/uid-cursor.ts"
@@ -27,6 +28,8 @@ export interface RawMessage {
 	subject: string | undefined
 	/** Plain-text body. */
 	text: string
+	/** Decoded attachments; the pipeline applies the allowlist and caps. */
+	attachments?: RawAttachment[]
 	headers: HeaderLike
 	receivedAt: number
 }
@@ -141,12 +144,18 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			continue
 		}
 
+		// Attachments are filtered BEFORE persisting; a dropped one is recorded with
+		// a reason so `/mailbridge` can explain why the agent did not see it.
+		const { accepted, dropped } = selectAttachments(message.attachments ?? [])
+		for (const item of dropped) bump(result.reasons, `attachment-${item.reason}`)
+
 		const record: PendingRecord = {
 			uid,
 			sessionId,
 			from: authz.from,
 			subject: message.subject ?? "",
 			body,
+			...(accepted.length ? { attachments: accepted } : {}),
 			receivedAt: message.receivedAt,
 		}
 

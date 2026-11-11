@@ -13,6 +13,7 @@ import { loadConfig, type ResolvedConfig } from "./core/config.ts"
 import { readSecret } from "./store/secret.ts"
 import { createSettleNotifier, type SettleContext, type SettleNotifier } from "./core/settle.ts"
 import { createDeliveryRunner, type DeliveryRunner } from "./core/deliveries.ts"
+import { toUserContent, type UserContent } from "./core/attachments.ts"
 import { daemonBaseUrl, ensureDaemon, createDaemonClient, type DaemonClient } from "./daemon/spawn.ts"
 
 const POLL_MS = 10_000
@@ -35,7 +36,10 @@ export interface ExtensionLike {
 		) => Promise<{ content: { type: "text"; text: string }[]; details: Record<string, unknown> }>
 	}): void
 	/** Used to answer a reply inside the session. */
-	sendUserMessage(text: string, options?: { deliverAs?: "steer" | "followUp"; expandPromptTemplates?: boolean }): void
+	sendUserMessage(
+		content: string | UserContent[],
+		options?: { deliverAs?: "steer" | "followUp"; expandPromptTemplates?: boolean },
+	): void
 }
 
 export interface ExtensionCtxLike {
@@ -175,8 +179,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			},
 			instanceId: `${process.pid}`,
 			sessionId: () => ctx?.sessionManager.getSessionId(),
-			inject: async (body) => {
-				pi.sendUserMessage(body, { deliverAs: "followUp", expandPromptTemplates: true })
+			inject: async (body, record) => {
+				// Attachments become image/text content blocks; the text-only case stays a
+				// plain string so it is indistinguishable from a typed message.
+				const content = toUserContent(body, record.attachments ?? [])
+				pi.sendUserMessage(content, { deliverAs: "followUp", expandPromptTemplates: true })
 			},
 			onError: (error) => ctx?.ui.notify(`mailbridge: reply not delivered (${error.message})`, "warning"),
 		})

@@ -24,6 +24,8 @@ export interface PendingRecord {
 	from: string
 	subject: string
 	body: string
+	/** Already allowlisted and capped by core/attachments before persisting. */
+	attachments?: { name: string; mimeType: string; size: number; data: string }[]
 	receivedAt: number
 	claimedBy?: string
 	claimedAt?: number

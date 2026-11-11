@@ -16,6 +16,7 @@ import { simpleParser } from "mailparser"
 import type { ResolvedConfig } from "../core/config.ts"
 import type { RawMessage, MailSource } from "./process.ts"
 import type { HeaderLike } from "../core/reply-parse.ts"
+import type { RawAttachment } from "../core/attachments.ts"
 
 export const DEFAULT_IDLE_RENEW_MS = 25 * 60 * 1000
 export const DEFAULT_BACKOFF_INITIAL_MS = 1_000
@@ -114,13 +115,18 @@ export function toHeaderLike(extracted: ExtractedHeaders): HeaderLike {
 // ---------------------------------------------------------------------------
 
 export interface BodyParser {
-	/** Decode the plain-text body from a raw RFC 5322 message. */
-	(raw: Buffer): Promise<{ text: string }>
+	/** Decode the plain-text body (and any attachments) from a raw message. */
+	(raw: Buffer): Promise<{ text: string; attachments?: RawAttachment[] }>
 }
 
 export const defaultBodyParser: BodyParser = async (raw) => {
 	const parsed = await simpleParser(raw)
-	return { text: parsed.text ?? "" }
+	const attachments: RawAttachment[] = (parsed.attachments ?? []).map((a) => ({
+		...(a.filename ? { filename: a.filename } : {}),
+		contentType: a.contentType ?? "application/octet-stream",
+		content: a.content,
+	}))
+	return { text: parsed.text ?? "", attachments }
 }
 
 /** The subset of ImapFlow this module uses. */
@@ -275,7 +281,7 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 			if (!fetched || !fetched.source) return undefined
 
 			const extracted = extractHeaders(fetched.source)
-			const { text } = await parser(fetched.source)
+			const parsed = await parser(fetched.source)
 			const from = extracted.from ?? fetched.envelope?.from?.[0]?.address
 			const subject = extracted.subject ?? fetched.envelope?.subject
 
@@ -283,7 +289,8 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 				uid,
 				from,
 				subject,
-				text,
+				text: parsed.text,
+				...(parsed.attachments?.length ? { attachments: parsed.attachments } : {}),
 				headers: toHeaderLike(extracted),
 				receivedAt: Date.now(),
 			}
