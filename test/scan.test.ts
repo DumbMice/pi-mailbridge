@@ -1,0 +1,242 @@
+import { test } from "node:test"
+import assert from "node:assert/strict"
+import { mkdtempSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import type { ResolvedConfig } from "../src/core/config.ts"
+import { signToken } from "../src/core/token.ts"
+import { scanAndProcess, type MailSource, type RawMessage } from "../src/daemon/process.ts"
+import { listPending } from "../src/store/pending-store.ts"
+import { journal } from "../src/store/journal.ts"
+import { readCursor } from "../src/store/uid-cursor.ts"
+
+const SECRET = Buffer.alloc(32, 3)
+const SESSION = "01a1c453-f2fc-7169-8c89-69c93fa1a152"
+const ALLOWED = "you@example.com"
+/** The pi mailbox itself — distinct from the human, so the loop guard has something to catch. */
+const MAILBOX = "pi@example.com"
+
+function config(over: Partial<ResolvedConfig["security"]> = {}): ResolvedConfig {
+	return {
+		mail: {
+			imap: { host: "imap.example.com", port: 993, secure: true, user: MAILBOX, password: "x", folder: "INBOX" },
+			smtp: { host: "smtp.example.com", port: 465, secure: true, user: MAILBOX, password: "x", authType: "LOGIN" },
+			to: MAILBOX,
+		},
+		security: {
+			allowFrom: [ALLOWED],
+			requireDmarcPass: true,
+			trustedAuthservId: "mx.example.com",
+			tokenTtlHours: 24,
+			...over,
+		},
+		daemon: { host: "127.0.0.1", port: 4177 },
+		notify: { onSettled: true, debounceMs: 0, notifyOnAborted: false, subject: "pi" },
+		tuning: { idleRenewMs: 1, autoIdleDelayMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
+		warnings: [],
+	}
+}
+
+function tokenSubject(sessionId = SESSION): string {
+	return `[pi:${signToken(sessionId, SECRET)}] pi: finished`
+}
+
+const GOOD_AR = "mx.example.com; spf=pass; dkim=pass; dmarc=pass header.from=example.com"
+
+function msg(uid: number, over: Partial<RawMessage> = {}): RawMessage {
+	return {
+		uid,
+		from: ALLOWED,
+		subject: tokenSubject(),
+		text: "yes, ship it",
+		headers: { authResults: [GOOD_AR] },
+		receivedAt: 1_700_000_000_000,
+		...over,
+	}
+}
+
+function source(messages: RawMessage[], opts: { failFetchAt?: number } = {}): MailSource & { seen: number[] } {
+	const seen: number[] = []
+	return {
+		seen,
+		async searchAfter(afterUid: number) {
+			return messages.filter((m) => m.uid > afterUid).map((m) => m.uid)
+		},
+		async fetch(uid: number) {
+			seen.push(uid)
+			if (opts.failFetchAt === uid) throw new Error("transient IMAP failure")
+			return messages.find((m) => m.uid === uid)
+		},
+	}
+}
+
+const env = () => ({ XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-scan-")) })
+
+test("happy path: authorized + valid token → persisted, cursor advances", async () => {
+	const e = env()
+	const r = await scanAndProcess(config(), { source: source([msg(7)]), secret: SECRET, env: e })
+
+	assert.equal(r.examined, 1)
+	assert.equal(r.persisted, 1)
+	assert.equal(r.cursor, 7)
+	assert.equal(readCursor(e), 7)
+
+	const pending = listPending(e)
+	assert.equal(pending.length, 1)
+	assert.equal(pending[0]!.sessionId, SESSION)
+	assert.equal(pending[0]!.from, ALLOWED)
+	assert.equal(pending[0]!.body, "yes, ship it")
+})
+
+test("quoted text is stripped before the body is stored", async () => {
+	const e = env()
+	const text = ["LGTM, merge it.", "", "On Tue, pi <pi@example.com> wrote:", "> please review"].join("\n")
+	await scanAndProcess(config(), { source: source([msg(1, { text })]), secret: SECRET, env: e })
+	assert.equal(listPending(e)[0]!.body, "LGTM, merge it.")
+})
+
+test("a fully-quoted reply is rejected as empty-body", async () => {
+	const e = env()
+	const text = "> yes, ship it\n> on two lines"
+	const r = await scanAndProcess(config(), { source: source([msg(1, { text })]), secret: SECRET, env: e })
+	assert.equal(r.reasons["empty-body"], 1)
+	assert.equal(listPending(e).length, 0, "must not replay the quoted original")
+})
+
+test("sender outside the allowlist is rejected and cursor advances", async () => {
+	const e = env()
+	const r = await scanAndProcess(config(), {
+		source: source([msg(1, { from: "attacker@evil.example" })]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.persisted, 0)
+	assert.equal(r.rejected, 1)
+	assert.equal(r.reasons["not-allowlisted"], 1)
+	assert.equal(listPending(e).length, 0)
+	assert.equal(readCursor(e), 1, "cursor must move past a terminal rejection")
+})
+
+test("DMARC failure is rejected even from an allowlisted sender", async () => {
+	const e = env()
+	const r = await scanAndProcess(config(), {
+		source: source([msg(1, { headers: { authResults: ["mx.example.com; dmarc=fail header.from=example.com"] } })]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.reasons["dmarc-failed"], 1)
+	assert.equal(listPending(e).length, 0)
+})
+
+test("a forged top Authentication-Results header does not authorize", async () => {
+	const e = env()
+	// Attacker's own relay says pass; our relay's header says fail.
+	const r = await scanAndProcess(config(), {
+		source: source([
+			msg(1, {
+				headers: {
+					authResults: [
+						"attacker.example; dmarc=pass header.from=example.com",
+						"mx.example.com; dmarc=fail header.from=example.com",
+					],
+				},
+			}),
+		]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.persisted, 0, "forged AR must not authorize")
+	assert.equal(r.reasons["dmarc-failed"], 1)
+})
+
+test("missing our relay's AR header fails closed", async () => {
+	const e = env()
+	const r = await scanAndProcess(config(), {
+		source: source([msg(1, { headers: { authResults: ["someone.else; dmarc=pass"] } })]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.reasons["dmarc-missing"], 1)
+	assert.equal(listPending(e).length, 0)
+})
+
+test("a message with no routing token is not ours", async () => {
+	const e = env()
+	const r = await scanAndProcess(config(), {
+		source: source([msg(1, { subject: "unrelated mail" })]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.reasons["no-token"], 1)
+	assert.equal(listPending(e).length, 0)
+})
+
+test("a token signed with another key is rejected", async () => {
+	const e = env()
+	const forged = `[pi:${signToken(SESSION, Buffer.alloc(32, 9))}] pi: finished`
+	const r = await scanAndProcess(config(), { source: source([msg(1, { subject: forged })]), secret: SECRET, env: e })
+	assert.equal(r.reasons["no-token"], 1)
+	assert.equal(listPending(e).length, 0)
+})
+
+test("machine-generated mail is rejected (loop guard)", async () => {
+	const e = env()
+	const r = await scanAndProcess(config(), {
+		source: source([msg(1, { headers: { authResults: [GOOD_AR], autoSubmitted: "auto-replied" } })]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.reasons["auto-generated"], 1)
+})
+
+test("mail from our own address is rejected (loop guard)", async () => {
+	const e = env()
+	const r = await scanAndProcess(config(), { source: source([msg(1, { from: MAILBOX })]), secret: SECRET, env: e })
+	assert.equal(r.reasons["self"], 1)
+})
+
+test("an acked uid is skipped, not delivered twice", async () => {
+	const e = env()
+	journal(e, 4)
+	const r = await scanAndProcess(config(), { source: source([msg(4)]), secret: SECRET, env: e })
+	assert.equal(r.skipped, 1)
+	assert.equal(r.reasons["journaled"], 1)
+	assert.equal(listPending(e).length, 0)
+	assert.equal(readCursor(e), 4)
+})
+
+test("a vanished message does not block the cursor", async () => {
+	const e = env()
+	const src: MailSource = { searchAfter: async () => [3], fetch: async () => undefined }
+	const r = await scanAndProcess(config(), { source: src, secret: SECRET, env: e })
+	assert.equal(r.reasons["vanished"], 1)
+	assert.equal(readCursor(e), 3)
+})
+
+test("a transient fetch error stops the scan with the cursor before it", async () => {
+	const e = env()
+	const src = source([msg(1), msg(2), msg(3)], { failFetchAt: 2 })
+	await assert.rejects(() => scanAndProcess(config(), { source: src, secret: SECRET, env: e }), /transient/)
+	// uid 1 was fully handled, so the cursor sits at 1 and 2/3 are retried next scan.
+	assert.equal(readCursor(e), 1)
+	assert.equal(listPending(e).length, 1)
+})
+
+test("incremental: a second scan only looks past the cursor", async () => {
+	const e = env()
+	const all = [msg(1), msg(2)]
+	const src = source(all)
+	await scanAndProcess(config(), { source: src, secret: SECRET, env: e })
+	src.seen.length = 0
+	const r2 = await scanAndProcess(config(), { source: src, secret: SECRET, env: e })
+	assert.equal(r2.examined, 0, "nothing new past the cursor")
+	assert.deepEqual(src.seen, [], "no redundant fetches")
+})
+
+test("allowlist empty fails closed", async () => {
+	const e = env()
+	const r = await scanAndProcess(config({ allowFrom: [] }), { source: source([msg(1)]), secret: SECRET, env: e })
+	assert.equal(r.reasons["allowlist-empty"], 1)
+	assert.equal(listPending(e).length, 0)
+})

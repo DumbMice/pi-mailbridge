@@ -128,23 +128,30 @@ process topology (an RPC supervisor owning `pi --mode rpc` children).
 
 ```
 src/
-  extension.ts          pi entry: tools, commands, events, own SSE client
+  extension.ts          pi entry: tools, commands, events, own SSE client   [skeleton]
   core/
-    config.ts           layered config + env overrides
-    mailer.ts           nodemailer transport (password | XOAUTH2)
-    reply-parse.ts      quote strip + token extract/verify
-    token.ts            HMAC sign/verify
-    messages.ts         user-facing strings
+    config.ts           layered config + env overrides                     [done]
+    mailer.ts           nodemailer transport (password | XOAUTH2)          [todo]
+    authz.ts            loop → robot → allowlist → pinned DMARC            [done]
+    reply-parse.ts      quote stripping, address + AR-header pinning        [done]
+    token.ts            HMAC sign/verify                                   [done]
+    messages.ts         user-facing strings                                [todo]
   daemon/
-    main.ts             HTTP + SSE + lock + lifecycle
-    watcher.ts          imapflow IDLE, renew, backoff
-    process.ts          UID-cursor scan → fetch → parse → persist
+    main.ts             HTTP + SSE + lock + lifecycle                      [skeleton]
+    watcher.ts          imapflow IDLE, renew, backoff                      [todo]
+    process.ts          UID-cursor scan → authorize → parse → persist     [done]
   store/
-    paths.ts            XDG state dir
-    secret.ts           shared HMAC/bearer key
-    pending-store.ts    durable pending deliveries
-    uid-cursor.ts       monotonic cursor
-    mode-store.ts       on/off
-    registry.ts         one outstanding decision per session
-test/                   unit tests; no real IMAP or SMTP
+    paths.ts            XDG state dir                                      [done]
+    secret.ts           shared HMAC/bearer key, atomic 0600                [done]
+    pending-store.ts    durable pending + claim/ack state machine          [done]
+    uid-cursor.ts       monotonic cursor                                   [done]
+    journal.ts          acked UIDs — durable replay protection             [done]
+    mode-store.ts       on/off                                             [todo]
+    registry.ts         one outstanding decision per session               [todo]
+test/                   hermetic unit tests; no IMAP, no SMTP, no sockets
+```
+
+`MailSource` (in `daemon/process.ts`) is the seam: `watcher.ts` implements it over
+imapflow, tests implement it over an in-memory fixture. That is why the whole
+pipeline is testable without a mailbox.
 ```
