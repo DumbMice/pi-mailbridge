@@ -1,55 +1,73 @@
 # Changelog
 
-## 0.1.0 — unreleased (workspace scaffold)
+## 0.1.0 — unreleased
 
-Initial workspace. Not yet installable.
+Feature-complete for the single-user, one-mailbox case. Not yet validated against
+a live mailbox.
 
-### Added
+### Core
 
-- `src/daemon/process.ts` — the scan pipeline: UID-cursor search → fetch →
-  authorize → verify token → strip quotes → persist → advance. Ordering is the
-  correctness property; a thrown fetch/persist stops the scan with the cursor
-  before the offending UID so it is retried.
-- `src/core/authz.ts` — fail-closed authorization chain: loop guard (self) →
-  machine-generated → allowlist (empty denies all) → DMARC pinned to
-  `trustedAuthservId`.
-- `src/core/reply-parse.ts` — blunt quote stripping (cut at the first
-  `On … wrote:`, Outlook banner, underscore rule, `>` block, or RFC 3676
-  signature), address normalization, auto-generated detection, and
-  `findTrustedAuthResults` which selects only the header bearing our relay's
-  `authserv-id` (topmost match).
-- `src/store/pending-store.ts` — durable deliveries with a claim state machine
-  (exclusive claim, same-instance re-claim, abandoned-claim TTL, claimant-only
-  ack).
-- `src/store/uid-cursor.ts` — monotonic, atomic, corrupt-file tolerant.
-- `src/store/journal.ts` — acked UIDs, capped, for durable replay protection.
-- `src/core/token.ts` — HMAC-signed routing tokens (`[pi:<payload>.<mac>]`) with
-  TTL, constant-time verification, and prefix-tolerant subject extraction.
-- `src/store/paths.ts` — single XDG state directory for key, cursor, pending,
-  journal and mode.
-- `src/store/secret.ts` — 32-byte shared key, atomic `wx` create at mode 0600,
-  first-writer-wins.
-- `src/core/config.ts` — layered config (defaults → file → env) with
-  non-throwing validation and human-readable warnings.
-- `src/extension.ts` — pi entry: `/afk`, `/back`, `/mailbridge`; debounced
-  `agent_settled` notification path; `request_decision` and `notify_user` tool
-  shapes; abort-aware.
-- `src/daemon/main.ts` — daemon skeleton: single-instance port lock, constant-time
-  bearer auth, SSE endpoint, bounded bodies and clients, mode routes.
-- `docs/` — architecture, module mapping from `opencode-afk`, security model.
-- `test/` — 44 assertions across token, reply parsing, stores, and the full
-  scan pipeline (authorized path, allowlist denial, DMARC failure, **forged
-  top `Authentication-Results`**, missing token, forged MAC, loop guards,
-  journal dedupe, vanished message, transient-error cursor behaviour,
-  incremental second scan, fully-quoted reply).
+- `core/token.ts` — HMAC-signed routing tokens (`[pi:<payload>.<mac>]`) with TTL,
+  constant-time verification, prefix-tolerant subject extraction.
+- `core/authz.ts` — fail-closed chain: loop guard (pi account) → machine-generated
+  → allowlist (empty denies all) → DMARC pinned to `trustedAuthservId`.
+- `core/reply-parse.ts` — quote stripping that cuts at the first recognisable
+  boundary, addr-spec normalization, auto-generated detection,
+  `findTrustedAuthResults` (topmost matching `authserv-id` only).
+- `core/attachments.ts` — MIME allowlist, 4 files / 1 MB caps, reasons for every
+  drop; images become `ImageContent`, text is inlined.
+- `core/mailer.ts` — SMTP send, `LOGIN` and `XOAUTH2`, injectable transport.
+- `core/oauth.ts` — token from an argv command (argc-safe, `shell:false`), cached
+  until TTL, one refresh on 401, disabled after a failing command.
+- `core/settle.ts` — `agent_settled`-only notifier, debounced, abort-aware,
+  token-stamped subject, body with session name/id/project/turns/last text.
+- `core/deliveries.ts` — claim → inject → ack runner; never acks a failed
+  injection; absorbs replays after a failed ack.
+
+### Daemon
+
+- `daemon/process.ts` — UID-cursor scan → authorize → verify token → strip quotes
+  → filter attachments → persist → advance. Ordering is the correctness property.
+- `daemon/watcher.ts` — IMAP IDLE over an injectable client factory; renews under
+  the ~29 min cutoff; bounded backoff; `start()` never throws on a dead server.
+- `daemon/service.ts` — `/health`, `/events` (SSE), `/pending`, `/claim`, `/ack`,
+  `/register`, `/mode`, `/send`; constant-time bearer auth; bounded bodies and
+  streams; ack journals before removing the record.
+- `daemon/spawn.ts` — `probeHealth`, `ensureDaemon` (detached, unref'd), typed
+  client.
+- `daemon/main.ts` — server first, then catch-up scan, then watcher; SIGTERM
+  handlers registered before dialling; `--check` (exit 2 config / 3 auth) and
+  `--print-token`.
+
+### Stores
+
+- `pending-store` — durable deliveries with exclusive claim, same-instance
+  re-claim, abandoned-claim TTL, claimant-only ack.
+- `uid-cursor` — monotonic, atomic, corrupt-tolerant.
+- `journal` — capped acked-UID set for durable replay protection.
+- `mode-store` — global on/off, default off, atomic replace.
+- `registry` — one outstanding decision per session, TTL + hard cap.
+
+### Extension
+
+- Wires **`agent_settled` and never `agent_end`** (a test pins this).
+- Mode mirror seeded from the daemon and refreshed each poll.
+- `/afk`, `/back`, `/mailbridge`; `request_decision`, `notify_user`.
+- Reply deliveries drain on `session_start` and on a 10 s poll, injected as
+  `followUp` with attachments as content blocks.
+
+### Fixed during development
+
+- Loop guard treated `mail.to` (the human) as "self", rejecting every genuine
+  reply. Now uses the pi account only.
+- `stripQuoted` fell back to the raw body, which would have replayed the agent's
+  own quoted output back at it. A fully-quoted reply now yields empty and is
+  rejected as `empty-body`.
+- Settle gate consulted "client exists" instead of the daemon's mode.
 
 ### Known gaps
 
-- IMAP IDLE watcher (`src/daemon/watcher.ts`) — stub; must implement
-  `MailSource`.
-- Pending/claim/ack HTTP handlers, uid-cursor, mode store, registry — stores are
-  built, the daemon does not call them yet.
-- Extension's daemon client (SSE subscribe, claim, inject, ack) — not yet wired.
-- Mailer (nodemailer) and `messages.ts` — not yet ported.
-- Multi-session: topology and claim path are built; end-to-end unproven.
-- OAuth2 / XOAUTH2 sender path for Outlook — configured, unimplemented.
+- Creating a new session from mail (deliberately out of scope: `ctx.newSession()`
+  replaces the active session).
+- MIME/S-MIME signing and encryption.
+- Live-mailbox integration test (everything is hermetic today).

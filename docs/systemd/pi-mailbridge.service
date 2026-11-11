@@ -1,0 +1,28 @@
+[Unit]
+Description=pi-mailbridge daemon (IMAP watcher for pi coding-agent sessions)
+Documentation=https://github.com/pi-mailbridge/pi-mailbridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Runs the daemon directly from the package, no build step.
+ExecStart=/usr/bin/node --experimental-strip-types %h/.pi/agent/npm/node_modules/pi-mailbridge/src/daemon/main.ts
+# The port is the single-instance lock; a duplicate start exits 0 immediately,
+# so Restart=always is safe.
+Restart=always
+RestartSec=5
+# A broken config should be reported, not looped on.
+ExecStartPre=/usr/bin/node --experimental-strip-types %h/.pi/agent/npm/node_modules/pi-mailbridge/src/daemon/main.ts --check
+
+# Hardening: the daemon needs loopback, the network, and its own state dir.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/state/pi-mailbridge
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=512M
+
+[Install]
+WantedBy=default.target

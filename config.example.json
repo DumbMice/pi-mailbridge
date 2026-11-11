@@ -4,23 +4,28 @@
       "host": "imap.example.com",
       "port": 993,
       "secure": true,
-      "user": "you@example.com",
+      "user": "pi@example.com",
       "password": "APP_PASSWORD_NOT_LOGIN_PASSWORD",
-      "folder": "INBOX"
+      "folder": "INBOX",
+      "authType": "LOGIN",
+      "tokenCommand": []
     },
     "smtp": {
       "host": "smtp.example.com",
       "port": 465,
       "secure": true,
-      "user": "you@example.com",
-      "password": "APP_PASSWORD_NOT_LOGIN_PASSWORD"
+      "user": "pi@example.com",
+      "password": "APP_PASSWORD_NOT_LOGIN_PASSWORD",
+      "authType": "LOGIN",
+      "tokenCommand": []
     },
     "to": "you@example.com"
   },
   "security": {
     "allowFrom": ["you@example.com"],
     "requireDmarcPass": true,
-    "trustedAuthservId": "mx.example.com"
+    "trustedAuthservId": "mx.example.com",
+    "tokenTtlHours": 720
   },
   "daemon": {
     "host": "127.0.0.1",
@@ -29,10 +34,12 @@
   "notify": {
     "onSettled": true,
     "debounceMs": 10000,
-    "notifyOnAborted": false
+    "notifyOnAborted": false,
+    "subject": "pi"
   },
   "tuning": {
     "idleRenewMs": 1500000,
+    "autoIdleDelayMs": 1000,
     "backoffInitialMs": 1000,
     "backoffMaxMs": 60000
   }
