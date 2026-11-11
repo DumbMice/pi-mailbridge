@@ -18,9 +18,12 @@ const MAC_BYTES = 16
 /** Tokens older than this are refused even when the MAC is valid. */
 export const DEFAULT_TOKEN_TTL_HOURS = 30 * 24
 
+/** Wire shape of the token payload. Short keys keep the subject line short. */
 export interface TokenBody {
-	sessionId: string
-	expiresAt: number
+	/** session id */
+	s: string
+	/** expiry, epoch ms */
+	e: number
 }
 
 export const TOKEN_RE = /\[\s*pi:([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\s*\]/i
