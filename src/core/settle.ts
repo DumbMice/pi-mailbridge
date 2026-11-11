@@ -14,6 +14,8 @@ import { stampSubject } from "./token.ts"
 export interface SettleContext {
 	sessionId: string
 	sessionName?: string
+	/** Machine the session is running on. Named in subject and body. */
+	device?: string
 	cwd: string
 	/** Completed turns in this session, when known. */
 	turns?: number
@@ -23,10 +25,18 @@ export interface SettleContext {
 
 export const REPLY_HINT = "Reply above this line to continue the session."
 
-/** Subject: human-readable, with the routing token that makes the reply land here. */
+/**
+ * Subject: which session, on which device, with the routing token that makes the
+ * reply land back here. Both facts are in the subject because that is all a
+ * notification preview shows on a phone, tablet or another PC.
+ */
 export function buildSettleSubject(context: SettleContext, secret: Buffer): string {
 	const label = context.sessionName?.trim() || context.cwd.split("/").filter(Boolean).pop() || "session"
-	return stampSubject(context.sessionId, `pi: ${label} is waiting for you`, secret)
+	const device = context.device?.trim()
+	const where = device ? ` @ ${device}` : ""
+	return stampSubject(context.sessionId, `pi: ${label}${where} is waiting for you`, secret, {
+		...(device ? { device } : {}),
+	})
 }
 
 /** Plain-text body. Deliberately boring: it must survive arbitrary mail clients. */
@@ -35,6 +45,7 @@ export function buildSettleBody(context: SettleContext): string {
 	lines.push(context.lastAssistantText?.trim() || "(the agent produced no text this turn)")
 	lines.push("")
 	lines.push("--")
+	if (context.device?.trim()) lines.push(`device: ${context.device.trim()}`)
 	lines.push(`session: ${context.sessionName?.trim() || context.sessionId}`)
 	lines.push(`session id: ${context.sessionId}`)
 	lines.push(`project: ${context.cwd}`)

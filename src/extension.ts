@@ -92,7 +92,12 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		if (!ctx) return undefined
 		const sessionId = ctx.sessionManager.getSessionId()
 		const name = ctx.sessionManager.getName?.()
-		return { sessionId, ...(name ? { sessionName: name } : {}), cwd: ctx.cwd }
+		return {
+			sessionId,
+			...(name ? { sessionName: name } : {}),
+			device: config.device.name,
+			cwd: ctx.cwd,
+		}
 	}
 
 	function stopPolling(): void {
@@ -228,6 +233,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			c.ui.notify(
 				[
 					`daemon: ${health?.ok ? "healthy" : "unreachable"} (${baseUrl})`,
+					`device: ${config.device.name}`,
 					`mode: ${health?.ok ? health.data.mode : "(unknown)"}`,
 					`session: ${ctx?.sessionManager.getSessionId() ?? "(none)"}`,
 					`secret: ${secret ? "present" : "missing"}`,
@@ -285,7 +291,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				"Reply above this line with your answer.",
 			].join("\n")
 
-			const sent = await client.send({ subject: stampSubject(sessionId, String(params["subject"] ?? "pi: decision"), secret), text: body })
+			const sent = await client.send({
+				subject: stampSubject(sessionId, String(params["subject"] ?? "pi: decision"), secret, { device: config.device.name }),
+				text: body,
+			})
 			if (!sent.ok) {
 				await client.release(sessionId)
 				return { content: [{ type: "text", text: "Could not send the email; ask in the terminal instead." }], details: {} }
@@ -309,7 +318,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			if (!secret) return { content: [{ type: "text", text: "Mailbridge secret missing." }], details: {} }
 			const { stampSubject } = await import("./core/token.ts")
 			const sent = await client.send({
-				subject: stampSubject(sessionContext()?.sessionId ?? "", String(params["subject"] ?? "pi: update"), secret),
+				subject: stampSubject(sessionContext()?.sessionId ?? "", String(params["subject"] ?? "pi: update"), secret, {
+					device: config.device.name,
+				}),
 				text: String(params["message"] ?? ""),
 			})
 			return {

@@ -22,6 +22,7 @@ function config(over: Partial<ResolvedConfig["tuning"]> = {}): ResolvedConfig {
 		daemon: { host: "127.0.0.1", port: 4177 },
 		notify: { onSettled: true, debounceMs: 0, notifyOnAborted: false, subject: "pi" },
 		tuning: { idleRenewMs: 1000, autoIdleDelayMs: 1, backoffInitialMs: 100, backoffMaxMs: 800, ...over },
+		device: { name: "test-device" },
 		warnings: [],
 	}
 }

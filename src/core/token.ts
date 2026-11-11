@@ -24,6 +24,11 @@ export interface TokenBody {
 	s: string
 	/** expiry, epoch ms */
 	e: number
+	/**
+	 * device that minted the token (short hostname). Optional so single-device
+	 * installs and tokens minted before devices were tracked still verify.
+	 */
+	d?: string
 }
 
 export const TOKEN_RE = /\[\s*pi:([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\s*\]/i
@@ -32,15 +37,20 @@ function mac(secret: Buffer, payload: string): string {
 	return createHmac("sha256", secret).update(payload).digest().subarray(0, MAC_BYTES).toString("base64url")
 }
 
-export function signToken(sessionId: string, secret: Buffer, opts: { ttlHours?: number; now?: number } = {}): string {
+export function signToken(
+	sessionId: string,
+	secret: Buffer,
+	opts: { ttlHours?: number; now?: number; device?: string } = {},
+): string {
 	const now = opts.now ?? Date.now()
 	const ttl = (opts.ttlHours ?? DEFAULT_TOKEN_TTL_HOURS) * 3600_000
-	const payload = Buffer.from(JSON.stringify({ s: sessionId, e: now + ttl } satisfies TokenBody)).toString("base64url")
+	const body: TokenBody = { s: sessionId, e: now + ttl, ...(opts.device ? { d: opts.device } : {}) }
+	const payload = Buffer.from(JSON.stringify(body)).toString("base64url")
 	return `${payload}.${mac(secret, payload)}`
 }
 
 export type VerifyResult =
-	| { ok: true; sessionId: string }
+	| { ok: true; sessionId: string; device?: string }
 	| { ok: false; reason: "malformed" | "bad-mac" | "expired" }
 
 export function verifyToken(token: string, secret: Buffer, now: number = Date.now()): VerifyResult {
@@ -63,25 +73,40 @@ export function verifyToken(token: string, secret: Buffer, now: number = Date.no
 	}
 	if (typeof body?.s !== "string" || typeof body?.e !== "number") return { ok: false, reason: "malformed" }
 	if (body.e <= now) return { ok: false, reason: "expired" }
-	return { ok: true, sessionId: body.s }
+	return { ok: true, sessionId: body.s, ...(typeof body.d === "string" && body.d ? { device: body.d } : {}) }
 }
 
 /** Prefix a human subject with the signed token. */
-export function stampSubject(sessionId: string, subject: string, secret: Buffer, opts?: { ttlHours?: number; now?: number }): string {
+export function stampSubject(
+	sessionId: string,
+	subject: string,
+	secret: Buffer,
+	opts?: { ttlHours?: number; now?: number; device?: string },
+): string {
 	return `[pi:${signToken(sessionId, secret, opts)}] ${subject}`
 }
 
 /**
- * Pull a verified session id out of a subject line.
+ * Pull a verified routing token out of a subject line.
  * Tolerates client prefixes (`Re:`, `RE:`, `AW:`, `Re[2]:`) because the token is
  * matched anywhere in the subject, not anchored.
  */
-export function sessionIdFromSubject(subject: string | undefined | null, secret: Buffer, now?: number): string | undefined {
+export function tokenFromSubject(
+	subject: string | undefined | null,
+	secret: Buffer,
+	now?: number,
+): { sessionId: string; device?: string } | undefined {
 	if (!subject) return undefined
 	const m = TOKEN_RE.exec(subject)
 	if (!m?.[1]) return undefined
 	const result = verifyToken(m[1], secret, now)
-	return result.ok ? result.sessionId : undefined
+	if (!result.ok) return undefined
+	return { sessionId: result.sessionId, ...(result.device ? { device: result.device } : {}) }
+}
+
+/** Convenience wrapper for callers that only need the session id. */
+export function sessionIdFromSubject(subject: string | undefined | null, secret: Buffer, now?: number): string | undefined {
+	return tokenFromSubject(subject, secret, now)?.sessionId
 }
 
 /** Shared secret material. 32 bytes. */

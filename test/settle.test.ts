@@ -182,3 +182,22 @@ test("no session context means nothing to send", () => {
 	assert.equal(notifier.settled({}), "no-context")
 	assert.equal(t.queue.length, 0)
 })
+
+test("the subject names the device as well as the session", () => {
+	const subject = buildSettleSubject(context({ device: "dev-box-7" }), SECRET)
+	assert.match(subject, /fix-login @ dev-box-7 is waiting for you/)
+	assert.equal(sessionIdFromSubject(subject, SECRET), SESSION, "token still routes")
+})
+
+test("the body lists device, session, id and project", () => {
+	const body = buildSettleBody(context({ device: "dev-box-7" }))
+	for (const expected of ["device: dev-box-7", "session: fix-login", `session id: ${SESSION}`, "project: /home/ybc/Work/proj"]) {
+		assert.ok(body.includes(expected), `missing "${expected}" in:\n${body}`)
+	}
+})
+
+test("the subject degrades cleanly with no device", () => {
+	const subject = buildSettleSubject(context({ device: undefined }), SECRET)
+	assert.match(subject, /fix-login is waiting for you/)
+	assert.ok(!subject.includes("@"))
+})

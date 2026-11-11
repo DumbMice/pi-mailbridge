@@ -20,6 +20,7 @@ function config(over: Partial<ResolvedConfig["security"]> = {}, mailTo = "you@ex
 		daemon: { host: "127.0.0.1", port: 4177 },
 		notify: { onSettled: true, debounceMs: 1, notifyOnAborted: false, subject: "pi" },
 		tuning: { idleRenewMs: 1, autoIdleDelayMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
+		device: { name: "test-device" },
 		warnings: [],
 	}
 }
@@ -254,4 +255,15 @@ test("/mailbridge with no session id reports (none)", async () => {
 		ui: { notify: (m: string) => h.notes.push(m) },
 	})
 	assert.ok(h.notes.join("\n").includes(SESSION))
+})
+
+test("/mailbridge names the device", async () => {
+	const h = harness()
+	await h.start()
+	await h.commands.get("mailbridge")!("", {
+		cwd: "/home/ybc/Work/proj",
+		sessionManager: { getSessionId: () => SESSION },
+		ui: { notify: (m: string) => h.notes.push(m) },
+	})
+	assert.match(h.notes.join("\n"), /device: test-device/)
 })

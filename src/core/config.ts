@@ -2,6 +2,7 @@
 // than thrown, so a typo never takes a session down mid-run.
 
 import { existsSync, readFileSync } from "node:fs"
+import { hostname } from "node:os"
 
 import { configPath } from "../store/paths.ts"
 
@@ -32,6 +33,8 @@ export interface SmtpConfig {
 
 export interface ResolvedConfig {
 	mail: { imap: ImapConfig; smtp: SmtpConfig; to: string }
+	/** Who this daemon is. Named in every notification and in the routing token. */
+	device: { name: string }
 	security: {
 		allowFrom: string[]
 		requireDmarcPass: boolean
@@ -52,6 +55,7 @@ const DEFAULTS: Omit<ResolvedConfig, "warnings"> = {
 		smtp: { host: "", port: 465, secure: true, user: "", password: "", authType: "LOGIN" },
 		to: "",
 	},
+	device: { name: "" }, // resolved below: hostname() unless configured
 	security: { allowFrom: [], requireDmarcPass: true, tokenTtlHours: 30 * 24 },
 	daemon: { host: "127.0.0.1", port: 4177 },
 	notify: { onSettled: true, debounceMs: 10_000, notifyOnAborted: false, subject: "pi: finished" },
@@ -65,6 +69,16 @@ const DEFAULTS: Omit<ResolvedConfig, "warnings"> = {
 
 function isRecord(v: unknown): v is Record<string, unknown> {
 	return typeof v === "object" && v !== null && !Array.isArray(v)
+}
+
+/** First label of the hostname, lowercased: `dev-box-7.local` -> `dev-box-7`. */
+export function shortHostname(): string {
+	try {
+		const full = hostname().toLowerCase()
+		return full.split(".")[0] || "unknown-device"
+	} catch {
+		return "unknown-device"
+	}
 }
 
 /** Parse a token command from env: JSON array, or comma-separated argv. */
@@ -124,6 +138,7 @@ function envOverrides(env: NodeJS.ProcessEnv): Record<string, unknown> {
 	set(["mail", "smtp", "password"], env.PI_MAILBRIDGE_SMTP_PASS)
 	set(["mail", "to"], env.PI_MAILBRIDGE_TO)
 	set(["daemon", "port"], env.PI_MAILBRIDGE_PORT)
+	set(["device", "name"], env.PI_MAILBRIDGE_DEVICE)
 	// Token commands are argv lists; accept JSON or a comma-separated argv.
 	if (env.PI_MAILBRIDGE_IMAP_TOKEN_CMD) set(["mail", "imap", "tokenCommand"], parseArgv(env.PI_MAILBRIDGE_IMAP_TOKEN_CMD))
 	if (env.PI_MAILBRIDGE_SMTP_TOKEN_CMD) set(["mail", "smtp", "tokenCommand"], parseArgv(env.PI_MAILBRIDGE_SMTP_TOKEN_CMD))
@@ -136,6 +151,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 	cfg = merge(cfg, readJson(configPath(env), warnings))
 	cfg = merge(cfg, envOverrides(env))
 	const resolved: ResolvedConfig = { ...cfg, warnings }
+
+	// Device identity: a short, stable name so a notification says which machine
+	// the session is on. Hostname is the sensible default; it can be overridden
+	// when hostnames are opaque (e.g. `dev-box-7`).
+	const configuredDevice = String(resolved.device?.name ?? "").trim()
+	resolved.device = { name: configuredDevice || shortHostname() }
 
 	// Validation that must not throw in-process.
 	const imap = resolved.mail.imap

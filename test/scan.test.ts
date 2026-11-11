@@ -34,6 +34,7 @@ function config(over: Partial<ResolvedConfig["security"]> = {}): ResolvedConfig 
 		daemon: { host: "127.0.0.1", port: 4177 },
 		notify: { onSettled: true, debounceMs: 0, notifyOnAborted: false, subject: "pi" },
 		tuning: { idleRenewMs: 1, autoIdleDelayMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
+		device: { name: "test-device" },
 		warnings: [],
 	}
 }
@@ -247,4 +248,28 @@ test("allowlist empty fails closed", async () => {
 	const r = await scanAndProcess(config({ allowFrom: [] }), { source: source([msg(1)]), secret: SECRET, env: e })
 	assert.equal(r.reasons["allowlist-empty"], 1)
 	assert.equal(listPending(e).length, 0)
+})
+
+test("a token minted for another device is rejected and not stored", async () => {
+	const e = env()
+	const foreign = `[pi:${signToken(SESSION, SECRET, { device: "someone-elses-laptop" })}] pi: finished`
+	const r = await scanAndProcess(config(), { source: source([msg(1, { subject: foreign })]), secret: SECRET, env: e })
+	assert.equal(r.reasons["other-device"], 1)
+	assert.equal(listPending(e).length, 0, "must not hold a stale copy of another device's reply")
+	assert.equal(readCursor(e), 1, "cursor advances so it is not refetched")
+})
+
+test("a token for THIS device is accepted", async () => {
+	const e = env()
+	const mine = `[pi:${signToken(SESSION, SECRET, { device: "test-device" })}] pi: finished`
+	const r = await scanAndProcess(config(), { source: source([msg(1, { subject: mine })]), secret: SECRET, env: e })
+	assert.equal(r.persisted, 1)
+	assert.equal(listPending(e)[0]!.sessionId, SESSION)
+})
+
+test("a token with no device still works (single-device installs)", async () => {
+	const e = env()
+	// tokenSubject() signs without a device claim.
+	const r = await scanAndProcess(config(), { source: source([msg(1)]), secret: SECRET, env: e })
+	assert.equal(r.persisted, 1, "pre-device tokens must not be rejected")
 })

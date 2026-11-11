@@ -16,7 +16,7 @@
 import type { ResolvedConfig } from "../core/config.ts"
 import { authorize } from "../core/authz.ts"
 import { stripQuoted, type HeaderLike } from "../core/reply-parse.ts"
-import { sessionIdFromSubject } from "../core/token.ts"
+import { tokenFromSubject } from "../core/token.ts"
 import { selectAttachments, type RawAttachment } from "../core/attachments.ts"
 import { addPending, type PendingRecord } from "../store/pending-store.ts"
 import { isJournaled } from "../store/journal.ts"
@@ -127,14 +127,23 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			continue
 		}
 
-		// Routing token: present and MAC-valid, or the message is not ours.
-		const sessionId = sessionIdFromSubject(message.subject, deps.secret, now())
-		if (!sessionId) {
+		// Routing token: present and MAC-valid, or the message is not ours. When the
+		// token names a device, only that device may persist it — otherwise several
+		// machines sharing one mailbox would each hold a stale copy of the same reply.
+		const token = tokenFromSubject(message.subject, deps.secret, now())
+		if (!token) {
 			result.rejected++
 			bump(result.reasons, "no-token")
 			result.cursor = advanceCursor(env, uid)
 			continue
 		}
+		if (token.device && token.device !== config.device.name) {
+			result.rejected++
+			bump(result.reasons, "other-device")
+			result.cursor = advanceCursor(env, uid)
+			continue
+		}
+		const sessionId = token.sessionId
 
 		const body = stripQuoted(message.text)
 		if (!body) {
