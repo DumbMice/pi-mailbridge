@@ -8,7 +8,8 @@ a live mailbox.
 ### Core
 
 - `core/token.ts` — HMAC-signed routing tokens (`[pi:<payload>.<mac>]`) with TTL,
-  constant-time verification, prefix-tolerant subject extraction.
+  constant-time verification, prefix-tolerant subject extraction, and an
+  optional **device claim** so replies route to the machine that owns the session.
 - `core/authz.ts` — fail-closed chain: loop guard (pi account) → machine-generated
   → allowlist (empty denies all) → DMARC pinned to `trustedAuthservId`.
 - `core/reply-parse.ts` — quote stripping that cuts at the first recognisable
@@ -20,7 +21,8 @@ a live mailbox.
 - `core/oauth.ts` — token from an argv command (argc-safe, `shell:false`), cached
   until TTL, one refresh on 401, disabled after a failing command.
 - `core/settle.ts` — `agent_settled`-only notifier, debounced, abort-aware,
-  token-stamped subject, body with session name/id/project/turns/last text.
+  token-stamped subject naming the **device and session** (`pi: fix-login @ dev-box-7
+  is waiting for you`), body with device/session id/project/turns/last text.
 - `core/deliveries.ts` — claim → inject → ack runner; never acks a failed
   injection; absorbs replays after a failed ack.
 
@@ -55,6 +57,20 @@ a live mailbox.
 - `/afk`, `/back`, `/mailbridge`; `request_decision`, `notify_user`.
 - Reply deliveries drain on `session_start` and on a 10 s poll, injected as
   `followUp` with attachments as content blocks.
+
+### Device identity
+
+An idle notification identifies the machine as well as the session, and the
+routing token carries the device so several machines can share one mailbox
+without competing for the same reply. `device.name` defaults to the first label
+of `os.hostname()`; override with config or `PI_MAILBRIDGE_DEVICE`.
+
+### Works from any device
+
+No app, account, relay or push service. Any client that can read the mailbox —
+another PC, a laptop, a tablet, a phone, webmail in a browser — can continue a
+session, because replies are routed by the signed token rather than by the
+sender's device.
 
 ### Fixed during development
 

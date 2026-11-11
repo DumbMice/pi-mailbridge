@@ -82,10 +82,14 @@ single-instance lock.
 Subject format:
 
 ```
-[pi:<base64url(sessionId|expiry|hmac)>] <human subject>
+[pi:<base64url(sessionId|expiry|device|hmac)>] <human subject>
 ```
 
 - Signed with the shared secret, so a reply to a forged subject is rejected.
+- Carries the **device that minted it**. A daemon only persists a delivery whose
+  token names its own device, so several machines sharing one mailbox never hold
+  stale copies of each other's replies. A token with no device claim is accepted
+  (single-device installs, and tokens minted before devices were tracked).
 - Replies keep the token because mail clients prefix — `Re: [pi:…] …`. Parsing
   tolerates `Re:`, `RE:`, `AW:`, `Re[2]:`.
 - Expiry bounds replay: a token older than `tokenTtlHours` is refused even if
@@ -93,6 +97,17 @@ Subject format:
 
 The token is **not** authentication. It routes; it does not authorize. See
 SECURITY.md.
+
+### Device identity
+
+`device.name` defaults to the first label of `os.hostname()` and appears in every
+notification subject and body. It exists for two reasons:
+
+1. **Human routing.** With pi on a laptop, a desktop and a build box, "which
+   machine is asking?" must be answerable from a notification preview.
+2. **Machine routing.** Two daemons watching one mailbox would otherwise both
+   fetch every reply. The device claim lets the non-owner skip it at scan time
+   (`other-device`), without persisting and without marking it seen.
 
 ## 5. Modes
 

@@ -3,8 +3,14 @@
 Drive your Pi coding-agent sessions from your mailbox.
 
 Your agent reaches a decision you can't answer from your desk. It emails you.
-You reply from your phone. That exact session continues.
+You reply — from your phone, a tablet, another PC, a webmail tab, anything that
+can read the mailbox. That exact session continues.
 
+- **Any device with email works.** No app, no account, no relay, no push service.
+  If it can read mail — a second laptop, a work desktop, a tablet, a phone, a
+  browser — it can drive the session.
+- **Every notification names the device *and* the session**, so with several
+  machines running pi you can tell at a glance which one is asking.
 - **One mailbox connection per machine.** A small local daemon owns a single
   IMAP IDLE connection; every Pi session is a thin client. N sessions, one
   watcher, no polling race.
@@ -14,6 +20,34 @@ You reply from your phone. That exact session continues.
   No focus heuristics, no "probably idle".
 - **Crash-safe.** Mail is only marked seen *after* the reply is injected and
   acked. A crash leaves it unseen and durable, so nothing is lost.
+
+## What an idle notification looks like
+
+When an agent settles, you get one email that identifies both the machine and the
+session, because that is all a notification preview shows:
+
+```
+Subject: [pi:<signed token>] pi: fix-login @ dev-box-7 is waiting for you
+
+Done: the failing test passes now.
+
+--
+device: dev-box-7
+session: fix-login
+session id: 01a1c453-f2fc-7169-8c89-69c93fa1a152
+project: /home/ybc/Work/proj
+turns: 3
+
+Reply above this line to continue the session.
+```
+
+Reply from **any device**: a tablet on the sofa, your work laptop, a second PC in
+another room, a webmail client on a machine that has never run pi. The reply is
+routed by the signed token, not by the sender's device.
+
+With more than one machine, each daemon has its own `device.name`; a reply is only
+claimed by the daemon whose device the token names, so two machines sharing one
+mailbox never fight over the same message.
 
 ## Security first
 
@@ -85,6 +119,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | `mail.smtp.authType` | `LOGIN` | `LOGIN` or `XOAUTH2` |
 | `mail.smtp.tokenCommand` | `[]` | argv whose stdout is an access token (XOAUTH2) |
 | `mail.to` | — | **your** address: where notifications go |
+| `device.name` | first label of `os.hostname()` | machine name shown in every notification and carried in the routing token |
 | `security.allowFrom` | `[]` | senders allowed to command the agent; empty denies all |
 | `security.requireDmarcPass` | `true` | require a DMARC pass from the pinned relay |
 | `security.trustedAuthservId` | — | the only `Authentication-Results` host that is trusted |
@@ -129,7 +164,7 @@ map and the port from `opencode-afk`: [docs/MAPPING.md](./docs/MAPPING.md).
 ## Status
 
 `0.1.0` — feature-complete for the single-user, one-mailbox case, not yet
-battle-tested against a live mailbox. 171 hermetic tests cover the token, authz,
+battle-tested against a live mailbox. 189 hermetic tests cover the token, authz,
 scan pipeline, stores, daemon HTTP surface, lifecycle, extension surface, tools,
 attachments and the full end-to-end loop.
 

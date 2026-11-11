@@ -21,6 +21,9 @@
     },
     "to": "you@example.com"
   },
+  "device": {
+    "name": ""
+  },
   "security": {
     "allowFrom": ["you@example.com"],
     "requireDmarcPass": true,

@@ -93,6 +93,10 @@ A legitimate email can still contain text that reads like instructions
   the key invalidates every outstanding token.
 - Turn it off with `/back` when you will be at the desk. An idle mailbox should
   not be a listening control channel.
+- **Multiple machines, one mailbox.** Each daemon only claims replies whose token
+  names its own device, so they cannot steal each other's work. They do share one
+  allowlist and one secret — if one machine is compromised, rotate the key and
+  every outstanding token dies with it.
 
 ## 6. What this package will never do
 

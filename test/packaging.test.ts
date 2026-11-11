@@ -133,3 +133,27 @@ test("README links to the three design docs", () => {
 test("README states the shipped version", () => {
 	assert.ok(readme.includes(`\`${packageJson.version}\``), `README should mention ${packageJson.version}`)
 })
+
+// --- any-device framing + device identity ---------------------------------
+
+test("docs say any device with email, not phone-only", () => {
+	const docs = [readme, read("../docs/ARCHITECTURE.md"), read("../docs/SECURITY.md")].join("\n").toLowerCase()
+	// Positive assertions: the universal framing is present.
+	for (const phrase of ["any device", "tablet", "another pc", "webmail"]) {
+		assert.ok(docs.includes(phrase), `docs should mention "${phrase}"`)
+	}
+	assert.ok(readme.includes("No app, no account, no relay, no push service"))
+})
+
+test("device.name is documented and shipped in the example config", () => {
+	assert.ok(readme.includes("device.name"), "README config table must document device.name")
+	const device = example["device"] as Record<string, unknown>
+	assert.ok(device && typeof device["name"] === "string", "config.example.json must include device.name")
+	assert.ok(configSource.includes("device"), "config.ts must read device settings")
+})
+
+test("the README shows a notification naming both device and session", () => {
+	assert.match(readme, /device: /, "the sample notification should show the device line")
+	assert.match(readme, /session: /, "the sample notification should show the session line")
+	assert.match(readme, /@ .*is waiting for you/, "the sample subject should name the device")
+})
