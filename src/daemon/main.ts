@@ -138,8 +138,9 @@ async function run(config: ResolvedConfig): Promise<void> {
 	const { port, host } = await service.listen()
 	log(`listening on http://${host}:${port}`)
 
-	await watcher.start()
-
+	// Register shutdown handlers BEFORE dialling IMAP: a SIGTERM arriving during a
+	// slow DNS/TLS dial must still shut down cleanly rather than killing the
+	// process with the default handler.
 	let stopping = false
 	const shutdown = async (signal: string) => {
 		if (stopping) return
@@ -151,6 +152,8 @@ async function run(config: ResolvedConfig): Promise<void> {
 	}
 	process.on("SIGTERM", () => void shutdown("SIGTERM"))
 	process.on("SIGINT", () => void shutdown("SIGINT"))
+
+	await watcher.start()
 }
 
 async function main(): Promise<void> {

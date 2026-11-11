@@ -1,0 +1,139 @@
+// Daemon supervision from the extension side.
+//
+// The extension must never assume a daemon is running: a session can start on a
+// freshly booted machine. `ensureDaemon` probes /health and, if nothing answers,
+// spawns the daemon detached so it outlives this pi session.
+//
+// Detached + stdio:ignore is deliberate. The daemon owns the mailbox and should
+// keep working when you close the terminal — that is the entire point of being
+// able to reply from your phone.
+
+import { spawn as nodeSpawn, type SpawnOptions } from "node:child_process"
+
+export interface ProbeOptions {
+	baseUrl: string
+	timeoutMs?: number
+	/** Injected for tests. Defaults to global fetch. */
+	fetchImpl?: typeof fetch
+}
+
+/** True when a daemon answers /health. Never throws. */
+export async function probeHealth(options: ProbeOptions): Promise<boolean> {
+	const doFetch = options.fetchImpl ?? fetch
+	const controller = new AbortController()
+	const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 750)
+	try {
+		const response = await doFetch(`${options.baseUrl}/health`, { signal: controller.signal })
+		return response.ok
+	} catch {
+		return false
+	} finally {
+		clearTimeout(timer)
+	}
+}
+
+export interface EnsureDaemonOptions {
+	baseUrl: string
+	/** Absolute path to the daemon entry (`.ts` or `.js`). */
+	scriptPath: string
+	/** Extra argv passed after the script path (e.g. none). */
+	args?: string[]
+	env?: NodeJS.ProcessEnv
+	/** How long to wait for the spawned daemon to answer /health. */
+	waitMs?: number
+	/** Injected for tests. */
+	fetchImpl?: typeof fetch
+	spawnImpl?: (command: string, args: string[], options: SpawnOptions) => { unref?: () => void; pid?: number }
+	execPath?: string
+	sleep?: (ms: number) => Promise<void>
+}
+
+export interface EnsureDaemonResult {
+	/** True when this call spawned the process. */
+	started: boolean
+	/** True when the daemon answers /health afterwards. */
+	healthy: boolean
+}
+
+const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Make sure a daemon is running.
+ *
+ * Reuses an existing daemon rather than racing it: the port is the lock, and a
+ * second daemon exits 0 on EADDRINUSE, so the worst case is a wasted spawn rather
+ * than two watchers on one mailbox.
+ */
+export async function ensureDaemon(options: EnsureDaemonOptions): Promise<EnsureDaemonResult> {
+	const doFetch = options.fetchImpl ?? fetch
+	if (await probeHealth({ baseUrl: options.baseUrl, fetchImpl: doFetch })) {
+		return { started: false, healthy: true }
+	}
+
+	const spawn = options.spawnImpl ?? nodeSpawn
+	const execPath = options.execPath ?? process.execPath
+	const args = ["--experimental-strip-types", options.scriptPath, ...(options.args ?? [])]
+
+	const child = spawn(execPath, args, {
+		detached: true,
+		stdio: "ignore",
+		env: options.env ?? process.env,
+	} as SpawnOptions)
+	child.unref?.()
+
+	const sleep = options.sleep ?? defaultSleep
+	const deadline = Date.now() + (options.waitMs ?? 5_000)
+	while (Date.now() < deadline) {
+		await sleep(100)
+		if (await probeHealth({ baseUrl: options.baseUrl, fetchImpl: doFetch })) {
+			return { started: true, healthy: true }
+		}
+	}
+	return { started: true, healthy: false }
+}
+
+/** Default loopback base URL for the configured port. */
+export function daemonBaseUrl(port: number, host = "127.0.0.1"): string {
+	return `http://${host}:${port}`
+}
+
+export interface DaemonClientOptions {
+	baseUrl: string
+	token: string
+	fetchImpl?: typeof fetch
+}
+
+/** Tiny typed client used by the extension and by `/mailbridge`. */
+export function createDaemonClient(options: DaemonClientOptions) {
+	const doFetch = options.fetchImpl ?? fetch
+	const headers = { authorization: `Bearer ${options.token}`, "content-type": "application/json" }
+
+	async function call<T>(method: string, path: string, body?: unknown): Promise<T | undefined> {
+		try {
+			const response = await doFetch(`${options.baseUrl}${path}`, {
+				method,
+				headers,
+				...(body === undefined ? {} : { body: JSON.stringify(body) }),
+			})
+			if (!response.ok) return undefined
+			return (await response.json()) as T
+		} catch {
+			return undefined
+		}
+	}
+
+	return {
+		health: () => call<{ ok: boolean; mode: string; pending: number }>("GET", "/health"),
+		pending: () => call<{ pending: unknown[] }>("GET", "/pending"),
+		mode: () => call<{ mode: string }>("GET", "/mode"),
+		setMode: (mode: "on" | "off") => call<{ mode: string }>("POST", "/mode", { mode }),
+		claim: (uid: number, instanceId: string) => call<{ ok: boolean }>("POST", "/claim", { uid, instanceId }),
+		ack: (uid: number, instanceId: string, sessionId?: string) =>
+			call<{ ok: boolean }>("POST", "/ack", { uid, instanceId, sessionId }),
+		register: (sessionId: string) => call<{ alreadyPending: boolean; full: boolean }>("POST", "/register", { sessionId }),
+		release: (sessionId: string) => call<{ ok: boolean }>("DELETE", "/register", { sessionId }),
+		send: (message: { to?: string; subject: string; text: string }) => call<{ ok: boolean }>("POST", "/send", message),
+	}
+}
+
+export type DaemonClient = ReturnType<typeof createDaemonClient>

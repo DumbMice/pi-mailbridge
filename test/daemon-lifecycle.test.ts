@@ -1,0 +1,210 @@
+import { test } from "node:test"
+import assert from "node:assert/strict"
+import { spawn, type ChildProcess } from "node:child_process"
+import net from "node:net"
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { fileURLToPath } from "node:url"
+
+import { daemonBaseUrl, ensureDaemon, probeHealth } from "../src/daemon/spawn.ts"
+
+const MAIN = fileURLToPath(new URL("../src/daemon/main.ts", import.meta.url))
+
+async function freePort(): Promise<number> {
+	const server = net.createServer()
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()))
+	const address = server.address()
+	await new Promise<void>((resolve) => server.close(() => resolve()))
+	if (typeof address !== "object" || !address) throw new Error("no port")
+	return address.port
+}
+
+interface Rig {
+	env: NodeJS.ProcessEnv
+	port: number
+	baseUrl: string
+	cleanup(): void
+}
+
+function rig(port: number): Rig {
+	const root = mkdtempSync(join(tmpdir(), "pmb-life-"))
+	const configDir = join(root, "config", "pi-mailbridge")
+	mkdirSync(configDir, { recursive: true })
+	// An unreachable IMAP host keeps the watcher in backoff without any network.
+	writeFileSync(
+		join(configDir, "config.json"),
+		JSON.stringify({
+			mail: {
+				imap: { host: "127.0.0.1", port: 1, secure: false, user: "pi@example.com", password: "x", folder: "INBOX" },
+				smtp: { host: "127.0.0.1", port: 1, secure: false, user: "pi@example.com", password: "x", authType: "LOGIN" },
+				to: "you@example.com",
+			},
+			security: { allowFrom: ["you@example.com"], requireDmarcPass: false },
+			daemon: { host: "127.0.0.1", port },
+			tuning: { idleRenewMs: 1000, autoIdleDelayMs: 1, backoffInitialMs: 50, backoffMaxMs: 200 },
+		}),
+	)
+	const env = { ...process.env, XDG_CONFIG_HOME: join(root, "config"), XDG_STATE_HOME: join(root, "state") }
+	return { env, port, baseUrl: daemonBaseUrl(port), cleanup: () => {} }
+}
+
+function startDaemon(r: Rig): ChildProcess {
+	return spawn(process.execPath, ["--experimental-strip-types", MAIN], { env: r.env, stdio: ["ignore", "pipe", "pipe"] })
+}
+
+function waitForLine(child: ChildProcess, pattern: RegExp, timeoutMs: number): Promise<string> {
+	return new Promise((resolve, reject) => {
+		let buffer = ""
+		const timer = setTimeout(() => {
+			cleanup()
+			reject(new Error(`timeout waiting for ${pattern}; saw: ${buffer.slice(-400)}`))
+		}, timeoutMs)
+		const onData = (chunk: Buffer) => {
+			buffer += chunk.toString()
+			if (pattern.test(buffer)) {
+				cleanup()
+				resolve(buffer)
+			}
+		}
+		const onExit = (code: number | null) => {
+			cleanup()
+			reject(new Error(`exited (${code}) before matching ${pattern}: ${buffer.slice(-400)}`))
+		}
+		function cleanup() {
+			clearTimeout(timer)
+			child.stdout?.off("data", onData)
+			child.stderr?.off("data", onData)
+			child.off("exit", onExit)
+		}
+		child.stdout?.on("data", onData)
+		child.stderr?.on("data", onData)
+		child.on("exit", onExit)
+	})
+}
+
+function waitForExit(child: ChildProcess, timeoutMs: number): Promise<number | null> {
+	return new Promise((resolve, reject) => {
+		if (child.exitCode !== null) return resolve(child.exitCode)
+		const timer = setTimeout(() => reject(new Error("timeout waiting for exit")), timeoutMs)
+		child.once("exit", (code) => {
+			clearTimeout(timer)
+			resolve(code)
+		})
+	})
+}
+
+test("a second daemon exits 0 instead of fighting for the port", { timeout: 40_000 }, async () => {
+	const port = await freePort()
+	const r = rig(port)
+	const first = startDaemon(r)
+	try {
+		await waitForLine(first, /listening on http/, 20_000)
+
+		// (b) /health answers even though IMAP never connected.
+		assert.equal(await probeHealth({ baseUrl: r.baseUrl, timeoutMs: 2000 }), true)
+
+		const second = startDaemon(r)
+		const code = await waitForExit(second, 20_000)
+		assert.equal(code, 0, "second daemon must exit 0 (single-instance lock)")
+
+		// The original daemon is untouched.
+		assert.equal(await probeHealth({ baseUrl: r.baseUrl, timeoutMs: 2000 }), true)
+	} finally {
+		first.kill("SIGKILL")
+	}
+})
+
+test("SIGTERM shuts down cleanly within a bound", { timeout: 40_000 }, async () => {
+	const port = await freePort()
+	const r = rig(port)
+	const child = startDaemon(r)
+	try {
+		await waitForLine(child, /listening on http/, 20_000)
+		assert.equal(await probeHealth({ baseUrl: r.baseUrl, timeoutMs: 2000 }), true)
+
+		child.kill("SIGTERM")
+		const code = await waitForExit(child, 10_000)
+		assert.equal(code, 0, "clean exit on SIGTERM")
+
+		assert.equal(await probeHealth({ baseUrl: r.baseUrl, timeoutMs: 500 }), false, "port released")
+	} finally {
+		if (child.exitCode === null) child.kill("SIGKILL")
+	}
+})
+
+test("ensureDaemon reuses a running daemon instead of spawning another", { timeout: 40_000 }, async () => {
+	const port = await freePort()
+	const r = rig(port)
+	const child = startDaemon(r)
+	try {
+		await waitForLine(child, /listening on http/, 20_000)
+
+		let spawns = 0
+		const result = await ensureDaemon({
+			baseUrl: r.baseUrl,
+			scriptPath: MAIN,
+			env: r.env,
+			spawnImpl: () => {
+				spawns++
+				return { unref() {} }
+			},
+		})
+		assert.deepEqual(result, { started: false, healthy: true })
+		assert.equal(spawns, 0, "must not spawn when a daemon already answers")
+	} finally {
+		child.kill("SIGKILL")
+	}
+})
+
+test("ensureDaemon spawns detached when nothing answers", { timeout: 20_000 }, async () => {
+	const port = await freePort()
+	let spawnedArgs: string[] = []
+	let unrefCalled = false
+
+	// The fake spawn reports healthy on the first probe after spawning.
+	let probes = 0
+	const result = await ensureDaemon({
+		baseUrl: daemonBaseUrl(port),
+		scriptPath: "/tmp/does-not-matter.ts",
+		spawnImpl: (_cmd, args) => {
+			spawnedArgs = args
+			return {
+				unref() {
+					unrefCalled = true
+				},
+			}
+		},
+		fetchImpl: (async () => {
+			probes++
+			// First call (pre-check) fails, afterwards it "is up".
+			if (probes === 1) throw new Error("ECONNREFUSED")
+			return new Response("{}", { status: 200 })
+		}) as unknown as typeof fetch,
+		sleep: async () => {},
+	})
+
+	assert.deepEqual(result, { started: true, healthy: true })
+	assert.equal(unrefCalled, true, "child must be detached from the session")
+	assert.ok(spawnedArgs.includes("/tmp/does-not-matter.ts"))
+})
+
+test("probeHealth treats refused and hanging daemons as unhealthy", async () => {
+	assert.equal(
+		await probeHealth({
+			baseUrl: "http://127.0.0.1:1",
+			timeoutMs: 300,
+		}),
+		false,
+	)
+	assert.equal(
+		await probeHealth({
+			baseUrl: "http://127.0.0.1:1",
+			timeoutMs: 100,
+			fetchImpl: (async () => {
+				throw new Error("nope")
+			}) as unknown as typeof fetch,
+		}),
+		false,
+	)
+})
