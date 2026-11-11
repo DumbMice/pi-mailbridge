@@ -234,6 +234,14 @@ test("incremental: a second scan only looks past the cursor", async () => {
 	assert.deepEqual(src.seen, [], "no redundant fetches")
 })
 
+test("the human's own address is NOT treated as a loop (mail.to is the recipient)", async () => {
+	const e = env()
+	// config.mail.to = the human, and the human is the sender of a genuine reply.
+	const r = await scanAndProcess(config(), { source: source([msg(7, { from: ALLOWED })]), secret: SECRET, env: e })
+	assert.equal(r.reasons["self"], undefined, "must not be rejected as a self-loop")
+	assert.equal(r.persisted, 1)
+})
+
 test("allowlist empty fails closed", async () => {
 	const e = env()
 	const r = await scanAndProcess(config({ allowFrom: [] }), { source: source([msg(1)]), secret: SECRET, env: e })

@@ -36,8 +36,10 @@ export function authorize(input: AuthzInput, config: ResolvedConfig): AuthzResul
 	const from = normalizeAddress(input.from)
 	if (!from) return { ok: false, reason: "no-from" }
 
-	// 1. Loop guard: our own address must never be treated as a human.
-	const self = normalizeAddress(config.mail.to) ?? normalizeAddress(config.mail.smtp.user)
+	// 1. Loop guard: the pi account must never be treated as the human.
+	//    `mail.to` is the HUMAN's address, so it must not be used here — doing so
+	//    rejected every genuine reply (the human is the one writing to us).
+	const self = normalizeAddress(config.mail.smtp.user) ?? normalizeAddress(config.mail.imap.user)
 	if (self && from === self) return { ok: false, reason: "self" }
 
 	// 2. Never answer robots.

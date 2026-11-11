@@ -170,12 +170,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			client: {
 				claim: (uid, instanceId) => client!.claim(uid, instanceId),
 				ack: (uid, instanceId, sessionId) => client!.ack(uid, instanceId, sessionId),
-				pending: async () => {
-					const result = await client!.pending()
-					return result.ok
-						? { ok: true as const, data: { pending: result.data.pending as never[] } }
-						: { ok: false as const, status: result.status, ...(result.code ? { code: result.code } : {}) }
-				},
+				pending: () => client!.pending(),
 			},
 			instanceId: `${process.pid}`,
 			sessionId: () => ctx?.sessionManager.getSessionId(),

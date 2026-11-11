@@ -10,6 +10,8 @@
 
 import { spawn as nodeSpawn, type SpawnOptions } from "node:child_process"
 
+import type { PendingRecord } from "../store/pending-store.ts"
+
 export interface ProbeOptions {
 	baseUrl: string
 	timeoutMs?: number
@@ -135,7 +137,7 @@ export function createDaemonClient(options: DaemonClientOptions) {
 
 	return {
 		health: () => call<{ ok: boolean; mode: string; pending: number }>("GET", "/health"),
-		pending: () => call<{ pending: unknown[] }>("GET", "/pending"),
+		pending: () => call<{ pending: PendingRecord[] }>("GET", "/pending"),
 		mode: () => call<{ mode: string }>("GET", "/mode"),
 		setMode: (mode: "on" | "off") => call<{ mode: string }>("POST", "/mode", { mode }),
 		claim: (uid: number, instanceId: string) => call<{ ok: boolean }>("POST", "/claim", { uid, instanceId }),
