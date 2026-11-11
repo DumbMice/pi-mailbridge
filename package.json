@@ -22,7 +22,8 @@
   "files": [
     "src",
     "docs",
-    "config.example.json"
+    "config.example.json",
+    "CHANGELOG.md"
   ],
   "pi": {
     "extensions": [
@@ -30,12 +31,6 @@
     ]
   },
   "main": "./src/extension.ts",
-  "exports": {
-    ".": "./src/extension.ts"
-  },
-  "bin": {
-    "pi-mailbridge": "./src/daemon/main.ts"
-  },
   "scripts": {
     "daemon": "node --experimental-strip-types src/daemon/main.ts",
     "typecheck": "tsc --noEmit",
