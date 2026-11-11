@@ -51,6 +51,12 @@ export interface ResolvedConfig {
 		 * `References` against Message-IDs we minted. Default true; see SECURITY.md.
 		 */
 		allowHeaderThreading?: boolean
+		/**
+		 * Allow the pi mailbox and the human to be the same address (one personal
+		 * Hotmail/Gmail account). A self-addressed message still has to be an actual
+		 * reply, i.e. carry In-Reply-To. Default false.
+		 */
+		allowSelfReplies?: boolean
 		tokenTtlHours: number
 	}
 	daemon: { host: string; port: number }
@@ -67,7 +73,13 @@ const DEFAULTS: Omit<ResolvedConfig, "warnings"> = {
 		to: "",
 	},
 	device: { name: "" }, // resolved below: hostname() unless configured
-	security: { allowFrom: [], requireDmarcPass: true, allowHeaderThreading: true, tokenTtlHours: 30 * 24 },
+	security: {
+		allowFrom: [],
+		requireDmarcPass: true,
+		allowHeaderThreading: true,
+		allowSelfReplies: false,
+		tokenTtlHours: 30 * 24,
+	},
 	daemon: { host: "127.0.0.1", port: 4177 },
 	notify: { onSettled: true, debounceMs: 10_000, notifyOnAborted: false, subject: "pi: finished" },
 	tuning: {

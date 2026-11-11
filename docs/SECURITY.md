@@ -93,6 +93,11 @@ A legitimate email can still contain text that reads like instructions
   the key invalidates every outstanding token.
 - Turn it off with `/back` when you will be at the desk. An idle mailbox should
   not be a listening control channel.
+- **One mailbox for both roles** (`security.allowSelfReplies`). The loop guard is
+  relaxed for self-addressed mail, so the sender allowlist alone no longer
+  separates "me" from "not me" — it is the same address. The tie-breaker is
+  `In-Reply-To`: only a reply is accepted, and that header is trivially forgeable
+  by anyone who can already send from your address. Prefer a dedicated mailbox.
 - **Multiple machines, one mailbox.** Each daemon only claims replies whose token
   names its own device, so they cannot steal each other's work. They do share one
   allowlist and one secret — if one machine is compromised, rotate the key and

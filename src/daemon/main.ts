@@ -31,6 +31,7 @@ import { tokenFromSubject } from "../core/token.ts"
 
 const EXIT_CONFIG = 2
 const EXIT_AUTH = 3
+const EXIT_NETWORK = 4
 
 // ---------------------------------------------------------------------------
 // Token supply
@@ -90,6 +91,66 @@ async function login(config: ResolvedConfig): Promise<number> {
 	}
 
 	log("authorised; refresh token stored")
+	return 0
+}
+
+/**
+ * `--smoke`: prove the real account works, both directions, without pi.
+ *
+ *   1. resolve a token (LOGIN or OAuth2)
+ *   2. send one mail over SMTP
+ *   3. open the IMAP folder and count messages
+ *
+ * Deliberately does NOT touch the cursor, the journal, or any pending record, so a
+ * smoke test can never disturb real deliveries.
+ */
+async function smoke(config: ResolvedConfig): Promise<number> {
+	const tokenProvider = await buildTokenProvider(config)
+	const getAccessToken = tokenProvider ? () => tokenProvider.getToken() : undefined
+
+	// --- SMTP ---
+	try {
+		const stamp = new Date().toISOString()
+		const sent = await sendMail(
+			config,
+			{
+				to: config.mail.to,
+				subject: `pi-mailbridge smoke test ${stamp}`,
+				text: `This is a smoke test from ${config.device.name}.\n\nIf you can read this, SMTP works.\n`,
+			},
+			{ getAccessToken },
+		)
+		log(`smtp ok: sent to ${config.mail.to}${sent.messageId ? ` (${sent.messageId})` : ""}`)
+	} catch (error) {
+		log(`smtp FAILED: ${(error as Error).message}`)
+		return EXIT_AUTH
+	}
+
+	// --- IMAP ---
+	let client: Awaited<ReturnType<ReturnType<typeof createImapflowFactory>>> | undefined
+	try {
+		const factory = createImapflowFactory({ getAccessToken })
+		client = await factory(config, { idleRenewMs: config.tuning.idleRenewMs })
+		await client.connect()
+		await client.mailboxOpen(config.mail.imap.folder || "INBOX")
+		const uids = await client.search({ uid: "1:*" }, { uid: true })
+		log(`imap ok: ${uids.length} message(s) visible in ${config.mail.imap.folder || "INBOX"}`)
+	} catch (error) {
+		const message = (error as Error).message
+		log(`imap FAILED: ${message}`)
+		if (/auth|login|535|AUTHENTICATIONFAILED|authenticated but not connected/i.test(message)) {
+			log("if the token is valid but IMAP rejects it, the account may need the Graph transport — see docs/OAUTH.md")
+		}
+		return EXIT_AUTH
+	} finally {
+		try {
+			await client?.logout()
+		} catch {
+			/* already gone */
+		}
+	}
+
+	log("smoke ok: both directions work")
 	return 0
 }
 
@@ -257,6 +318,11 @@ async function main(): Promise<void> {
 	}
 	if (argv.includes("--auth")) {
 		process.exitCode = await login(config)
+		return
+	}
+	if (argv.includes("--smoke")) {
+		for (const warning of config.warnings) log(`warning: ${warning}`)
+		process.exitCode = await smoke(config)
 		return
 	}
 

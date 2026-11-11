@@ -49,6 +49,44 @@ With more than one machine, each daemon has its own `device.name`; a reply is on
 claimed by the daemon whose device the token names, so two machines sharing one
 mailbox never fight over the same message.
 
+## One mailbox or two?
+
+Two layouts work. Pick before you start, because it changes the allowlist.
+
+**A. Dedicated mailbox (recommended).** pi gets its own address; your personal
+address receives notifications and sends replies.
+
+```
+mail.imap.user / mail.smtp.user = pi@example.com      # pi's mailbox
+mail.to                          = you@example.com     # you
+security.allowFrom               = ["you@example.com"]
+security.allowSelfReplies        = false               # the default
+```
+
+Isolation is real: a compromised pi mailbox is not your personal inbox, and the
+loop guard stays strict.
+
+**B. One mailbox (single personal account).** pi's mailbox *is* your address, so
+notifications land in your inbox and you reply from the same address.
+
+```
+mail.imap.user / mail.smtp.user = you@hotmail.com
+mail.to                          = you@hotmail.com
+security.allowFrom               = ["you@hotmail.com"]
+security.allowSelfReplies        = true      # required, or every reply is a "self" loop
+```
+
+`allowSelfReplies` accepts a message from your own address **only when it carries
+`In-Reply-To`** — i.e. only when it is genuinely a reply. Your own outbound
+notification has no `In-Reply-To` and is still rejected (`self-echo`), so pi cannot
+re-ingest its own mail as instructions.
+
+Once configured, prove it without pi:
+
+```bash
+pi-mailbridge --smoke     # sends one real mail, then opens the folder and counts
+```
+
 ## How a reply is identified
 
 A reply is matched to a session by the **first rule that succeeds**:
@@ -153,6 +191,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | `security.requireDmarcPass` | `true` | require a DMARC pass from the pinned relay |
 | `security.trustedAuthservId` | — | the only `Authentication-Results` host that is trusted |
 | `security.allowHeaderThreading` | `true` | accept a reply whose subject token was lost, by matching `In-Reply-To` / `References` against Message-IDs we minted |
+| `security.allowSelfReplies` | `false` | one address for both roles (personal Hotmail/Gmail): accept a self-addressed message, but only a real reply |
 | `security.tokenTtlHours` | `720` | routing-token lifetime; stale replies are refused |
 | `daemon.host` / `.port` | `127.0.0.1` / `4177` | loopback HTTP for the extension; the port is the instance lock |
 | `notify.onSettled` | `true` | email when an agent settles |
@@ -242,7 +281,7 @@ map and the port from `opencode-afk`: [docs/MAPPING.md](./docs/MAPPING.md).
 ## Status
 
 `0.1.0` — feature-complete for the single-user, one-mailbox case, not yet
-battle-tested against a live mailbox. 217 hermetic tests cover the token, authz,
+battle-tested against a live mailbox. 220 hermetic tests cover the token, authz,
 scan pipeline, stores, daemon HTTP surface, lifecycle, extension surface, tools,
 attachments and the full end-to-end loop.
 

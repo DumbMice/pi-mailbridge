@@ -357,3 +357,34 @@ test("header threading can be disabled", async () => {
 	})
 	assert.equal(r.reasons["no-token"], 1)
 })
+
+// --- single-mailbox mode (one address for both roles) ---------------------
+
+test("a reply from the mailbox's own address is rejected by default", async () => {
+	const e = env()
+	const r = await scanAndProcess(config(), { source: source([msg(1, { from: MAILBOX })]), secret: SECRET, env: e })
+	assert.equal(r.reasons["self"], 1)
+	assert.equal(listPending(e).length, 0)
+})
+
+test("single-mailbox mode accepts a genuine reply from the same address", async () => {
+	const e = env()
+	const r = await scanAndProcess(
+		config({ allowSelfReplies: true, allowFrom: [MAILBOX] }),
+		{ source: source([msg(1, { from: MAILBOX, headers: { authResults: [GOOD_AR], inReplyTo: "<out-9@pi.local>" } })]), secret: SECRET, env: e },
+	)
+	assert.equal(r.persisted, 1, "the human replying from their own mailbox must work")
+	assert.equal(listPending(e)[0]!.sessionId, SESSION)
+})
+
+test("single-mailbox mode still rejects our own notification echo", async () => {
+	const e = env()
+	// Our outbound notification carries a token but no In-Reply-To.
+	const r = await scanAndProcess(config({ allowSelfReplies: true, allowFrom: [MAILBOX] }), {
+		source: source([msg(1, { from: MAILBOX })]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.reasons["self-echo"], 1, "must not inject our own sent mail as a reply")
+	assert.equal(listPending(e).length, 0)
+})
