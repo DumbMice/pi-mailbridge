@@ -30,6 +30,14 @@ export interface TransportLike {
 
 export type TransportFactory = (options: Record<string, unknown>) => TransportLike
 
+/**
+ * Compile-time guard: nodemailer's transport must satisfy what we call. Same reason
+ * as the IMAP guard — the factory casts, so drift would otherwise be invisible.
+ */
+type AssertNodemailerShape = ReturnType<typeof nodemailer.createTransport> extends TransportLike ? true : never
+const _nodemailerShapeOk: AssertNodemailerShape = true
+void _nodemailerShapeOk
+
 /** Default: nodemailer. Tests inject a fake so no socket is ever opened. */
 export const defaultTransportFactory: TransportFactory = (options) =>
 	nodemailer.createTransport(options as Parameters<typeof nodemailer.createTransport>[0]) as TransportLike

@@ -326,3 +326,28 @@ test("searchAfter and fetch throw (not hang) when not connected", async () => {
 	await assert.rejects(() => w.searchAfter(0), /not connected/)
 	await assert.rejects(() => w.fetch(1), /not connected/)
 })
+
+// --- imapflow adapter (guards a real crash fix) ----------------------------
+
+test("the adapter normalizes imapflow's falsy search result", async () => {
+	const { adapt } = await import("../src/daemon/imapflow.ts")
+	for (const empty of [false, undefined]) {
+		const fakeClient = {
+			async search() {
+				return empty
+			},
+			on() {},
+			usable: true,
+		} as never
+		const adapted = adapt(fakeClient)
+		// Before the adapter, this was `false.filter(...)` -> TypeError on a quiet mailbox.
+		assert.deepEqual(await adapted.search({ uid: "1:*" }, { uid: true }), [])
+	}
+})
+
+test("the adapter passes real results through and exposes usable", async () => {
+	const { adapt } = await import("../src/daemon/imapflow.ts")
+	const adapted = adapt({ async search() { return [3, 9] }, on() {}, usable: false } as never)
+	assert.deepEqual(await adapted.search({ uid: "1:*" }), [3, 9])
+	assert.equal(adapted.usable, false)
+})

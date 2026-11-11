@@ -80,6 +80,17 @@ another PC, a laptop, a tablet, a phone, webmail in a browser — can continue a
 session, because replies are routed by the signed token rather than by the
 sender's device.
 
+### Dependency upgrades
+
+- `imapflow` 1.7.8 → **2.11.0** (major), `nodemailer` 9.1.1 → **10.5.0** (major),
+  `mailparser` → 3.14.3.
+- The watcher and mailer now reach the real clients through **explicit adapters**
+  instead of `as unknown as` casts, so every call is checked against the library's
+  actual signature and a future major bump fails the build rather than the daemon.
+- Fixed as a direct result: `imapflow.search()` can return `false`/`undefined` for
+  an empty result set. The old cast hid it, so a quiet mailbox would have thrown
+  inside the scan. The adapter normalizes to `[]` and a test pins it.
+
 ### Fixed during development
 
 - Loop guard treated `mail.to` (the human) as "self", rejecting every genuine
