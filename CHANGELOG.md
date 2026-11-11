@@ -82,6 +82,7 @@ sender's device.
 
 ### Dependency upgrades
 
+- `openid-client` 6.8.9 added — device-code OAuth2 for any provider.
 - `imapflow` 1.7.8 → **2.11.0** (major), `nodemailer` 9.1.1 → **10.5.0** (major),
   `mailparser` → 3.14.3.
 - The watcher and mailer now reach the real clients through **explicit adapters**
@@ -102,6 +103,11 @@ sender's device.
 
 ### Known gaps
 
+- **Microsoft Graph transport.** Personal `outlook.com` can reject IMAP/SMTP
+  OAuth2 at the server (`User is authenticated but not connected`,
+  `SmtpClientAuthentication is disabled`). Graph (`/me/sendMail`, `messages/delta`)
+  avoids SMTP entirely and is the correct fix; it is not implemented yet. Paid
+  turnkey alternative: EmailEngine (self-hosted) or Nylas (hosted).
 - Creating a new session from mail (deliberately out of scope: `ctx.newSession()`
   replaces the active session).
 - MIME/S-MIME signing and encryption.

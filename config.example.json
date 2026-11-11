@@ -24,6 +24,11 @@
   "device": {
     "name": ""
   },
+  "oauth": {
+    "issuer": "https://login.microsoftonline.com/consumers/v2.0",
+    "clientId": "00000000-0000-0000-0000-000000000000",
+    "scope": "offline_access https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send"
+  },
   "security": {
     "allowFrom": ["you@example.com"],
     "requireDmarcPass": true,

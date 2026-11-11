@@ -144,6 +144,10 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | `mail.smtp.authType` | `LOGIN` | `LOGIN` or `XOAUTH2` |
 | `mail.smtp.tokenCommand` | `[]` | argv whose stdout is an access token (XOAUTH2) |
 | `mail.to` | — | **your** address: where notifications go |
+| `oauth.issuer` | — | OAuth2 discovery base URL (see the presets in docs/OAUTH.md) |
+| `oauth.clientId` | — | your app registration's client id |
+| `oauth.clientSecret` | — | only for confidential clients; omit for device code |
+| `oauth.scope` | — | must include `offline_access` for a refresh token |
 | `device.name` | first label of `os.hostname()` | machine name shown in every notification and carried in the routing token |
 | `security.allowFrom` | `[]` | senders allowed to command the agent; empty denies all |
 | `security.requireDmarcPass` | `true` | require a DMARC pass from the pinned relay |
@@ -159,11 +163,59 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | `tuning.autoIdleDelayMs` | `1000` | quiet period before imapflow re-issues IDLE |
 | `tuning.backoffInitialMs` / `.backoffMaxMs` | `1000` / `60000` | reconnect backoff bounds |
 
-### Outlook / Hotmail
+### Provider support
 
-Microsoft retired SMTP basic auth for `outlook.com`/`hotmail.com` on
-2024-09-16, so an app password **does not work**. Use `XOAUTH2` with a token
-command — any argv that prints an access token on stdout:
+| Provider | Auth | Status |
+| --- | --- | --- |
+| Any IMAP/SMTP host (self-hosted, Posteo, Fastmail, QQ, 163, Zoho…) | `LOGIN` app password | ✅ works |
+| Gmail | `XOAUTH2` or app password | ✅ works |
+| Microsoft 365 / work accounts | `XOAUTH2` | ✅ usually works |
+| **Personal** `@outlook.com` / `@hotmail.com` | `XOAUTH2` | ⚠️ see below |
+
+**Outlook needs OAuth2, not a password.** Microsoft retired Basic Authentication on
+2024-09-16, so an app password no longer authenticates. This package ships a
+device-code login, so you approve once from any device and it refreshes itself:
+
+```bash
+pi-mailbridge --check     # tells you exactly what is missing
+pi-mailbridge --auth      # prints a URL + code, waits for approval
+```
+
+```json
+"oauth": {
+  "issuer": "https://login.microsoftonline.com/consumers/v2.0",
+  "clientId": "<application (client) id>",
+  "scope": "offline_access https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send"
+}
+```
+
+One-time setup (free, ~2 min): register an app in Entra, enable *Allow public
+client flows*, copy the client id. Full walkthrough, including the scope tables
+and the Gmail equivalent: **[docs/OAUTH.md](./docs/OAUTH.md)**.
+
+#### The personal-Outlook caveat
+
+Honest warning, because it will save you an evening: **personal** `outlook.com`
+sometimes rejects IMAP/SMTP OAuth2 even when the token is valid —
+`User is authenticated but not connected`, or `SmtpClientAuthentication is
+disabled for the Mailbox`. That is Microsoft's side, not this package's.
+
+The reliable answer there is **Microsoft Graph** (`POST /me/sendMail`,
+`GET /me/mailFolders/inbox/messages/delta`), which never speaks SMTP. It is free,
+uses the same OAuth token, and needs no extra dependency — but it is **not
+implemented here yet**. If Graph matters to you, that is the one open feature.
+
+If you would rather pay for a turnkey service, [EmailEngine](https://emailengine.app/)
+(self-hosted, paid) uses Graph natively for Microsoft accounts and exposes one REST
+API over IMAP/SMTP/Gmail/Graph; [Nylas](https://www.nylas.com/) is the hosted
+equivalent. Both solve this class of problem by owning the OAuth apps and protocol
+quirks for you — at the cost of money and, for Nylas, your mail passing through a
+third party.
+
+### A token command instead
+
+If you already run a broker, skip the built-in flow — `oauth.*` takes precedence
+over `tokenCommand`, so remove the `oauth` block to use this:
 
 ```json
 "authType": "XOAUTH2",
@@ -190,7 +242,7 @@ map and the port from `opencode-afk`: [docs/MAPPING.md](./docs/MAPPING.md).
 ## Status
 
 `0.1.0` — feature-complete for the single-user, one-mailbox case, not yet
-battle-tested against a live mailbox. 202 hermetic tests cover the token, authz,
+battle-tested against a live mailbox. 217 hermetic tests cover the token, authz,
 scan pipeline, stores, daemon HTTP surface, lifecycle, extension surface, tools,
 attachments and the full end-to-end loop.
 

@@ -168,3 +168,21 @@ test("the reply identification rule is documented in README and ARCHITECTURE", (
 	const security = example["security"] as Record<string, unknown>
 	assert.equal(security["allowHeaderThreading"], true, "example config must ship the default")
 })
+
+test("OAuth is documented and shipped in the example config", () => {
+	assert.ok(existsSync(new URL("../docs/OAUTH.md", import.meta.url)), "docs/OAUTH.md must exist")
+	assert.ok(readme.includes("docs/OAUTH.md"), "README must link the OAuth guide")
+
+	const oauth = example["oauth"] as Record<string, unknown>
+	assert.ok(oauth, "config.example.json must ship an oauth block")
+	for (const key of ["issuer", "clientId", "scope"]) {
+		assert.equal(typeof oauth[key], "string", `oauth.${key} must be present`)
+	}
+	assert.match(String(oauth["scope"]), /offline_access/, "offline_access is required for a refresh token")
+})
+
+test("the provider matrix names the risky case honestly", () => {
+	assert.match(readme, /Personal.*outlook\.com|personal-Outlook/i, "README must call out personal Outlook")
+	assert.match(readme, /Graph/, "README must name the Graph escape hatch")
+	assert.match(readme, /not\s+\*\*implemented|not implemented/i, "README must admit Graph is not built yet")
+})
