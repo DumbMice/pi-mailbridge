@@ -75,8 +75,7 @@ function fakePi(ctx: ExtensionCtxLike): FakePi {
 	return pi
 }
 
-function ctx(): ExtensionCtxLike {
-	const notes: string[] = []
+function ctx(notes: string[] = []): ExtensionCtxLike {
 	return {
 		cwd: "/home/ybc/Work/proj",
 		sessionManager: { getSessionId: () => SESSION, getName: () => "fix-login" },
@@ -534,4 +533,24 @@ test("a throttled respawn still re-arms the poll", async () => {
 
 	const before = t.queue.filter((q) => q.ms === 10_000).length
 	assert.ok(before >= 2, "even a throttled tick re-arms")
+})
+
+test("a refused send is surfaced to the user, not silently dropped", async () => {
+	// The idle notification is the one mail this product exists to deliver. Previously the
+	// client's {ok:false} was discarded here, so a refusal vanished without a trace.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ sendOk: false })
+	const pi = boot(daemon, t.timers, ctx(notes))
+	await pi.fire("session_start")
+
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.filter((q) => q.ms === 10_000)[0]!.handler()
+	await new Promise((r) => setImmediate(r))
+	await new Promise((r) => setImmediate(r))
+
+	assert.ok(
+		notes.some((n) => /could not send/.test(n)),
+		`the user must be told the notification failed (notifications: ${JSON.stringify(notes)})`,
+	)
 })

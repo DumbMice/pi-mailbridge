@@ -249,7 +249,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				})
 				// A non-ok result used to be discarded here, so a refused or timed-out send
 				// vanished: no toast, no log, no retry. Throwing routes it to onError.
-				if (sent && !sent.ok) throw new Error(`send failed (${sent.code ?? sent.status})`)
+				// `sent === undefined` means there is no client at all; reporting that as a
+				// success would make "nothing was sent" indistinguishable from "sent".
+				if (!sent) throw new Error("send failed (daemon unavailable)")
+				if (!sent.ok) throw new Error(`send failed (${sent.code ?? sent.status})`)
 			},
 			secret: () => secret,
 			config: { ...config.notify, tokenTtlHours: config.security.tokenTtlHours },

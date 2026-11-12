@@ -384,7 +384,7 @@ failing process on every scan.
 ```
 IMAP IDLE ──► scan (UID cursor) ──► authorize ──► route ──► strip quote ──► persist
                                                                      │
-                     pi session ◄── claim ◄── SSE/poll ◄─────────────┘
+                     pi session ◄── claim ◄── poll ◄─────────────────┘
                           │
                           └──► inject as followUp ──► ack ──► \Seen + journal
 ```

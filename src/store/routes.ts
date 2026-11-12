@@ -14,7 +14,7 @@
 //     device's mail.
 //   - The tag is not signed. It does not need to be: it is only a lookup key, and an
 //     unknown key resolves to nothing. Authorization is still the sender allowlist
-//     plus pinned DMARC (docs/SECURITY.md §2.2).
+//     plus DMARC (docs/SECURITY.md §2.2).
 //
 // Signed tokens keep working: messages minted before this change still route.
 

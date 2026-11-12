@@ -214,9 +214,12 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					const instanceId = typeof body?.instanceId === "string" ? body.instanceId : ""
 					if (!Number.isInteger(uid) || !instanceId) return fail(400, "bad_request")
 
-					// Journal BEFORE removing the record and before touching the mail:
-					// the journal is the dedupe authority, so it must not be possible to
-					// ack, then lose the journal write, then redeliver.
+					// Remove the record, THEN journal, then touch the mail. The order looks
+					// backwards but is the safe one: the journal is read at scan time, so
+					// journalling while the record still exists would leave a window where a
+					// polling session claims and injects the same reply twice. Losing the
+					// journal write after a successful ack only re-opens dedupe for a UID that
+					// is no longer in `pending`, which the scanner never reads again.
 					if (!ackPending(env, uid, instanceId)) return fail(409, "not_claimed")
 					journal(env, uid)
 					registry.release(String(body?.sessionId ?? ""))

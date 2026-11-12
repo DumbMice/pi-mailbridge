@@ -12,7 +12,7 @@
         │  pending store (durable)     │
         │  registry (1 decision/sess)  │
         └───────┬──────────────┬───────┘
-                │ SSE: delivery│   SSE: mode
+                │ poll: /pending│   poll: /mode
       ┌─────────▼────┐   ┌─────▼────────┐
       │ pi session A │   │ pi session B │   thin clients (in-process extensions)
       │ claim → ack  │   │ claim → ack  │
@@ -35,7 +35,7 @@ mail through the daemon, and receives replies from it.
 new UID ──► fetch ──► authorize ──► route (id / token / chain) ──► persist pending (durable)
                                                         │
                                                         ▼
-                                              broadcast `delivery` (SSE)
+                                     waiting for the next poll tick (or an SSE push)
                                                         │
                               ┌─────────────────────────┴──────────┐
                               │ every session sees it; only the    │
@@ -67,8 +67,8 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/health` | liveness probe; **unauthenticated** by design (mode, pending/session/client counts, last ping, whether idle-exit is armed — no content, no addresses) |
-| GET | `/events` | SSE: `delivery`, `mode` |
-| GET | `/pending` | catch-up list for reconnecting clients |
+| GET | `/events` | SSE: `delivery`, `mode` (no client uses it; sessions poll) |
+| GET | `/pending` | the delivery channel: polled every 10 s, and replayed on reconnect |
 | POST | `/claim` | `{uid, instanceId}` — atomic claim |
 | POST | `/ack` | claimant-only → `\Seen` + journal + prune |
 | POST | `/register` | reserve a session's single outstanding decision |
@@ -93,11 +93,11 @@ Subject format:
 ```
 
 A six-hex-character **local route id**, resolved from `store/routes.ts`. It replaced a
-signed token (a ~37-character token, in a subject well over 80) that made every subject unreadable in a notification
+signed token (39 characters, in a subject well over 80) that made every subject unreadable in a notification
 preview. Signed tokens still verify, so mail already in flight keeps working.
 
 The id is a lookup key, not a credential: an unknown id resolves to nothing, and
-authorization remains the sender allowlist plus pinned DMARC (§2.2). Because routes are
+authorization remains the sender allowlist plus DMARC (§2.2). Because routes are
 local, an id minted on one machine simply does not resolve on another — which is the
 desired behaviour, not an error.
 
@@ -157,8 +157,8 @@ notification subject and body. It exists for two reasons:
 `/back` → mode `off`: decisions use the terminal as usual.
 
 Mode is global per machine (one human, one mailbox) and persisted, so a daemon
-restart does not silently re-enable mailing. It is pushed to every connected
-session over SSE.
+restart does not silently re-enable mailing. Each session reads it on its poll tick (the
+daemon also broadcasts it to any `/events` subscriber, of which there are none today).
 
 ## 6. Deliberately out of scope: creating sessions
 

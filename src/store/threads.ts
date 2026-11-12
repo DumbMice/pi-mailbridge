@@ -11,7 +11,7 @@
 //
 // Threat note: a Message-ID is unguessable in practice — it is only visible to the
 // recipient of the mail — and this path still sits behind the sender allowlist and
-// pinned DMARC. It is a convenience fallback, not an authentication mechanism.
+// DMARC. It is a convenience fallback, not an authentication mechanism.
 //
 // Capped and atomic, like every other store here.
 

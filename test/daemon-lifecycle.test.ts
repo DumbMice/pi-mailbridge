@@ -289,23 +289,45 @@ test("a daemon that never answers times out instead of wedging the caller", asyn
 	assert.equal(!result.ok && result.code, "timeout")
 })
 
-test("a send gets a longer ceiling than a poll, so a slow relay is not cut off", async () => {
+test("a send outlives the generic ceiling, so a slow relay is not cut off", async () => {
 	// The generic ceiling covers /pending; a notification carries inlined images and the
-	// daemon awaits the whole SMTP transaction, so reusing the short one drops the mail.
+	// daemon awaits the whole SMTP transaction. If /send reused the short budget it would
+	// abort mid-transaction and the mail would be reported as failed.
 	const { createDaemonClient } = await import("../src/daemon/spawn.ts")
-	const seen: { path: string; signal: AbortSignal | undefined }[] = []
 	const client = createDaemonClient({
 		baseUrl: "http://127.0.0.1:1",
 		token: "t",
-		timeoutMs: 15_000,
+		timeoutMs: 40,
 		fetchImpl: ((url: string, init?: { signal?: AbortSignal }) => {
-			seen.push({ path: new URL(url).pathname, signal: init?.signal })
-			return Promise.resolve(new Response("{}", { status: 200 }))
+			const path = new URL(url).pathname
+			if (path === "/pending") {
+				// Never answers: only the abort settles it.
+				return new Promise((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () => {
+						const e = new Error("aborted")
+						e.name = "AbortError"
+						reject(e)
+					})
+				})
+			}
+			// A slow-but-successful send, well past the generic 40 ms budget. It honours the
+			// signal, so a short budget really does kill it - that is what makes this test
+			// fail when the per-call timeout is removed.
+			return new Promise((resolve, reject) => {
+				const timer = setTimeout(() => resolve(new Response("{}", { status: 200 })), 150)
+				init?.signal?.addEventListener("abort", () => {
+					clearTimeout(timer)
+					const e = new Error("aborted")
+					e.name = "AbortError"
+					reject(e)
+				})
+			})
 		}) as never,
 	})
-	await client.pending()
-	await client.send({ subject: "x", text: "y" })
-	assert.deepEqual(seen.map((s) => s.path), ["/pending", "/send"])
-	// Both are abortable, but with different budgets; the send must not be the 15 s one.
-	assert.ok(seen[1]!.signal, "the send must carry its own abort signal")
+
+	const poll = await client.pending()
+	assert.equal(!poll.ok && poll.code, "timeout", "the poll uses the short budget")
+
+	const sent = await client.send({ subject: "x", text: "y" })
+	assert.equal(sent.ok, true, "the send must not be cut off by the poll budget")
 })

@@ -154,7 +154,7 @@ pi.registerCommand("mailbridge", { description: "Mailbridge status", handler: (_
 4. **A routing id in the subject — but no longer a signature.** Shipped as a 6-hex
    local route id (`[pi:f913c9]`), looked up in `store/routes.ts`. This is the one
    deliberate reversal from the baseline: a signed token made every subject preview
-   unreadable (a ~37-character token, in a subject over 80 characters). HMAC tokens still
+   unreadable (a 39-character token, in a subject over 80 characters). HMAC tokens still
    verify for mail already in flight, and
    authorization never depended on the token either way.
 5. **Global mode store.** `/afk` and `/back` are explicit, persisted, and

@@ -116,10 +116,11 @@ A legitimate email can still contain text that reads like instructions
   (`${XDG_STATE_HOME:-~/.local/state}/pi-mailbridge`):
   - `routes.json` — short ids. Resolve with no secret.
   - `threads.json` — the reply chain. Resolves recorded Message-IDs with no secret.
-  - `pending.json` — **already-accepted replies waiting for a session.** Deleting `routes`
-    and `threads` stops new mail being routed, but anything persisted before is still
-    delivered on the next drain; if the session is compromised, this is the queue that
-    matters.
+  - `pending.json` — **already-accepted replies waiting for a session.** Deleting the two
+    routing stores stops new mail being routed *by id or chain*, but anything persisted
+    before is still delivered on the next drain - and a legacy token still resolves until
+    it expires or you rotate the key. If the session is compromised, this is the queue
+    that matters.
   - `journal.json` — only the ack dedupe. Clearing it re-opens replay of already-acked
     mail, so prefer leaving it unless you also cleared the mailbox.
   Secrets (`secret.key`, `oauth.json`) live beside them; rotating those is covered above.
@@ -149,6 +150,6 @@ A legitimate email can still contain text that reads like instructions
 
 ## 7. Reporting
 
-Email the address in `package.json` (`author`), or open a private security
-advisory on the repository. Do not file a public issue for anything in this
-document.
+Open a private security advisory on the repository (`repository` in `package.json`).
+If that is not available, contact the maintainer named in `package.json`'s `author`
+field. Do not file a public issue for anything in this document.

@@ -45,6 +45,13 @@ test("the documented HTTP surface exists in the handler, with the right method",
 		.filter((line) => /^\| (GET|POST|DELETE|GET\/POST) \| `\//.test(line))
 	assert.ok(rows.length > 8, "expected the request table to be present")
 
+	// /health is unauthenticated, so a blanket "every request carries a bearer token" two
+	// lines above its row is self-contradictory.
+	assert.ok(
+		!/Every request carries/.test(doc("docs/ARCHITECTURE.md")),
+		"ARCHITECTURE must qualify its bearer-token claim, because /health is unauthenticated",
+	)
+
 	// Every row in the request table must use a method the handler understands; otherwise a
 	// fabricated `| PUT | /admin |` row is silently skipped by the filter above.
 	for (const row of doc("docs/ARCHITECTURE.md").split("\n")) {
@@ -267,4 +274,28 @@ test("no document claims the extension uses SSE", () => {
 	assert.ok(!extension.includes("/events"), "the extension must not claim to use /events")
 	assert.ok(!/"SSE client"|SSE client|over loopback SSE/i.test(doc("AGENTS.md")), "AGENTS.md claims an SSE client")
 	assert.ok(!/sessions are thin clients that connect over loopback SSE/i.test(doc("docs/ARCHITECTURE.md")))
+})
+
+test("the revocation recipe names every store that can still deliver", () => {
+	// Round 4 blocked on this: the recipe named the routing stores but not the queue, so
+	// following it still injected an already-accepted reply.
+	const security = doc("docs/SECURITY.md")
+	const start = security.search(/To revoke, stop the daemon/i)
+	assert.ok(start > -1, "SECURITY should document how to revoke")
+	const recipe = security.slice(start, start + 1800)
+	for (const store of ["routes.json", "threads.json", "pending.json"]) {
+		assert.ok(recipe.includes(store), `the revocation recipe must name ${store}`)
+	}
+	assert.match(recipe, /journal\.json/, "and must say what the journal is (dedupe, not routing)")
+})
+
+test("SECURITY and README do not describe SSE as the session transport", () => {
+	// Sessions poll; the daemon offers /events, but nothing subscribes. ARCHITECTURE may
+	// mention it (it explains why), these two may not imply it is how replies arrive.
+	// SSE may be mentioned as a bound ("SSE client cap") - it may not be presented as how a
+	// session receives a delivery or a mode change.
+	const transportClaim = /over SSE|SSE client of|subscribe[sd]? .*SSE|SSE: delivery|pushed to every connected session/i
+	for (const name of ["docs/SECURITY.md", "README.md"]) {
+		assert.ok(!transportClaim.test(doc(name)), `${name} presents SSE as the session transport`)
+	}
 })

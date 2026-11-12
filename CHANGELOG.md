@@ -35,8 +35,9 @@ a live mailbox.
   the ~29 min cutoff; bounded backoff; `start()` never throws on a dead server.
 - `daemon/service.ts` — `/health`, `/events` (SSE), `/pending`, `/claim`, `/ack`,
   `/register`, `/ping`, `/bye`, `/mode`, `/send`, `/reload`, `/shutdown`;
-  constant-time bearer auth; bounded bodies and streams; ack journals before removing
-  the record.
+  constant-time bearer auth; bounded bodies and streams. Ack removes the record, then
+  journals it (the journal is consulted at scan time, so the reverse would open a
+  double-injection window).
 - `daemon/spawn.ts` — `probeHealth`, `ensureDaemon` (detached, unref'd), typed
   client.
 - `daemon/main.ts` — server first, then catch-up scan, then watcher; SIGTERM

@@ -27,7 +27,11 @@ function fakeClient(opts: { claimOk?: boolean; claimCode?: string; ackOk?: boole
 		async claim(uid, instanceId) {
 			calls.push(`claim:${uid}`)
 			claimed.push({ uid, instanceId })
-			if (opts.claimOk === false) return { ok: false, status: 409, code: opts.claimCode ?? "claimed-by-other" }
+			if (opts.claimOk === false) {
+				// The daemon answers 404 for a record that is gone and 409 for a lost race.
+				const code = opts.claimCode ?? "claimed-by-other"
+				return { ok: false, status: code === "not-found" ? 404 : 409, code }
+			}
 			return { ok: true, data: { ok: true } }
 		},
 		async ack(uid) {
@@ -187,4 +191,22 @@ test("two overlapping drains inject once", async () => {
 	await Promise.all([runner.drain(), runner.drain()])
 	assert.equal(injected, 1, "serialized: the second drain rides the first")
 	assert.equal(claims, 1)
+})
+
+test("a claim that could not be confirmed is not reported as 'not-found'", async () => {
+	// Only a definite 404 means the record vanished. A timeout, a rotated secret (401) or a
+	// bad request leave the outcome unknown, and the diagnostic must not claim otherwise.
+	for (const [code, status] of [
+		["timeout", 0],
+		["network", 0],
+		["unauthorized", 401],
+	] as const) {
+		const client = fakeClient({ claimOk: false, claimCode: code })
+		const { r } = runner(client, async () => {})
+		const outcome = await r.handle(record())
+		assert.equal(outcome, "claim-unconfirmed", `${code} must not read as not-found`)
+	}
+	const gone = fakeClient({ claimOk: false, claimCode: "not-found" })
+	const { r } = runner(gone, async () => {})
+	assert.equal(await r.handle(record()), "not-found", "a 404 really is gone")
 })
