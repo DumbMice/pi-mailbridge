@@ -474,9 +474,20 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				}
 
 				case "restart": {
-					if (!client) return void c.ui.notify("daemon is not reachable — nothing to restart", "warning")
-					const reloaded = await client.reload()
-					c.ui.notify(reloaded?.ok ? "daemon reloaded" : "reload failed", reloaded?.ok ? "info" : "error")
+					// A config reload cannot replace running code, so after an update the
+					// daemon would keep executing the old version. Stop the process and let
+					// the supervisor start a fresh one.
+					const ensure = deps.ensureDaemon ?? ((base: string, script: string) => ensureDaemon({ baseUrl: base, scriptPath: script, env }).then((r) => r.healthy))
+					if (client) {
+						await client.shutdown()
+						// Give the process a moment to release the port before respawning.
+						await new Promise((resolve) => setTimeout(resolve, 400))
+					}
+					const healthy = await ensure(baseUrl, fileURLToPath(new URL("./daemon/main.ts", import.meta.url)))
+					c.ui.notify(
+						healthy ? "daemon restarted with the current code" : "daemon did not come back — run /mailbridge restart again",
+						healthy ? "info" : "error",
+					)
 					return
 				}
 			}

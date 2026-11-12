@@ -148,6 +148,8 @@ export function createDaemonClient(options: DaemonClientOptions) {
 		send: (message: { to?: string; subject: string; text: string }) => call<{ ok: boolean }>("POST", "/send", message),
 		/** Re-read config and restart the watcher (after setup or auth). */
 		reload: () => call<{ ok: boolean }>("POST", "/reload"),
+		/** Ask the daemon to exit, so a fresh process can load updated code. */
+		shutdown: () => call<{ ok: boolean }>("POST", "/shutdown"),
 	}
 }
 

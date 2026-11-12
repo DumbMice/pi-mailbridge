@@ -384,3 +384,31 @@ test("a failed reload surfaces as 500 with the reason", async () => {
 		await service.close()
 	}
 })
+
+test("POST /shutdown acknowledges before exiting, and needs auth", async () => {
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-daemon-")) }
+	let stopped = 0
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env,
+		source: { searchAfter: async () => [], fetch: async () => undefined },
+		send: async () => {},
+		shutdown: () => {
+			stopped++
+		},
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	const base = `http://127.0.0.1:${port}`
+	try {
+		assert.equal((await fetch(`${base}/shutdown`, { method: "POST" })).status, 401)
+		assert.equal(stopped, 0, "unauthenticated shutdown must not work")
+
+		const ok = await fetch(`${base}/shutdown`, { method: "POST", headers: auth() })
+		assert.equal(ok.status, 200, "the client must get an answer before the process exits")
+		await new Promise((r) => setTimeout(r, 120))
+		assert.equal(stopped, 1)
+	} finally {
+		await service.close()
+	}
+})

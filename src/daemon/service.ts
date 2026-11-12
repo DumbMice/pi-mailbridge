@@ -43,6 +43,12 @@ export interface DaemonDeps {
 	 * `auth` so a fresh config or token takes effect without killing the daemon.
 	 */
 	reload?: () => Promise<{ ok: boolean; error?: string }>
+	/**
+	 * Ask the daemon to exit so a supervisor can start a fresh process.
+	 * `/reload` re-reads config but cannot replace running code, so an updated
+	 * package would otherwise keep executing the previous version until reboot.
+	 */
+	shutdown?: () => void
 	env?: NodeJS.ProcessEnv
 	now?: () => number
 	registry?: Registry
@@ -200,6 +206,15 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					if (!sessionId) return fail(400, "bad_request")
 					registry.release(sessionId)
 					return send(200, { ok: true })
+				}
+
+				case "POST /shutdown": {
+					if (!deps.shutdown) return fail(501, "not_supported")
+					// Answer first, then exit: a client that got no response would report
+					// a failure for a restart that actually worked.
+					send(200, { ok: true })
+					setTimeout(() => deps.shutdown?.(), 50)
+					return undefined
 				}
 
 				case "POST /reload": {

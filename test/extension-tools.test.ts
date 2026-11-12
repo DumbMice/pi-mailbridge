@@ -40,6 +40,7 @@ interface Harness {
 	released: string[]
 	modes: string[]
 	reloads: number[]
+	shutdowns: number[]
 	start(): Promise<void>
 }
 
@@ -59,6 +60,7 @@ function harness(
 	const released: string[] = []
 	const modes: string[] = []
 	const reloads: number[] = []
+	const shutdowns: number[] = []
 	let currentMode = over.mode ?? "on"
 
 	const ok = <T>(data: T): DaemonResult<T> => ({ ok: true, data })
@@ -87,6 +89,10 @@ function harness(
 		},
 		reload: async () => {
 			reloads.push(1)
+			return ok({ ok: true })
+		},
+		shutdown: async () => {
+			shutdowns.push(1)
 			return ok({ ok: true })
 		},
 		send: async (message: { to?: string; subject: string; text: string }) => {
@@ -145,6 +151,7 @@ function harness(
 		released,
 		modes,
 		reloads,
+		shutdowns,
 		start: async () => {
 			await handlers.get("session_start")?.({}, ui)
 		},
@@ -292,7 +299,7 @@ test("/mailbridge help prints the usage", async () => {
 	}
 })
 
-test("/mailbridge restart asks the daemon to reload", async () => {
+test("/mailbridge restart replaces the process, not just the config", async () => {
 	const h = harness()
 	await h.start()
 	await h.commands.get("mailbridge")!("restart", {
@@ -300,8 +307,10 @@ test("/mailbridge restart asks the daemon to reload", async () => {
 		sessionManager: { getSessionId: () => SESSION },
 		ui: { notify: (m: string) => h.notes.push(m) },
 	})
-	assert.equal(h.reloads.length, 1)
-	assert.match(h.notes.join("\n"), /reloaded/)
+	// Config reload cannot replace running code, so restart stops the process and
+	// lets the supervisor spawn a fresh one.
+	assert.equal(h.shutdowns.length, 1, "restart must ask the daemon to exit")
+	assert.match(h.notes.join("\n"), /restarted with the current code/)
 })
 
 test("/mailbridge auth refuses a placeholder client id", async () => {

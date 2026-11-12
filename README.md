@@ -193,7 +193,7 @@ systemctl --user enable --now pi-mailbridge
 | `/mailbridge check` | Validate config and credentials; says what is missing |
 | `/mailbridge auth` | Start the OAuth2 device login; prints the URL, polls in the background |
 | `/mailbridge smoke` | Send one real mail, then read the folder back |
-| `/mailbridge restart` | Re-read config and restart the daemon's watcher |
+| `/mailbridge restart` | Replace the daemon process (needed after an update, not just a config change) |
 | `/mailbridge prime` | Set the cursor to now, so existing mail is never read |
 
 ## Agent tools

@@ -324,6 +324,11 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 				subject,
 			})
 		},
+		// Lets `/mailbridge restart` replace the process, not just its config, so an
+		// updated package actually takes effect.
+		shutdown: () => {
+			void shutdown("shutdown requested")
+		},
 		// `/mailbridge setup` / `auth` write new config or tokens; pick them up here.
 		reload: async () => {
 			try {

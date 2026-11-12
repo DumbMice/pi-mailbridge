@@ -81,6 +81,17 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### restart replaces the daemon process, not just its config
+
+Found by testing short-id routing against a live daemon: the daemon was still running
+the previous version, so it could not see `[pi:c05698]` and rejected the reply. A config
+reload cannot swap running code, which means an updated package would also have kept
+executing the old version after `pi update` until reboot.
+
+- daemon: POST /shutdown, authenticated, acknowledges before exiting
+- /mailbridge restart: stop the process, wait for the port, respawn through the
+  supervisor, and report whether it came back
+
 ### Mail is now multipart: text plus HTML
 
 Reported from a live reply: the quoted original did not fold away, it showed as raw
