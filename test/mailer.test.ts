@@ -28,6 +28,14 @@ function config(over: Partial<ResolvedConfig["mail"]["smtp"]> = {}): ResolvedCon
 	}
 }
 
+function xoauthConfig(): ResolvedConfig {
+	return config({ authType: "XOAUTH2", password: undefined })
+}
+
+function outbound() {
+	return { to: "you@example.com", subject: "pi: x", text: "y" }
+}
+
 function fakeTransport() {
 	const sent: Record<string, unknown>[] = []
 	const options: Record<string, unknown>[] = []
@@ -187,4 +195,57 @@ test("the subject cannot inject a header or exceed the line limit", async () => 
 	assert.equal(sanitizeSubject("pi: hello\r\nBcc: attacker@evil.test"), "pi: hello Bcc: attacker@evil.test")
 	assert.equal(sanitizeSubject("pi: a\nb\u0000c"), "pi: a b c")
 	assert.ok(sanitizeSubject("x".repeat(500)).length <= 200)
+})
+
+test("a revoked grant is refreshed once and the send retried", async () => {
+	// OAUTH.md promises one refresh on an auth failure; withFreshToken existed and was
+	// never called, so a revoked grant failed until a manual re-auth.
+	let tokens = 0
+	let attempts = 0
+	let invalidated = 0
+	const result = await sendMail(xoauthConfig(), outbound(), {
+		provider: {
+			getToken: async () => `tok-${++tokens}`,
+			invalidate: () => {
+				invalidated++
+			},
+			isDisabled: () => false,
+			state: () => ({ cached: true, disabled: false, failures: 0 }),
+		},
+		transportFactory: () =>
+			({
+				sendMail: async (message: { auth?: unknown }) => {
+					attempts++
+					// The stale token is rejected; the second attempt (fresh) succeeds.
+					if (attempts === 1) throw Object.assign(new Error("535 auth failed"), { responseCode: 535 })
+					return { messageId: "<ok@qq.com>" }
+				},
+			}) as never,
+	})
+	assert.equal(attempts, 2, "retried exactly once")
+	assert.equal(invalidated, 1, "the cached token was dropped")
+	assert.equal(tokens, 2, "and a new one minted")
+	assert.equal(result.messageId, "<ok@qq.com>")
+})
+
+test("a non-auth failure is not retried", async () => {
+	let attempts = 0
+	await assert.rejects(
+		sendMail(xoauthConfig(), outbound(), {
+			provider: {
+				getToken: async () => "tok",
+				invalidate: () => {},
+				isDisabled: () => false,
+				state: () => ({ cached: true, disabled: false, failures: 0 }),
+			},
+			transportFactory: () =>
+				({
+					sendMail: async () => {
+						attempts++
+						throw Object.assign(new Error("connection reset"), { code: "ECONNRESET" })
+					},
+				}) as never,
+		}),
+	)
+	assert.equal(attempts, 1)
 })

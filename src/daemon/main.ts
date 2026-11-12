@@ -316,7 +316,11 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 		source: sourceProxy,
 		send: (message) => {
 			const provider = tokenProvider
-			return sendMail(currentConfig, message, { ...(provider ? { getAccessToken } : {}) })
+			return sendMail(currentConfig, message, {
+				...(provider ? { getAccessToken: () => provider.getToken() } : {}),
+				// Lets a revoked grant be refreshed once instead of failing the notification.
+				...(provider ? { provider } : {}),
+			})
 		},
 		onSent: ({ messageId, subject, sessionId }) => {
 			if (!messageId) return

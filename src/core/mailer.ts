@@ -15,6 +15,7 @@
 import nodemailer from "nodemailer"
 
 import type { ResolvedConfig } from "./config.ts"
+import { withFreshToken, type TokenProvider } from "./oauth.ts"
 import { renderMessage } from "./html.ts"
 
 export interface OutboundMessage {
@@ -56,6 +57,11 @@ export interface SendDeps {
 	 * XOAUTH2; see src/core/oauth.ts for the caching implementation.
 	 */
 	getAccessToken?: () => Promise<string>
+	/**
+	 * Caching token provider. When supplied, an auth failure re-mints once and retries
+	 * instead of failing the send — see withFreshToken in core/oauth.ts.
+	 */
+	provider?: TokenProvider
 }
 
 /**
@@ -67,12 +73,14 @@ export async function buildTransportOptions(config: ResolvedConfig, deps: SendDe
 	const base = { host: smtp.host, port: smtp.port, secure: smtp.secure }
 
 	if (smtp.authType === "XOAUTH2") {
-		if (!deps.getAccessToken) {
+		// A provider is enough on its own: that is the path withFreshToken retries through.
+		const getToken = deps.getAccessToken ?? (deps.provider ? () => deps.provider!.getToken() : undefined)
+		if (!getToken) {
 			throw new Error(
 				"pi-mailbridge: smtp.authType is XOAUTH2 but no token provider is configured — set mail.smtp.tokenCommand (see docs/SECURITY.md)",
 			)
 		}
-		const accessToken = await deps.getAccessToken()
+		const accessToken = await getToken()
 		if (!accessToken) throw new Error("pi-mailbridge: OAuth2 token provider returned an empty token")
 		return { ...base, auth: { type: "OAuth2", user: smtp.user, accessToken } }
 	}
@@ -96,28 +104,43 @@ export async function sendMail(
 	if (!message.to) throw new Error("pi-mailbridge: no recipient (mail.to)")
 
 	const factory = deps.transportFactory ?? defaultTransportFactory
-	const transportOptions = await buildTransportOptions(config, deps)
-	const transporter = factory(transportOptions)
 	const rendered = renderMessage(message.text, { ...(message.cwd ? { root: message.cwd } : {}) })
 
-	const info = (await transporter.sendMail({
-		from: message.from ?? config.mail.smtp.user,
-		to: message.to,
-		// The subject carries model-controlled text. A CR/LF would fold a new header into
-		// the message (the classic header-injection shape), and an unbounded subject is
-		// rejected by some MTAs, so both are flattened here at the single choke point.
-		subject: sanitizeSubject(message.subject),
-		// multipart/alternative: clients fold quoted history only for HTML mail, so
-		// plain-text-only notifications produced reply threads of raw repeated text.
-		text: message.text,
-		html: rendered.html,
-		// Thread every notification for a session into one conversation. Subject alone is
-		// enough for Outlook's conversation topic; these headers are what Gmail uses.
-		...(message.inReplyTo ? { inReplyTo: message.inReplyTo } : {}),
-		...(message.references?.length ? { references: message.references.join(" ") } : {}),
-		// Local images become cid: attachments; a bare file path would arrive broken.
-		...(rendered.attachments.length > 0 ? { attachments: rendered.attachments } : {}),
-	})) as { messageId?: string } | undefined
+	// withFreshToken hands each attempt its token; use it directly rather than fetching a
+	// second one, or the provider is called twice per attempt and the counts drift.
+	const dispatch = async (accessToken?: string) => {
+		const transportOptions = await buildTransportOptions(
+			config,
+			accessToken ? { ...deps, getAccessToken: async () => accessToken } : deps,
+		)
+		const transporter = factory(transportOptions)
+		return (await transporter.sendMail({
+			from: message.from ?? config.mail.smtp.user,
+			to: message.to,
+			// The subject carries model-controlled text. A CR/LF would fold a new header into
+			// the message (the classic header-injection shape), and an unbounded subject is
+			// rejected by some MTAs, so both are flattened at the single choke point.
+			subject: sanitizeSubject(message.subject),
+			// multipart/alternative: clients fold quoted history only for HTML mail, so
+			// plain-text-only notifications produced reply threads of raw repeated text.
+			text: message.text,
+			html: rendered.html,
+			// Thread every notification for a session into one conversation. Subject alone is
+			// enough for Outlook's conversation topic; these headers are what Gmail uses.
+			...(message.inReplyTo ? { inReplyTo: message.inReplyTo } : {}),
+			...(message.references?.length ? { references: message.references.join(" ") } : {}),
+			// Local images become cid: attachments; a bare file path would arrive broken.
+			...(rendered.attachments.length > 0 ? { attachments: rendered.attachments } : {}),
+		})) as { messageId?: string } | undefined
+	}
+
+	// A revoked or expired grant surfaces as an auth error on the first attempt. With a
+	// provider, drop the cached token, mint a new one and retry once (OAUTH.md promises
+	// this); without one, the failure propagates as before.
+	const info =
+		deps.provider && config.mail.smtp.authType === "XOAUTH2"
+			? await withFreshToken(deps.provider, dispatch)
+			: await dispatch()
 
 	return info?.messageId ? { messageId: info.messageId } : {}
 }
