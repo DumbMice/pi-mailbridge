@@ -30,7 +30,8 @@ export const ROUTES_CAP = 2_000
 const ID_BYTES = 3
 const ID_HEX = ID_BYTES * 2
 
-export const ROUTE_RE = /\[\s*pi:([0-9a-f]{6})\s*\]/i
+/** 6 hex normally; 8 is the rare collision fallback further down, and must still match. */
+export const ROUTE_RE = /\[\s*pi:([0-9a-f]{6,8})\s*\]/i
 
 export interface RouteRecord {
 	id: string

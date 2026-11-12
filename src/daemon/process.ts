@@ -138,18 +138,20 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		const routeId = routeIdFromSubject(message.subject)
 
 		if (routeId) {
-			// Short ids are local, so an id minted on another machine simply does not
-			// resolve here — which is the behaviour we want, not an error.
+			// Short ids are local, so an id minted on another machine - or one whose 30-day
+			// TTL has passed - does not resolve here. Fall through to the older rules rather
+			// than dropping the reply: a human answering an old notification should still
+			// reach the session through the token or the reply chain.
 			const route = resolveRoute(routeId, { device: config.device.name, now: now(), env })
-			if (!route) {
-				result.rejected++
-				bump(result.reasons, "unknown-route")
-				result.cursor = advanceCursor(env, uid)
-				continue
+			if (route) {
+				sessionId = route.sessionId
+				bump(result.reasons, "routed")
+			} else {
+				bump(result.reasons, "route-miss")
 			}
-			sessionId = route.sessionId
-			bump(result.reasons, "routed")
-		} else {
+		}
+
+		if (!sessionId) {
 			const token = tokenFromSubject(message.subject, deps.secret, now(), config.device.name)
 			if (token) {
 				// deviceMatches === false means the token was minted for another machine.
@@ -162,9 +164,8 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 				}
 				sessionId = token.sessionId
 			} else if (config.security.allowHeaderThreading !== false) {
-				// Fallback: the reply chain itself. A human editing the subject, or a
-				// client rewriting it, still leaves In-Reply-To/References intact —
-				// that is how "reply to this mail" works.
+				// The reply chain: a client or human that rewrote the subject still leaves
+				// In-Reply-To/References intact, which is how "reply to this mail" works.
 				const ids = [
 					...parseMessageIds(message.headers.inReplyTo),
 					...parseMessageIds((message.headers.references ?? []).join(" ")),

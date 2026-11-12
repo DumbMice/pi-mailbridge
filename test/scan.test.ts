@@ -419,3 +419,23 @@ test("a sovereign-cloud oauth issuer is flagged as unusable for global Outlook",
 	const warnings = loadConfig(env).warnings.join("\n")
 	assert.match(warnings, /Azure China|21Vianet|sovereign/)
 })
+
+test("an unknown route id falls through to the reply chain instead of dropping the reply", async () => {
+	const e = env()
+	// A recorded outbound id, so the chain can identify the session.
+	recordOutbound(e, { messageId: "<root@qq.com>", sessionId: SESSION, device: "test-device", subject: "x" })
+	// A route id that does not exist locally (expired, or minted on another machine).
+	const r = await scanAndProcess(config(), {
+		source: source([
+			msg(1, {
+				subject: "Re: [pi:ffffff] pi: x",
+				headers: { authResults: [GOOD_AR], inReplyTo: "<root@qq.com>" },
+			}),
+		]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.reasons["route-miss"], 1, "the miss is recorded")
+	assert.equal(r.persisted, 1, "and the reply still arrives via the chain")
+	assert.equal(listPending(e)[0]!.sessionId, SESSION)
+})

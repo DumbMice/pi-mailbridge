@@ -132,3 +132,11 @@ test("a stable route means an identical subject, which is what clients group on"
 
 	assert.equal(first, second, "threading by conversation topic needs a byte-identical subject")
 })
+
+test("an 8-hex collision fallback is still matchable", async () => {
+	// The collision fallback mints 8 hex; ROUTE_RE used to accept exactly 6, so such an id
+	// could never be read back out of a subject and its session's replies were dropped.
+	const { ROUTE_RE: pattern } = await import("../src/store/routes.ts")
+	assert.equal(pattern.exec("[pi:abcdef12] pi: x")?.[1], "abcdef12")
+	assert.equal(pattern.exec("[pi:abcdef] pi: x")?.[1], "abcdef")
+})

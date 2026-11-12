@@ -385,7 +385,7 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 	await startWatcher(currentConfig)
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
 	const argv = process.argv.slice(2)
 	const config = loadConfig()
 

@@ -15,12 +15,21 @@
     "afk"
   ],
   "license": "MIT",
+  "author": "pi-mailbridge contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pi-mailbridge/pi-mailbridge.git"
+  },
   "type": "module",
   "engines": {
     "node": ">=22"
   },
+  "bin": {
+    "pi-mailbridge": "./bin/pi-mailbridge.mjs"
+  },
   "files": [
     "src",
+    "bin",
     "docs",
     "config.example.json",
     "CHANGELOG.md"

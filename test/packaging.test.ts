@@ -236,3 +236,23 @@ test("the daemon assigns currentWatcher before starting it", () => {
 		"start() fires onReady, whose catch-up scan reads through sourceProxy; assigning afterwards breaks it",
 	)
 })
+
+test("the documented CLI actually exists and ships", () => {
+	// README documents `pi-mailbridge --smoke/--check/--auth/--prime`, and SECURITY.md points
+	// at package.json's author for disclosure. All three were missing.
+	const pkg = JSON.parse(read("../package.json")) as {
+		bin?: Record<string, string>
+		author?: string
+		repository?: { url?: string }
+		files: string[]
+	}
+	assert.ok(pkg.bin?.["pi-mailbridge"], "package.json must declare the pi-mailbridge bin")
+	assert.ok(pkg.author, "SECURITY.md's disclosure channel needs an author")
+	assert.ok(pkg.repository?.url, "and a repository for the private advisory path")
+	assert.ok(pkg.files.includes("bin"), "the bin shim must ship in the tarball")
+
+	const shim = read("../bin/pi-mailbridge.mjs")
+	assert.match(shim, /^#!\/usr\/bin\/env -S node --experimental-strip-types/, "the shim supplies the TS flag")
+	assert.match(shim, /from "\.\.\/src\/daemon\/main\.ts"/)
+	assert.match(shim, /main\(\)/, "and actually invokes the CLI")
+})
