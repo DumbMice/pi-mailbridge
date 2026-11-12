@@ -249,3 +249,21 @@ test("a work-tenant config gets the organizations authority, not consumers", () 
 	assert.equal(config.oauth?.issuer, "https://login.microsoftonline.com/organizations/v2.0")
 	assert.match(String(config.oauth?.scope), /outlook\.office\.com\/IMAP/)
 })
+
+test("the NetEase family resolves offline, including yeah.net", async () => {
+	const fetchImpl = (async () => {
+		throw new Error("ENOTFOUND")
+	}) as unknown as typeof fetch
+	for (const [domain, imapHost, smtpHost] of [
+		["163.com", "imap.163.com", "smtp.163.com"],
+		["126.com", "imap.126.com", "smtp.126.com"],
+		["yeah.net", "imap.yeah.net", "smtp.yeah.net"],
+		["188.com", "imap.188.com", "smtp.188.com"],
+	] as const) {
+		const found = await discoverDomain(domain, { fetchImpl })
+		assert.ok(found, `${domain} must resolve offline`)
+		assert.equal(found.imap.host, imapHost)
+		assert.equal(found.smtp.host, smtpHost)
+		assert.equal(found.authType, "LOGIN")
+	}
+})

@@ -48,7 +48,9 @@ there is no OAuth app, no tenant, and no consent screen:
 
 | Provider | IMAP | SMTP | Notes |
 | --- | --- | --- | --- |
-| **QQ Mail** (`qq.com`, `foxmail.com`) | `imap.qq.com:993` | `smtp.qq.com:465` | Enable **IMAP/SMTP服务** in 设置 → 账户, then generate a 授权码 |
+| **163** (`163.com`) | `imap.163.com:993` | `smtp.163.com:465` | Enable in 设置 → POP3/SMTP/IMAP; SMS verification, then a 授权码. **No waiting period** |
+| **126 / yeah.net / 188.com** | same pattern | same pattern | NetEase family, same service |
+| **QQ Mail** (`qq.com`, `foxmail.com`) | `imap.qq.com:993` | `smtp.qq.com:465` | Enable **IMAP/SMTP服务** in 设置 → 账户, then a 授权码. **New accounts must be 14 days old**: *"你的QQ邮箱激活时间不满14天，故暂时无法开启"* |
 | **163** (`163.com`) | `imap.163.com:993` | `smtp.163.com:465` | Enable in 设置 → POP3/SMTP/IMAP; requires the IMAP `ID` command, which this client sends automatically |
 | **126** (`126.com`) | `imap.126.com:993` | `smtp.126.com:465` | same as 163 |
 

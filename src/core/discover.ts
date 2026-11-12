@@ -188,6 +188,19 @@ export const KNOWN_PROVIDERS: Record<string, Omit<Discovered, "provider"> & { pr
 		authType: "LOGIN",
 		provider: "other",
 	},
+	// NetEase's other free domains: same service, no waiting period.
+	"yeah.net": {
+		imap: { host: "imap.yeah.net", port: 993, secure: true },
+		smtp: { host: "smtp.yeah.net", port: 465, secure: true },
+		authType: "LOGIN",
+		provider: "other",
+	},
+	"188.com": {
+		imap: { host: "imap.188.com", port: 993, secure: true },
+		smtp: { host: "smtp.188.com", port: 465, secure: true },
+		authType: "LOGIN",
+		provider: "other",
+	},
 	"gmail.com": {
 		imap: { host: "imap.gmail.com", port: 993, secure: true },
 		smtp: { host: "smtp.gmail.com", port: 465, secure: true },

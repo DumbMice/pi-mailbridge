@@ -81,6 +81,13 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### NetEase family added; QQ has a 14-day wait
+
+QQ Mail refuses to enable IMAP/SMTP for accounts younger than 14 days
+('你的QQ邮箱激活时间不满14天'), which blocks a freshly created mailbox outright.
+NetEase has no such rule - only SMS verification - so 163, 126, yeah.net and 188.com
+are added to the built-in provider table as the immediate-use option.
+
 ### check: an empty app password is now a reported problem
 
 Running `--check` on a freshly written QQ config printed "config ok" while
