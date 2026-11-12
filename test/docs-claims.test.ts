@@ -861,3 +861,22 @@ test("the periodic scan is pinned where no test can drive it", () => {
 	)
 	assert.match(main, /const armPoll = \(\): void => \{[\s\S]{0,700}currentConfig\.daemon\.scanIntervalSecs/, "re-read per tick")
 })
+
+test("the commands a mail reply may run match the code", () => {
+	// The README table and SECURITY's threat note both name the accepted and refused commands;
+	// a drift between them and mail-command.ts is a security claim, not a doc nit.
+	const source = readFileSync(join(root, "src/core/mail-command.ts"), "utf8")
+	const safe = /MAIL_SAFE_SUBCOMMANDS[^=]*=\s*\[([^\]]*)\]/.exec(source)?.[1] ?? ""
+	const refused = /MAIL_REFUSED_SUBCOMMANDS\s*=\s*\[([^\]]*)\]/.exec(source)?.[1] ?? ""
+	const readme = doc("README.md")
+	const security = doc("docs/SECURITY.md")
+	for (const sub of safe.match(/"[a-z]+"/g) ?? []) {
+		const name = sub.replace(/"/g, "")
+		assert.ok(readme.includes(`/mailbridge ${name}`) || readme.includes(`\`/mailbridge\` or`), `README omits safe ${name}`)
+	}
+	for (const sub of refused.match(/"[a-z]+"/g) ?? []) {
+		const name = sub.replace(/"/g, "")
+		assert.ok(readme.includes(name), `README omits refused ${name}`)
+		assert.ok(security.includes(name), `SECURITY omits refused ${name}`)
+	}
+})

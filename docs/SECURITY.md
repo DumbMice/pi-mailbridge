@@ -181,6 +181,19 @@ A legitimate email can still contain text that reads like instructions
 - accept a message from outside the allowlist, however convincing
 - resume a session the human did not start
 
+## 6a. Commands arriving by mail
+
+A reply whose entire body is one command line executes that command (`/afk`, `/back`,
+`/mailbridge status|check|smoke|help`). It is **not** handed to pi's command parser, and the
+commands that change the machine are refused: `setup` (rewrites the config and the target
+address), `auth` (starts a credential flow), `restart` (replaces the daemon) and `prime` (skips
+unread mail) are delivered to the agent as text instead.
+
+What this costs: in the one-mailbox layout DMARC is off, so anyone who can forge the allowlisted
+`From` can toggle email mode or trigger a test mail. They cannot reconfigure the account, obtain
+credentials, restart the daemon or discard a queue by mail. In the two-address layout the reply
+must also pass DMARC.
+
 ## 7. Reporting
 
 Email the maintainer at the address in `package.json`'s `author`

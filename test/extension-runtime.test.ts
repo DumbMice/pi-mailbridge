@@ -786,10 +786,10 @@ test("a mode change that cannot reach the daemon still updates this session's mi
 	assert.ok(daemon.sent.length > 0, "and it mailed")
 })
 
-test("a mail reply can never be executed as a slash command", async () => {
-	// The regression this guards: the injected text is a human's mail, so pi must treat it as
-	// text. `/afk`, `/back` and `/mailbridge …` are all commands this package registers, and pi's
-	// prompt() dispatches any "/..." message to them instead of the model when expansion is on.
+test("a command reply runs the command instead of prompting the agent", async () => {
+	// Commands by mail are supported, but dispatched here rather than by pi: our dispatcher can
+	// tell a command that ran from a prompt pi rejected, and it refuses the commands that
+	// reconfigure the machine. The reply itself is never handed to pi's command parser.
 	const t = fakeTimers()
 	const daemon = fakeDaemon({
 		mode: "on",
@@ -799,6 +799,32 @@ test("a mail reply can never be executed as a slash command", async () => {
 	await pi.fire("session_start")
 	await new Promise((r) => setImmediate(r))
 	await new Promise((r) => setImmediate(r))
-	assert.equal(pi.sent.at(-1), "/back", "the text still reaches the agent verbatim")
-	assert.equal(pi.deliveryOptions.at(-1)?.expandPromptTemplates, false)
+	await new Promise((r) => setImmediate(r))
+
+	assert.equal(pi.sent.length, 0, "nothing was injected for the agent to read")
+	assert.equal(daemon.modes.at(-1), "off", "/back switched email mode off")
+})
+
+test("a reply that merely mentions a command is still a message", async () => {
+	const t = fakeTimers()
+	const daemon = fakeDaemon({
+		mode: "on",
+		pending: [
+			{
+				uid: 10,
+				sessionId: SESSION,
+				from: "you@example.com",
+				subject: "re",
+				body: "please stop mailing me\n/back",
+				receivedAt: 1,
+			},
+		],
+	})
+	const pi = boot(daemon, t.timers)
+	await pi.fire("session_start")
+	await new Promise((r) => setImmediate(r))
+	await new Promise((r) => setImmediate(r))
+
+	assert.match(pi.sent.at(-1) ?? "", /please stop mailing me/, "the whole reply reaches the agent")
+	assert.notEqual(daemon.modes.at(-1), "off", "and the quoted command did not run")
 })

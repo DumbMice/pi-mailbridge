@@ -18,6 +18,7 @@ import { formatScan, type ScanSummary } from "./core/status.ts"
 import { createSettleNotifier, type SettleContext, type SettleNotifier } from "./core/settle.ts"
 import { createDeliveryRunner, type DeliveryRunner } from "./core/deliveries.ts"
 import { toUserContent, type UserContent } from "./core/attachments.ts"
+import { parseMailCommand } from "./core/mail-command.ts"
 import { daemonBaseUrl, ensureDaemon, createDaemonClient, type DaemonClient } from "./daemon/spawn.ts"
 import { parseMailbridgeCommand, USAGE } from "./core/commands.ts"
 import { runSetup } from "./core/setup.ts"
@@ -293,6 +294,19 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			instanceId,
 			sessionId: () => ctx?.sessionManager.getSessionId(),
 			inject: async (body, record) => {
+				// A command by mail runs the same handler the prompt would, and then there is
+				// nothing to inject: the human asked for an action, not for the agent to read a
+				// sentence. Anything we do not run here stays a message, so a quoted "/back" or a
+				// refused "/mailbridge setup" is never executed by accident.
+				const command = parseMailCommand(body)
+				if (command) {
+					const handler = commandHandlers.get(command.name)
+					if (handler && ctx) {
+						await handler(command.args, ctx)
+						return
+					}
+				}
+
 				const content = toUserContent(body, record.attachments ?? [])
 				// A reply is text from a human, never a command. With template expansion on, pi
 				// dispatches a message starting with "/" as an extension command and never gives
@@ -419,12 +433,24 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		c.ui.notify(`mailbridge: email mode ${mode.toUpperCase()} (daemon unreachable, stored locally)`, "warning")
 	}
 
-	pi.registerCommand("afk", { description: "Email mode ON: decisions mail you", handler: (_a, c) => setMode("on", c) })
-	pi.registerCommand("back", { description: "Email mode OFF: decisions ask in the terminal", handler: (_a, c) => setMode("off", c) })
+	// The same handlers back both the in-pi command and a command arriving as a mail reply, so
+	// `/back` by mail and `/back` typed at the prompt cannot drift apart.
+	const commandHandlers = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const registerCommand = (
+		name: string,
+		description: string,
+		handler: (args: string, c: ExtensionCtxLike) => Promise<void>,
+	): void => {
+		commandHandlers.set(name, handler)
+		pi.registerCommand(name, { description, handler })
+	}
 
-	pi.registerCommand("mailbridge", {
-		description: "Status, setup, check, auth, smoke, restart",
-		handler: async (args, c) => {
+	registerCommand("afk", "Email mode ON: decisions mail you", (_a, c) => setMode("on", c))
+	registerCommand("back", "Email mode OFF: decisions ask in the terminal", (_a, c) => setMode("off", c))
+
+	registerCommand("mailbridge",
+		"Status, setup, check, auth, smoke, restart",
+		async (args, c) => {
 			// Re-read config on every command. It can change underneath us: `--setup`
 			// run from a shell, or an edit to config.json, would otherwise leave the
 			// command surface reporting stale settings until pi restarts.
@@ -687,7 +713,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				}
 			}
 		},
-	})
+	)
 
 	// ---- agent-facing tools ------------------------------------------------
 

@@ -108,10 +108,12 @@ pi.sendUserMessage(body, { deliverAs: "followUp", expandPromptTemplates: false }
 `deliverAs: "followUp"` queues the reply if a run is in flight — matching afk's
 behaviour when a decision is answered late.
 
-`expandPromptTemplates: false` is not an optimisation, it is a correctness requirement: with
-expansion on, pi dispatches a message starting with `/` to a registered command and never shows
-it to the model, so a reply of `/back` (or `/afk`, or `/mailbridge …`) would execute and return
-without a turn — and this package would ack and \`Seen\` it. Mail text is never a command.
+`expandPromptTemplates: false` is a correctness requirement, not an optimisation. With expansion
+on, pi dispatches any message starting with `/` to a registered command and returns without a
+turn, and it returns `void` — the caller cannot tell a command that ran from a prompt pi rejected
+(no model, expired credentials, compaction in progress), while this package acks and marks
+`\Seen` after that call returns. Commands by mail are therefore dispatched by this package
+(`core/mail-command.ts`), which limits them to the safe subset; everything else stays text.
 
 ### Lifecycle signal
 

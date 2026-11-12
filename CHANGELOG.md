@@ -104,6 +104,18 @@ notifications. A *partial* section produced by the env merge is repaired the sam
 matters because `{"daemon": null}` plus any daemon env var used to yield a daemon with no host
 and no port.
 
+### Commands by mail, dispatched here
+
+A reply whose entire body is one command line now runs that command: `/afk`, `/back`,
+`/mailbridge [status|check|smoke|help]`. `setup`, `auth`, `restart` and `prime` are refused and
+delivered as text, and anything longer than a single line is a message (so a quoted `/back`
+cannot change your mode). Dispatch happens in `core/mail-command.ts`, not through pi's
+`expandPromptTemplates`, because pi's dispatcher returns `void`: a caller cannot distinguish a
+command that ran from a prompt pi rejected, and this package acks and marks `\Seen` after the
+call returns. Sending mail through that dispatcher would have consumed a reply the agent never
+saw — which is also the failure this replaces, since pi can reject a plain-text prompt the same
+way (no model, expired credentials, compaction).
+
 ### Daemon
 
 - A session that attaches to an already-running daemon now reloads it when `config.json` is

@@ -401,6 +401,28 @@ systemctl --user enable --now pi-mailbridge
 | `/back` | Email mode off: decisions ask in the terminal |
 | `/mailbridge` | Status: daemon health, mode, session, secret, mailbox, allowlist, pending replies |
 | `/mailbridge help` | Same command list, from inside the session |
+
+### Commands by mail
+
+A reply whose **entire** body is one command line runs that command instead of being read by the
+agent — useful when you are away and want the phone to do something:
+
+| Reply | Effect |
+| --- | --- |
+| `/afk` | email mode ON (decisions mail you) |
+| `/back` | email mode OFF (decisions ask at the terminal) |
+| `/mailbridge` or `/mailbridge status` | the status panel |
+| `/mailbridge check`, `/mailbridge smoke` | validate the config / send one test mail |
+| `/mailbridge help` | the command list |
+
+Four are deliberately **not** runnable by mail — `/mailbridge setup`, `auth`, `restart` and
+`prime`. Anything else, including a reply that merely quotes a command under your text, is
+delivered to the agent as a message, so a quoted `/back` never switches your mode by accident.
+
+The reply is dispatched by this package, not handed to pi's command parser, for two reasons: the
+daemon can then tell "the command ran" from "pi rejected the prompt", and the refused four can
+never be triggered by someone who spoofs your address in the one-mailbox layout (where DMARC is
+off by design).
 | `/mailbridge setup <addr> [to <addr>] [force]` | Discover servers + auth, write the config, and start or reload the daemon |
 | `/mailbridge check` | Validate the config and that credentials are present (in pi: no network; `--check` runs your `tokenCommand` if XOAUTH2 is configured) |
 | `/mailbridge auth` | Start the OAuth2 device login; prints the URL, polls in the background |

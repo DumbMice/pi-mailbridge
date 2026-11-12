@@ -274,6 +274,7 @@ src/
     html.ts             text → HTML with quoted-history folding
     inline-images.ts    local image paths → cid: parts
     mailer.ts           nodemailer transport (password | XOAUTH2), headers
+    mail-command.ts     a reply that is a command → the safe subset, else text
     markdown.ts         notifications render as markdown
     oauth*.ts           device-code + OpenID flows, one-retry token provider
     reply-parse.ts      quote stripping, address + AR-header pinning
