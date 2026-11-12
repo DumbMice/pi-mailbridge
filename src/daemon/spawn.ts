@@ -184,7 +184,20 @@ export function createDaemonClient(options: DaemonClientOptions) {
 	}
 
 	return {
-		health: () => call<{ ok: boolean; mode: string; pending: number }>("GET", "/health"),
+		health: () =>
+			call<{
+				ok: boolean
+				mode: string
+				pending: number
+				lastScan?: {
+					at: number
+					examined: number
+					persisted: number
+					rejected: number
+					reasons: Record<string, number>
+				} | null
+				configLoadedAt?: number | null
+			}>("GET", "/health"),
 		pending: () => call<{ pending: PendingRecord[] }>("GET", "/pending"),
 		mode: () => call<{ mode: string }>("GET", "/mode"),
 		setMode: (mode: "on" | "off") => call<{ mode: string }>("POST", "/mode", { mode }),

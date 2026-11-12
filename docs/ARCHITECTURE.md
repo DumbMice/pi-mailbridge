@@ -38,7 +38,7 @@ to move the cursor without reading anything).
 new UID ──► fetch ──► authorize ──► route (id / token / chain) ──► persist pending (durable)
                                                         │
                                                         ▼
-                                     waiting for the next poll tick (or an SSE push)
+                                     waiting for the next poll tick
                                                         │
                               ┌─────────────────────────┴──────────┐
                               │ every session sees it; only the    │
@@ -183,7 +183,10 @@ systemd unit); or the poll tick, which respawns a daemon that exited while the s
 still alive. It is spawned *detached* so it outlives the process that started it and can
 serve other sessions. When a session finds one already running, it compares `/health`'s
 `configLoadedAt` with `config.json`'s mtime and issues `/reload` if the file is newer, so a
-hand-edited config is not served stale.
+hand-edited config is not served stale. Two limits worth knowing: the comparison is mtime
+based, so an edit that preserves the mtime (`cp -p`, a restore) is not noticed until
+`smoke`/`restart`; and only the daemon re-reads — the session's own copy of the config
+refreshes on the next `/mailbridge` command or pi restart.
 
 **Singleton.** The listening port is the lock. A second daemon fails to bind, logs the
 fact, and exits 0 - so N pi sessions share one watcher with no lock file or PID file to

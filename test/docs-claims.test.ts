@@ -569,3 +569,18 @@ test("the /health field list matches what the handler returns", () => {
 		assert.match(row, pattern, `the /health row omits ${field}`)
 	}
 })
+
+test("SECURITY's /health list matches ARCHITECTURE's", () => {
+	// The unauthenticated endpoint is what a security reviewer audits; ARCHITECTURE's list
+	// was updated twice while SECURITY's was not.
+	const security = flat(doc("docs/SECURITY.md"))
+	// The sentence may be split by the abbreviation-free prose only; take a window around
+	// "liveness probe" rather than stopping at the first period (the sentence is long).
+	const at = security.indexOf("liveness probe")
+	assert.ok(at > -1, "SECURITY should mention the liveness probe")
+	const sentence = security.slice(at, at + 400)
+	assert.ok(sentence, "SECURITY should describe what /health returns")
+	for (const field of ["last scan", "mtime"]) {
+		assert.ok(sentence.toLowerCase().includes(field), `SECURITY's /health list omits ${field}`)
+	}
+})

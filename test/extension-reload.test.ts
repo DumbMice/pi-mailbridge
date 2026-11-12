@@ -29,7 +29,7 @@ function config(): ResolvedConfig {
 	}
 }
 
-function harness(configLoadedAt: number, opts: { reloadOk?: boolean } = {}) {
+function harness(configLoadedAt: number, opts: { reloadOk?: boolean; reloadHangs?: boolean } = {}) {
 	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-stale-")) }
 	const configDirEnv = { ...env, XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "pmb-stale-cfg-")) }
 	const file = configPath(configDirEnv)
@@ -50,11 +50,14 @@ function harness(configLoadedAt: number, opts: { reloadOk?: boolean } = {}) {
 		register: async () => ({ ok: true as const, data: { alreadyPending: false, full: false } }),
 		release: async () => ({ ok: true as const, data: { ok: true } }),
 		send: async () => ({ ok: true as const, data: { ok: true } }),
-		reload: async () => {
+		reload: () => {
 			reloads++
-			return opts.reloadOk === false
-				? ({ ok: false as const, status: 500, code: "reload_failed" } as const)
-				: ({ ok: true as const, data: { ok: true } } as const)
+			if (opts.reloadHangs) return new Promise<never>(() => {})
+			return Promise.resolve(
+				opts.reloadOk === false
+					? ({ ok: false as const, status: 500, code: "reload_failed" } as const)
+					: ({ ok: true as const, data: { ok: true } } as const),
+			)
 		},
 		shutdown: async () => ({ ok: true as const, data: { ok: true } }),
 	}
@@ -110,15 +113,17 @@ test("a refused reload is surfaced, not swallowed", async () => {
 	)
 })
 
-test("session_start does not wait for the reload", async () => {
-	// A wrong host can make the daemon's IMAP dial take imapflow's whole connect timeout;
-	// blocking session start on that would freeze pi on the config the user just broke.
-	let finished = false
-	const h = harness(Date.now() - 60_000)
-	const client = h.events.get("session_start")!
-	const result = client({}, h.ctx)
-	await Promise.resolve(result).then(() => {
-		finished = true
-	})
-	assert.equal(finished, true)
+test("session_start settles even when the reload hangs", async () => {
+	// A wrong host can make the daemon's IMAP dial take imapflow's whole connect timeout, so
+	// the reload must not be awaited. The previous version of this test awaited
+	// Promise.resolve(handlerPromise), which is the handler's own promise - it passed even
+	// with `await` restored.
+	const h = harness(Date.now() - 60_000, { reloadHangs: true })
+	const started = h.events.get("session_start")!({}, h.ctx)
+	const winner = await Promise.race([
+		Promise.resolve(started).then(() => "settled"),
+		new Promise((r) => setTimeout(() => r("still-running"), 50)),
+	])
+	assert.equal(winner, "settled", "session_start must not await a hanging reload")
+	assert.equal(h.reloadCount(), 1, "but it must have started one")
 })

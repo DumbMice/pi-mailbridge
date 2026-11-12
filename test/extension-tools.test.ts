@@ -1,4 +1,7 @@
 import { test } from "node:test"
+import { mkdtempSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import assert from "node:assert/strict"
 
 import mailbridge, { type ExtensionCtxLike, type ExtensionLike, type SettleTimers } from "../src/extension.ts"
@@ -34,6 +37,7 @@ interface Harness {
 	pi: ExtensionLike
 	tools: Record<string, ToolFn>
 	commands: Map<string, (args: string, ctx: ExtensionCtxLike) => Promise<void>>
+	ui: ExtensionCtxLike
 	notes: string[]
 	sent: { to?: string; subject: string; text: string }[]
 	registered: string[]
@@ -145,6 +149,7 @@ function harness(
 		pi,
 		tools,
 		commands,
+		ui,
 		notes,
 		sent,
 		registered,
@@ -442,4 +447,40 @@ test("/mailbridge re-reads config instead of trusting the startup snapshot", asy
 
 	assert.ok(loads >= 2, "the command must re-read config, not reuse the startup snapshot")
 	assert.match(notes.join("\n"), /config ok|smoke/, `stale config leaked into output: ${notes.join("\n")}`)
+})
+
+test("/mailbridge check says a minted secret needs a daemon restart", async () => {
+	// A running daemon caches the bearer it read at startup, so a freshly minted key is
+	// rejected until it restarts. "config ok" here would send the user to debug the mailbox.
+	const captured = new Map<string, (args: string, ctx: ExtensionCtxLike) => Promise<void>>()
+	const notes: string[] = []
+	const pi = {
+		on() {},
+		registerCommand(name: string, spec: { handler: (args: string, ctx: ExtensionCtxLike) => Promise<void> }) {
+			captured.set(name, spec.handler)
+		},
+		registerTool() {},
+		sendUserMessage() {},
+	}
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-check-mint-")) }
+	const c: ExtensionCtxLike = {
+		cwd: "/tmp",
+		sessionManager: { getSessionId: () => SESSION, getName: () => "x" },
+		ui: { notify: (m: string) => notes.push(m) },
+	}
+	mailbridge(pi as never, {
+		env,
+		loadConfig: () => config(),
+		// Nothing on disk: check must mint one.
+		secret: () => undefined,
+		makeClient: () => ({}) as never,
+		ensureDaemon: async () => true,
+		timers: { setTimeout: () => 1, clearTimeout: () => {} },
+		pollMs: 60_000,
+	})
+	await captured.get("mailbridge")!("check", c)
+	assert.ok(
+		notes.some((n) => /restart the daemon/.test(n)),
+		`check must name the consequence (notes: ${JSON.stringify(notes)})`,
+	)
 })

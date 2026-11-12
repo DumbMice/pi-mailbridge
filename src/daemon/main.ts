@@ -246,7 +246,16 @@ async function check(config: ResolvedConfig): Promise<number> {
 	return code || (problems.length > 0 ? EXIT_CONFIG : 0)
 }
 
-async function run(initialConfig: ResolvedConfig): Promise<void> {
+/** The config file's mtime, or 0 when there is no file. */
+function configStamp(env: NodeJS.ProcessEnv = process.env): number {
+	try {
+		return statSync(configPath(env), { throwIfNoEntry: false })?.mtimeMs ?? 0
+	} catch {
+		return 0
+	}
+}
+
+async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise<void> {
 	const token = ensureSecret().toString("base64url")
 
 	// Mutable refs: /reload swaps both without recreating the HTTP service.
@@ -278,18 +287,11 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 	// When the running config was read. The extension compares this with the config file's
 	// mtime: a session that attaches to an already-running daemon must not inherit a config
 	// the daemon read before the user changed it.
-	let configLoadedAt = configStamp()
+	// The mtime of the file this config came from, taken BEFORE it was read, so a write in
+	// the gap is still detected as newer.
+	let configLoadedAt = initialStamp
 	let lastScan: { at: number; examined: number; persisted: number; rejected: number; reasons: Record<string, number> } | undefined
 	const scanOnce = createScanQueue((why) => scanNow(why))
-
-	/** The config file's mtime as the daemon saw it, or 0 when there is no file. */
-	function configStamp(): number {
-		try {
-			return statSync(configPath(process.env), { throwIfNoEntry: false })?.mtimeMs ?? 0
-		} catch {
-			return 0
-		}
-	}
 
 	function formatReasons(reasons: Record<string, number>): string {
 		const parts = Object.entries(reasons)
@@ -343,11 +345,15 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 
 	let reloadInFlight: Promise<{ ok: boolean; error?: string; warning?: string }> | undefined
 
-	async function doReload(): Promise<{ ok: boolean; error?: string; warning?: string }> {
+	async function doReload(pass = 0): Promise<{ ok: boolean; error?: string; warning?: string }> {
 		const previous = currentConfig
+		const previousStamp = configLoadedAt
+		// Stamped at entry: if the file changes while this reload runs, the caller(s) joined to
+		// it must not be told their newer config is in force.
+		const startedFrom = configStamp()
 		try {
 			await currentWatcher?.stop()
-			configLoadedAt = configStamp()
+			configLoadedAt = startedFrom
 			currentConfig = loadConfig()
 			tokenProvider = await buildTokenProvider(currentConfig)
 			const watcher = await startWatcher(currentConfig)
@@ -359,11 +365,17 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 				log("reloaded config, but IMAP did not connect (check the password/host)")
 				return { ok: true, warning: "config reloaded, but IMAP did not connect" }
 			}
+			// Someone wrote the config while we were re-dialling (a `/mailbridge setup` that
+			// joined this reload, for instance). One extra pass so they get a reload that
+			// started after their write - otherwise mail keeps going to the address they
+			// just replaced until the next session notices.
+			if (pass === 0 && configStamp() > startedFrom) return doReload(1)
 			log("reloaded config and restarted the watcher")
 			return { ok: true }
 		} catch (error) {
 			// Do not leave the daemon holding a config whose watcher never started.
 			currentConfig = previous
+			configLoadedAt = previousStamp
 			try {
 				await startWatcher(previous)
 				log(`reload failed (${(error as Error).message}); kept the previous config`)
@@ -439,6 +451,7 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 		// resident instead, which is what a systemd unit wants.
 		exitWhenIdle: () => currentConfig.daemon.exitWhenIdle !== false,
 		scanSummary: () => lastScan,
+		// The file's mtime, not a clock reading: comparing mtime to mtime has no clock coupling.
 		configLoadedAt: () => configLoadedAt,
 		// Re-open the channel: process what arrived while mode was off, and retry anything a
 		// full queue refused. Safe to call when nothing changed (an empty scan is cheap).
@@ -484,6 +497,9 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 
 export async function main(): Promise<void> {
 	const argv = process.argv.slice(2)
+	// Stamp before reading: a write landing between the read and a later Date.now() would
+	// otherwise be invisible to the freshness check.
+	const startupStamp = configStamp()
 	const config = loadConfig()
 
 	if (argv.includes("--print-token")) {
@@ -519,7 +535,7 @@ export async function main(): Promise<void> {
 	}
 	for (const warning of config.warnings) log(`warning: ${warning}`)
 
-	await run(config)
+	await run(config, startupStamp)
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -14,8 +14,13 @@ test("an unchanged (or older) config does not", () => {
 	assert.equal(shouldReloadConfig({ configLoadedAt: loaded, configMtimeMs: loaded + 200 }), false, "sub-second writes are the same config")
 })
 
-test("a daemon that reports nothing, or no config file, is left alone", () => {
-	assert.equal(shouldReloadConfig({ configLoadedAt: null, configMtimeMs: loaded }), false)
+test("no config file means nothing to do", () => {
 	assert.equal(shouldReloadConfig({ configLoadedAt: loaded, configMtimeMs: null }), false)
 	assert.equal(shouldReloadConfig({ configLoadedAt: undefined, configMtimeMs: undefined }), false)
+})
+
+test("a daemon running on defaults (stamp 0) reloads when a config file appears", () => {
+	// 0 is not "nothing to compare": it means the daemon loaded with no file. Treating it as
+	// absent made this permanent - a headless --setup afterwards was never picked up.
+	assert.equal(shouldReloadConfig({ configLoadedAt: 0, configMtimeMs: loaded }), true)
 })

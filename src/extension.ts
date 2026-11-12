@@ -305,7 +305,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		try {
 			const health = await client.health()
 			if (!health.ok) return
-			const loadedAt = (health.data as { configLoadedAt?: number | null }).configLoadedAt
+			const loadedAt = health.data.configLoadedAt
 			const mtime = statSync(configPath(env), { throwIfNoEntry: false })?.mtimeMs ?? null
 			if (!shouldReloadConfig({ configLoadedAt: loadedAt, configMtimeMs: mtime })) return
 			const reloaded = await client.reload()
@@ -456,11 +456,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						`mailbox: ${config.mail.to || "(unset)"}`,
 						`allowlist: ${config.security.allowFrom.join(", ") || "(empty — denies all)"}`,
 						`pending replies: ${pending?.ok ? pending.data.pending.length : "?"}`,
-						...formatScan(
-							health?.ok
-								? ((health.data as { lastScan?: ScanSummary | null }).lastScan ?? null)
-								: null,
-						),
+						...formatScan(health?.ok ? (health.data.lastScan ?? null) : null),
 					].join("\n"),
 					"info",
 				)

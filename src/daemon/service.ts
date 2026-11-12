@@ -73,16 +73,16 @@ export interface DaemonDeps {
 	 * that arrived while the channel was closed would wait for unrelated mail.
 	 */
 	onModeChange?: (mode: Mode) => void
-	/** Outcome of the most recent scan, for diagnostics. */
 	/**
 	 * Live config accessor. /reload swaps the config, so anything that reads it per
 	 * request (recipient, Message-ID domain, device name, listen address) must ask here
 	 * rather than capture the object this service was built with.
 	 */
 	getConfig?: () => ResolvedConfig
-	/** When the daemon last read its config (ms since epoch). */
-	configLoadedAt?: () => number
+	/** Outcome of the most recent scan, for diagnostics. */
 	scanSummary?: () => { at: number; examined: number; persisted: number; rejected: number; reasons: Record<string, number> } | undefined
+	/** mtime of the config file the daemon is running on (0 when there was no file). */
+	configLoadedAt?: () => number
 	/** How long after the last ping to exit. Default 120s. */
 	idleTimeoutMs?: number
 	env?: NodeJS.ProcessEnv
