@@ -708,7 +708,7 @@ test("the /claim and /ack contracts are documented with the UID space", () => {
 	const arch = flat(doc("docs/ARCHITECTURE.md"))
 	assert.ok(arch.includes("{uid, instanceId, uidValidity?}"), "/claim documents uidValidity")
 	assert.match(arch, /stale-space/, "and the refusal reason")
-	assert.match(arch, /\/ack[^\n|]*record's\*\*/i, "/ack says it journals the record's space")
+	assert.ok(/\/ack`[^|]*\|[^|]*record's/i.test(arch), "/ack says it journals the record's space")
 })
 
 test("the UIDVALIDITY behaviour is in the changelog, not just the architecture", () => {
