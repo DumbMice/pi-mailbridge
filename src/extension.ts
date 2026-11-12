@@ -183,9 +183,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				// daemon is a stopping daemon.
 				const ping = await client?.ping(instanceId)
 				if (ping && !ping.ok) {
-					// The daemon exited for idleness (or crashed). Nothing else would ever
-					// bring it back for this session, so the poll becomes the supervisor.
-					// Throttled: a dead daemon must not cause a spawn attempt every tick.
+					// The daemon exited for idleness (or crashed). Nothing else would bring it
+					// back for this session, so the poll becomes the supervisor.
 					const now = Date.now()
 					if (now - lastRespawnAttempt > RESPAWN_BACKOFF_MS) {
 						lastRespawnAttempt = now
@@ -195,20 +194,24 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 							await startRuntime()
 						}
 					}
-					return
+					// Fall through to the reschedule below: returning here is what stopped the
+					// poll loop permanently after a single failed ping.
+				} else {
+					const mode = await client?.mode()
+					if (mode?.ok) emailMode = mode.data.mode === "on" ? "on" : "off"
+					await runner?.drain()
 				}
-
-				const mode = await client?.mode()
-				if (mode?.ok) emailMode = mode.data.mode === "on" ? "on" : "off"
-				await runner?.drain()
 			} catch {
 				/* drain already swallows; a poll must never throw into the runtime */
+			} finally {
+				// Re-arm unconditionally, so recovery cannot depend on which branch ran.
+				if (runner && pollHandle === undefined) {
+					pollHandle = timers.setTimeout(() => {
+						pollHandle = undefined
+						void tick()
+					}, pollMs)
+				}
 			}
-			if (pollHandle !== undefined || !runner) return
-			pollHandle = timers.setTimeout(() => {
-				pollHandle = undefined
-				void tick()
-			}, pollMs)
 		}
 		pollHandle = timers.setTimeout(() => {
 			pollHandle = undefined

@@ -35,7 +35,7 @@ import { runSmoke } from "../core/smoke.ts"
 import { runSetup } from "../core/setup.ts"
 import { listPending } from "../store/pending-store.ts"
 import { advanceCursor } from "../store/uid-cursor.ts"
-import { recordOutbound, sessionThread } from "../store/threads.ts"
+import { recordOutbound } from "../store/threads.ts"
 import { tokenFromSubject } from "../core/token.ts"
 
 const EXIT_CONFIG = 2
@@ -316,21 +316,14 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 		source: sourceProxy,
 		send: (message) => {
 			const provider = tokenProvider
-			// Thread all notifications for one session into a single conversation.
-			const thread = message.sessionId ? sessionThread(process.env, message.sessionId) : {}
-			return sendMail(
-				currentConfig,
-				{
-					...message,
-					...(thread.lastMessageId ? { inReplyTo: `<${thread.lastMessageId}>` } : {}),
-					...(thread.rootMessageId ? { references: [`<${thread.rootMessageId}>`] } : {}),
-				},
-				{ ...(provider ? { getAccessToken } : {}) },
-			)
+			return sendMail(currentConfig, message, { ...(provider ? { getAccessToken } : {}) })
 		},
-		onSent: ({ messageId, subject }) => {
+		onSent: ({ messageId, subject, sessionId }) => {
 			if (!messageId) return
-			const parsed = tokenFromSubject(subject, ensureSecret())
+			// The sender knows the session; parsing it back out of the subject only works
+			// for legacy signed tokens, because production subjects carry a short route id.
+			// That bug silently disabled both threading and the reply-chain fallback.
+			const parsed = sessionId ? { sessionId, device: currentConfig.device.name } : tokenFromSubject(subject, ensureSecret())
 			if (!parsed) return
 			recordOutbound(process.env, {
 				messageId,

@@ -16,6 +16,7 @@ import type { ResolvedConfig } from "../core/config.ts"
 import type { MailSource } from "./process.ts"
 import { ackPending, claimPending, listPending } from "../store/pending-store.ts"
 import { journal } from "../store/journal.ts"
+import { sessionThread } from "../store/threads.ts"
 import { readMode, writeMode, isMode, type Mode } from "../store/mode-store.ts"
 import { createRegistry, type Registry } from "../store/registry.ts"
 
@@ -37,13 +38,16 @@ export interface DaemonDeps {
 		text: string
 		cwd?: string
 		sessionId?: string
+		/** RFC 5322 threading, derived here from the outbound id registry. */
+		inReplyTo?: string
+		references?: string[]
 	}) => Promise<{ messageId?: string } | void>
 	/**
 	 * Called after a successful send with the assigned Message-ID, so the caller can
 	 * record it for reply-chain routing. Kept out of this module so the service does
 	 * not need the routing secret.
 	 */
-	onSent?: (info: { messageId?: string; subject: string }) => void
+	onSent?: (info: { messageId?: string; subject: string; sessionId?: string }) => void
 	/**
 	 * Re-read config and restart the watcher. Called after `/mailbridge setup` or
 	 * `auth` so a fresh config or token takes effect without killing the daemon.
@@ -298,11 +302,31 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					// sessionId lets the sender thread this mail into the session's conversation.
 					const sessionId = typeof body?.sessionId === "string" ? body.sessionId : undefined
 					if (!subject || !text) return fail(400, "bad_request")
+
+					// Thread every notification for a session into one conversation: reply to
+					// the previous message, reference the session root. Read BEFORE sending,
+					// because recording happens after.
+					const thread = sessionId ? sessionThread(env, sessionId) : {}
+					const threading = {
+						...(thread.lastMessageId ? { inReplyTo: `<${thread.lastMessageId}>` } : {}),
+						...(thread.rootMessageId ? { references: [`<${thread.rootMessageId}>`] } : {}),
+					}
 					try {
-						const result = await deps.send({ to, subject, text, ...(cwd ? { cwd } : {}), ...(sessionId ? { sessionId } : {}) })
+						const result = await deps.send({
+							to,
+							subject,
+							text,
+							...(cwd ? { cwd } : {}),
+							...(sessionId ? { sessionId } : {}),
+							...threading,
+						})
 						// Record the outbound id so a reply reaches this session even if a
 						// client or a human rewrites the subject token away.
-						deps.onSent?.({ messageId: (result as { messageId?: string } | undefined)?.messageId, subject })
+						deps.onSent?.({
+							messageId: (result as { messageId?: string } | undefined)?.messageId,
+							subject,
+							...(sessionId ? { sessionId } : {}),
+						})
 					} catch (error) {
 						return fail(502, "send_failed", { message: (error as Error).message })
 					}

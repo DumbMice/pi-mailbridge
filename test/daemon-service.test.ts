@@ -508,3 +508,73 @@ test("ping requires auth", async () => {
 		await service.close()
 	}
 })
+
+// --- threading: the bug was that nothing was ever recorded ------------------
+
+test("/send threads a session's notifications and records their Message-IDs", async () => {
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-thread-")) }
+	const { recordOutbound, sessionThread } = await import("../src/store/threads.ts")
+	const sent: { subject: string; inReplyTo?: string; references?: string[] }[] = []
+	let n = 0
+
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env,
+		source: { searchAfter: async () => [], fetch: async () => undefined },
+		send: async (message) => {
+			sent.push({ subject: message.subject, inReplyTo: message.inReplyTo, references: message.references })
+			const messageId = `<m${++n}@qq.com>`
+			recordOutbound(env, { messageId, sessionId: message.sessionId!, subject: message.subject })
+			return { messageId }
+		},
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	const base = `http://127.0.0.1:${port}`
+	const sendOnce = (subject: string) =>
+		fetch(`${base}/send`, {
+			method: "POST",
+			headers: { ...auth(), "content-type": "application/json" },
+			body: JSON.stringify({ subject, text: "x", sessionId: "sess-thread" }),
+		})
+	try {
+		// A short route id, exactly what production sends - the case that used to record nothing.
+		await sendOnce("[pi:c05698] pi: one")
+		assert.deepEqual(sessionThread(env, "sess-thread"), { rootMessageId: "m1@qq.com", lastMessageId: "m1@qq.com" })
+
+		await sendOnce("[pi:c05698] pi: two")
+		assert.deepEqual(sessionThread(env, "sess-thread"), { rootMessageId: "m1@qq.com", lastMessageId: "m2@qq.com" })
+
+		assert.equal(sent[0]!.inReplyTo, undefined, "the first message starts the thread")
+		assert.equal(sent[1]!.inReplyTo, "<m1@qq.com>", "the second answers the first")
+		assert.deepEqual(sent[1]!.references, ["<m1@qq.com>"], "and references the session root")
+	} finally {
+		await service.close()
+	}
+})
+
+test("/send without a sessionId sets no threading headers", async () => {
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-thread-")) }
+	let seen: { inReplyTo?: string } = {}
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env,
+		source: { searchAfter: async () => [], fetch: async () => undefined },
+		send: async (message) => {
+			seen = { inReplyTo: message.inReplyTo }
+			return { messageId: "<x@qq.com>" }
+		},
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	try {
+		await fetch(`http://127.0.0.1:${port}/send`, {
+			method: "POST",
+			headers: { ...auth(), "content-type": "application/json" },
+			body: JSON.stringify({ subject: "pi: x", text: "y" }),
+		})
+		assert.equal(seen.inReplyTo, undefined)
+	} finally {
+		await service.close()
+	}
+})

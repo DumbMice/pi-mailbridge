@@ -483,4 +483,55 @@ test("a poll that finds the daemon gone restarts it instead of idling forever", 
 
 	assert.equal(respawns, 2, "the poll respawned the daemon")
 	assert.ok(pings >= 1)
+
+	// The bug this guards: the failed-ping branch used to return before re-arming, so one
+	// transient failure stopped polling (and therefore notification and delivery) forever.
+	const rearmed = t.queue.filter((q) => q.ms === 10_000)
+	assert.ok(rearmed.length >= 2, "the poll must re-arm after a failed ping")
+})
+
+test("a throttled respawn still re-arms the poll", async () => {
+	const t = fakeTimers()
+	let daemonUp = true
+	let respawns = 0
+
+	const client = {
+		health: async () => ({ ok: true as const, data: { ok: true, mode: "on", pending: 0 } }),
+		mode: async () => ({ ok: true as const, data: { mode: "on" as const } }),
+		pending: async () => ({ ok: true as const, data: { pending: [] } }),
+		ping: async () => (daemonUp ? { ok: true as const, data: { ok: true, clients: 1 } } : { ok: false as const, status: 0 }),
+		bye: async () => ({ ok: true as const, data: { ok: true, clients: 0 } }),
+		claim: async () => ({ ok: true as const, data: { ok: true } }),
+		ack: async () => ({ ok: true as const, data: { ok: true } }),
+		register: async () => ({ ok: true as const, data: { alreadyPending: false, full: false } }),
+		release: async () => ({ ok: true as const, data: { ok: true } }),
+		send: async () => ({ ok: true as const, data: { ok: true } }),
+		reload: async () => ({ ok: true as const, data: { ok: true } }),
+		shutdown: async () => ({ ok: true as const, data: { ok: true } }),
+	}
+
+	const pi = fakePi(ctxWithBranch([]))
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => client as never,
+		ensureDaemon: async () => {
+			respawns++
+			return true
+		},
+		timers: t.timers,
+		pollMs: 10_000,
+	})
+	await pi.fire("session_start")
+	assert.equal(respawns, 1)
+
+	// Daemon dies and the respawn is throttled (a second failure within the backoff window).
+	daemonUp = false
+	t.queue.filter((q) => q.ms === 10_000)[0]!.handler()
+	await new Promise((r) => setImmediate(r))
+	await new Promise((r) => setImmediate(r))
+
+	const before = t.queue.filter((q) => q.ms === 10_000).length
+	assert.ok(before >= 2, "even a throttled tick re-arms")
 })
