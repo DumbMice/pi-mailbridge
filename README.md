@@ -15,7 +15,9 @@ can read the mailbox. That exact session continues.
   is rendered from Markdown, so headings, lists, tables, code and links look like a real
   email instead of raw syntax.
 - **One mailbox connection per machine.** A small local daemon owns a single
-  IMAP IDLE connection; every Pi session is a thin client. N sessions, one
+  IMAP IDLE connection; every Pi session is a thin client. (`smoke`, `prime` and — when
+  `mail.imap.sentFolder` is set — one short-lived read-back per notification are the
+  deliberate exceptions.) N sessions, one
   watcher, no polling race.
 - **Reply = resume.** The reply is injected into the session that sent the mail,
   as a follow-up, so it queues correctly if a run is still in flight. Reply with a
@@ -132,7 +134,7 @@ A reply is matched to a session by the **first rule that succeeds**:
 | --- | --- | --- | --- |
 | 1 | **Short route id in the subject** — `[pi:f913c9]`, matched anywhere in the subject | subject intact | What every new notification carries. A *lookup key in this machine's route table*, not a credential: an id that was never minted here resolves to nothing. TTL-bounded. `Re:`, `RE:`, `Aw:`, `Re[2]:` prefixes are fine because the id is not anchored. |
 | 2 | **Legacy signed token** — `[pi:<payload>.<mac>]` | subject intact | Still verified (HMAC, TTL-bounded) so mail sent before the short id keeps working. New notifications no longer use it. |
-| 3 | **The reply chain** — `In-Reply-To`, or any id in `References`, equals a Message-ID we minted | subject edited, rewritten or purged | The id is recorded when the notification is sent, kept for the last 2,000 sends and aged out with `security.tokenTtlHours`. |
+| 3 | **The reply chain** — `In-Reply-To`, or any id in `References`, equals a Message-ID we recorded | subject edited, rewritten or purged | The id is recorded when the notification is sent, kept for the last 2,000 sends and aged out with `security.tokenTtlHours`. |
 | 4 | None of the above | — | Rejected as `no-token`. The mail stays unread, but the cursor has passed it, so "retry" means replying again — editing the old subject is not re-read. |
 
 Every rule is routing only. Authorization happens before it: the sender allowlist, plus

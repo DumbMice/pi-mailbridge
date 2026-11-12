@@ -50,7 +50,7 @@ for new configs; it never rewrites an existing one. `/mailbridge check` and
 as `ExecStartPre`, that combination stops the unit from starting rather than starting a
 daemon that rejects every reply.
 
-### The reply chain now survives providers that rewrite Message-ID
+### The reply chain can match providers that rewrite Message-ID (opt-in)
 
 A live test against QQ showed our stamped `<uuid@qq.com>` replaced by `<tencent_…@qq.com>` on
 delivery, with the human's reply referencing the tencent id. The reply-chain fallback matches

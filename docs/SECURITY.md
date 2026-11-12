@@ -125,9 +125,8 @@ A legitimate email can still contain text that reads like instructions
 
   Both the daemon and every pi session cache the bearer token, so a rotation without
   restarting both makes each poll 401 until you do. Do **not** rotate for a *mail password*
-  change: the daemon's `POST /reload` re-reads that.
-  The mail password is different — the daemon's `POST /reload` re-reads it (run it via
-  `/mailbridge smoke`), so no restart is needed. Rotating the key
+  change: the daemon's `POST /reload` re-reads that (run it via `/mailbridge smoke`), so no
+  restart is needed.
   kills every outstanding **signed token**, but *not* the short route ids: those are
   entries in `routes.json` and resolve with no secret at all, so they keep working until
   `security.tokenTtlHours` expires. Rotating the key does not stop delivery on its own.

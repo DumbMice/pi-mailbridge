@@ -19,7 +19,8 @@
       └──────────────┘   └──────────────┘
 ```
 
-**One watcher, many sessions.** The daemon owns the single IMAP connection; pi
+**One watcher, many sessions.** The daemon owns the single IMAP connection (plus one short-lived read-back per notification when
+`mail.imap.sentFolder` is set); pi
 sessions are thin clients over loopback HTTP: they poll `/pending` and replay it, which
 needs no reconnect logic because replay is idempotent. (`/events` also offers SSE for a
 push client; nothing uses it today.) This is the same
@@ -138,7 +139,8 @@ An inbound message is matched to a session by the first rule that succeeds:
    `mail.imap.sentFolder` set, the daemon reads the just-sent copy back and records the
    delivered id as well. Best-effort: it retries for up to a minute (the provider appends the
    copy asynchronously) and matches on the `X-Pi-Mailbridge-Id` header we stamp, so it can only
-   ever record the copy of that exact notification.
+   ever record the copy of that exact notification. A capture in flight when the daemon stops
+   is lost, and that notification falls back to the subject id.
 4. Otherwise the message is rejected (`no-token`) and left unread - the cursor has moved
    past it, so the retry is a new reply, not an edited subject.
 
