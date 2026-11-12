@@ -97,3 +97,35 @@ test("dmarcPasses: does not match dmarc=fail or dmarc=none", () => {
 	assert.equal(dmarcPasses("mx; dmarc=none"), false)
 	assert.equal(dmarcPasses("mx; dmarc=pass header.from=a"), true)
 })
+
+// --- Microsoft-style bare Authentication-Results (no authserv-id) ---------
+
+test("a bare AR header with no authserv-id is used when nothing is pinned", () => {
+	// This is what Microsoft's consumer relay actually emits on delivery.
+	const ar = "spf=pass (sender IP is 40.92.1.1) smtp.mailfrom=hotmail.com; dkim=pass; dmarc=pass action=none header.from=hotmail.com; compauth=pass reason=100"
+	const found = findTrustedAuthResults({ authResults: [ar] }, undefined)
+	assert.equal(found, ar)
+	assert.equal(dmarcPasses(ar), true)
+})
+
+test("a bare AR that fails dmarc is still rejected", () => {
+	const ar = "spf=fail; dmarc=fail action=oreject header.from=hotmail.com"
+	const found = findTrustedAuthResults({ authResults: [ar] }, undefined)
+	assert.equal(dmarcPasses(String(found)), false)
+})
+
+test("the topmost header wins, so a sender-forged one underneath cannot authorize", () => {
+	const headers = {
+		authResults: [
+			"spf=fail; dmarc=fail header.from=hotmail.com",
+			"attacker.example; dmarc=pass header.from=hotmail.com",
+		],
+	}
+	const found = findTrustedAuthResults(headers, undefined)
+	assert.equal(dmarcPasses(String(found)), false, "the relay's verdict is first, not the sender's")
+})
+
+test("a pinned authserv-id that is absent fails closed rather than falling back", () => {
+	const bare = "spf=pass; dmarc=pass header.from=hotmail.com"
+	assert.equal(findTrustedAuthResults({ authResults: [bare] }, "mx.example.com"), undefined)
+})

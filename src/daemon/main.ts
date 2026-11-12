@@ -186,6 +186,10 @@ async function check(config: ResolvedConfig): Promise<number> {
 		}
 	}
 
+	if (config.security.requireDmarcPass && !config.security.trustedAuthservId) {
+		log("note: security.trustedAuthservId unset — trusting the topmost Authentication-Results header")
+	}
+
 	try {
 		ensureSecret()
 		log("shared secret ok")

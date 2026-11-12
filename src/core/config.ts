@@ -188,9 +188,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 	if (resolved.security.allowFrom.length === 0) {
 		warnings.push("security.allowFrom is empty — every sender will be rejected (fail closed)")
 	}
-	if (!resolved.security.trustedAuthservId && resolved.security.requireDmarcPass) {
-		warnings.push("security.trustedAuthservId unset — DMARC cannot be pinned safely; treating as unreachable")
-	}
+	// An unset authserv-id is a legitimate configuration now: authorization falls
+	// back to the topmost Authentication-Results header. Reported as a note by
+	// `--check`, not as a warning, because it is not a problem. Never a hard failure.
 	// XOAUTH2 needs exactly one token source: a built-in device-code flow or a command.
 	for (const side of ["imap", "smtp"] as const) {
 		const account = resolved.mail[side]

@@ -81,6 +81,18 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### DMARC: trust the delivering relay, pin only when possible
+
+`trustedAuthservId` is now optional. Unset means the **topmost**
+`Authentication-Results` header is used — correct because headers are prepended,
+so the final hop's verdict is first and a sender's forged header ends up beneath
+it. Pinning still works and still fails closed when the id is absent.
+
+This was a real blocker rather than a refinement: Microsoft's consumer relay emits
+bare `Authentication-Results` headers with no authserv-id, so requiring a pin
+rejected every genuine Hotmail reply. `--check` now reports it as a note instead of
+a config failure.
+
 ### Setup robustness
 
 - Built-in provider table for the Microsoft and Google families (hotmail.com,

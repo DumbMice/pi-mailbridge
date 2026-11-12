@@ -30,21 +30,31 @@ Every control below exists to break one link in that chain.
 | Scope | per-session tool restriction | step 4 |
 | Human | decisions require explicit one-shot approval phrases | step 4 |
 
-### 2.1 DMARC — pin the header, do not just read it
+### 2.1 DMARC — trust the delivering relay's header
 
-`Authentication-Results` is an ordinary, append-only, sender-writable header.
-A message can arrive with a forged `Authentication-Results` from the attacker's
-own infrastructure *and* the real one added by your provider.
+`Authentication-Results` is an ordinary, append-only, sender-writable header. A
+message can arrive with a forged `Authentication-Results` from the attacker's own
+infrastructure *and* the real one your provider added.
+
+What makes that safe is header ordering: headers are **prepended** as a message
+traverses relays, so the **topmost** `Authentication-Results` is the one the final
+hop — your provider — wrote on delivery. A sender's forged header necessarily ends
+up *below* it.
 
 Rules:
 
-1. Only accept an `Authentication-Results` header whose `authserv-id` matches
-   the configured `security.trustedAuthservId`.
-2. Never accept an AR header that appears *below* a `Received` header you
-   cannot attribute to your provider.
-3. Treat DMARC pass as **necessary, not sufficient** — it authenticates the
-   sending domain, not the authority to command your agent. A allowlisted
-   sender whose account is compromised still passes DMARC.
+1. Read the **topmost** `Authentication-Results` header and require `dmarc=pass`
+   in it.
+2. Optionally pin it harder: setting `security.trustedAuthservId` means only a
+   header bearing that `authserv-id` is considered, and its absence **fails
+   closed** rather than falling back.
+3. Do **not** pin an authserv-id for Microsoft consumer accounts: the outlook.com
+   relay emits bare headers with no authserv-id at all
+   (`Authentication-Results: spf=pass …; dmarc=pass …`), so a pinned value would
+   reject every genuine reply. Leave it unset there.
+4. Treat DMARC pass as **necessary, not sufficient** — it authenticates the
+   sending domain, not the authority to command your agent. An allowlisted sender
+   whose account is compromised still passes DMARC.
 
 ### 2.2 The token is routing, not authorization
 

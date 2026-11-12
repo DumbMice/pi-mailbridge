@@ -218,7 +218,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | `device.name` | first label of `os.hostname()` | machine name shown in every notification and carried in the routing token |
 | `security.allowFrom` | `[]` | senders allowed to command the agent; empty denies all |
 | `security.requireDmarcPass` | `true` | require a DMARC pass from the pinned relay |
-| `security.trustedAuthservId` | — | the only `Authentication-Results` host that is trusted |
+| `security.trustedAuthservId` | unset | pin the trusted `Authentication-Results` host. Leave unset for Microsoft consumer accounts — their relay emits no authserv-id |
 | `security.allowHeaderThreading` | `true` | accept a reply whose subject token was lost, by matching `In-Reply-To` / `References` against Message-IDs we minted |
 | `security.allowSelfReplies` | `false` | one address for both roles (personal Hotmail/Gmail): accept a self-addressed message, but only a real reply |
 | `security.tokenTtlHours` | `720` | routing-token lifetime; stale replies are refused |
@@ -310,7 +310,7 @@ map and the port from `opencode-afk`: [docs/MAPPING.md](./docs/MAPPING.md).
 ## Status
 
 `0.1.0` — feature-complete for the single-user, one-mailbox case, not yet
-battle-tested against a live mailbox. 265 hermetic tests cover the token, authz,
+battle-tested against a live mailbox. 269 hermetic tests cover the token, authz,
 scan pipeline, stores, daemon HTTP surface, lifecycle, extension surface, tools,
 attachments and the full end-to-end loop.
 

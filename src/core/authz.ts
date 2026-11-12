@@ -62,9 +62,9 @@ export function authorize(input: AuthzInput, config: ResolvedConfig): AuthzResul
 
 	// 4. DMARC pinned to our relay.
 	if (config.security.requireDmarcPass) {
-		const trustedId = config.security.trustedAuthservId
-		if (!trustedId) return { ok: false, reason: "dmarc-untrusted" }
-		const ar = findTrustedAuthResults(input.headers, trustedId)
+		// Unset means "trust the topmost header, i.e. the delivering relay's".
+		// Pinned means "only that authserv-id".
+		const ar = findTrustedAuthResults(input.headers, config.security.trustedAuthservId)
 		if (!ar) return { ok: false, reason: "dmarc-missing" }
 		if (!dmarcPasses(ar)) return { ok: false, reason: "dmarc-failed" }
 	}
