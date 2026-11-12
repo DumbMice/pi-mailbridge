@@ -810,10 +810,26 @@ test("every daemon config key is documented where users look", () => {
 	}
 	for (const key of keys) {
 		// The table row, not just any mention: prose elsewhere named the key and hid the gap.
+		// Rows may combine keys (`daemon.host` / `.port`), so accept `.key` in a daemon row.
 		assert.ok(
-			readme.split("\n").some((line) => line.startsWith("| `daemon.") && line.includes(`daemon.${key}`)),
+			readme
+				.split("\n")
+				.some(
+					(line) =>
+						line.startsWith("| `daemon.") && (line.includes(`daemon.${key}`) || line.includes(`.${key}`)),
+				),
 			`README's config table has no row for daemon.${key}`,
 		)
 		assert.ok(key in example.daemon, `config.example.json omits daemon.${key}`)
 	}
+})
+
+test("the periodic scan is pinned where no test can drive it", () => {
+	// The timer lives in main()'s closure: no test can execute it, and deleting it (or its
+	// shutdown cleanup) left the suite green. Pin the three properties that matter.
+	const main = readFileSync(join(root, "src/daemon/main.ts"), "utf8")
+	assert.match(main, /pollHandle\.unref\?\.\(\)/, "the timer must not hold the process open")
+	assert.match(main, /clearTimeout\(pollHandle\)/, "shutdown must clear it")
+	assert.match(main, /scanningEnabled\(readMode\(process\.env\)\)/, "and it must respect the mode gate")
+	assert.match(main, /scanOnce\("poll"\)/, "naming the trigger so the log says where a scan came from")
 })

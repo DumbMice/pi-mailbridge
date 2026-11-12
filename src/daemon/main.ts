@@ -186,7 +186,9 @@ async function setup(argv: string[]): Promise<number> {
 }
 
 function log(message: string): void {
-	console.error(`pi-mailbridge: ${message}`)
+	// Timestamped: a live review had to read TCP counters to prove the poll was running, because
+	// the log carried no time and empty scans are silent.
+	console.error(`pi-mailbridge: ${new Date().toISOString().slice(11, 19)} ${message}`)
 }
 
 /**

@@ -72,7 +72,8 @@ export function applyUidValidity(
 	// connect, which deleted replies for sessions that were merely quiet - a user on /back for a
 	// week came home to nothing to drain, with the cursor already past the mail. Expiry now
 	// happens under queue pressure only (see process.ts).
-	const dropped = dropPendingFromOtherSpaces(env, validity)
+	// On a reset, unknown-space records go too: see dropPendingFromOtherSpaces.
+	const dropped = dropPendingFromOtherSpaces(env, validity, { includeUnknown: reset })
 	if (dropped.length > 0) {
 		// Only free a slot the dropped record was holding: a session that still has a live
 		// record in the current space must keep its reservation, or it could be granted a

@@ -206,10 +206,19 @@ export function ackPending(
  *
  * @returns how many records were dropped.
  */
-export function dropPendingFromOtherSpaces(env: NodeJS.ProcessEnv, uidValidity: number): PendingRecord[] {
+export function dropPendingFromOtherSpaces(
+	env: NodeJS.ProcessEnv,
+	uidValidity: number,
+	options: { includeUnknown?: boolean } = {},
+): PendingRecord[] {
 	const items = load(env)
-	const kept = items.filter((r) => r.uidValidity === undefined || r.uidValidity === uidValidity)
-	const dropped = items.filter((r) => r.uidValidity !== undefined && r.uidValidity !== uidValidity)
+	// On a detected renumbering, a record that carries no space cannot be shown to belong to the
+	// new numbering - and a live review caught one being claimed there and injecting a different
+	// message's body. Its mail is unread and the reset cursor re-reads it.
+	const keep = (r: PendingRecord): boolean =>
+		r.uidValidity === uidValidity || (r.uidValidity === undefined && !options.includeUnknown)
+	const kept = items.filter(keep)
+	const dropped = items.filter((r) => !keep(r))
 	if (dropped.length > 0) save(env, kept)
 	// Returned, not just counted: the caller releases exactly these sessions' decision slots,
 	// and a second pass over the file could disagree with what was actually removed.

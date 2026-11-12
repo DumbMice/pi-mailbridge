@@ -295,3 +295,16 @@ test("the journal is capped", async () => {
 	for (let uid = 1; uid <= JOURNAL_CAP + 5; uid++) journal(e, uid, 1111)
 	assert.equal(journalSize(e), JOURNAL_CAP, "the oldest acked uids are trimmed")
 })
+
+test("a renumbering drops records with no UID space too", async () => {
+	// Live: a record without a space was claimed in a new numbering and injected a different
+	// message's body, then journaled under the new space. On a detected renumbering such a
+	// record cannot be shown to belong here, and the reset cursor re-reads its mail.
+	const e = env()
+	addPending(e, { uid: 3, sessionId: "s", from: "you@example.com", subject: "x", body: "legacy", receivedAt: Date.now() })
+	const { dropPendingFromOtherSpaces } = await import("../src/store/pending-store.ts")
+	assert.equal(dropPendingFromOtherSpaces(e, 2222).length, 0, "kept on an ordinary connect")
+	assert.equal(pendingSize(e), 1)
+	assert.equal(dropPendingFromOtherSpaces(e, 2222, { includeUnknown: true }).length, 1, "dropped on a reset")
+	assert.equal(pendingSize(e), 0)
+})

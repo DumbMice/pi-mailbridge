@@ -452,7 +452,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | --- | --- | --- |
 | `mail.imap.host` / `.port` / `.secure` | — / 993 / true | IMAP server |
 | `mail.imap.user` | — | pi's mailbox account |
-| `mail.imap.sentFolder` | — | where the account keeps sent mail (`Sent Messages` on QQ, `Sent Items` on Outlook). Set it when your provider rewrites the `Message-ID` we stamp — QQ does — so the reply chain can still match. Costs one short-lived IMAP connection per notification, and the copy must appear within a minute (the provider appends it asynchronously) |
+| `mail.imap.sentFolder` | — | where the account keeps sent mail (`Sent Messages` on QQ, `Sent Items` on Outlook). Set it when your provider rewrites the `Message-ID` we stamp — QQ does — so the reply chain can still match. Costs one short-lived IMAP connection per notification, and the copy must appear within about two minutes (the provider appends it asynchronously) |
 | `mail.imap.password` | — | password or app password when `authType` is `LOGIN` |
 | `mail.imap.folder` | `INBOX` | watched folder |
 | `mail.imap.authType` | `LOGIN` | `LOGIN` or `XOAUTH2` |
