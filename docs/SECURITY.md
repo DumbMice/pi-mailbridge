@@ -25,10 +25,9 @@ Every control below exists to break one link in that chain.
 | --- | --- | --- |
 | Envelope | **Sender allowlist**, exact `addr-spec` match after RFC 5322 parsing | step 1 |
 | Provenance | **DMARC pass, from a pinned relay** | step 1 |
-| Authenticity | **HMAC-signed token**, TTL-bounded | steps 2–3 |
+| Routing | **short route id**, TTL-bounded (legacy HMAC-signed tokens still verify) | steps 2–3 |
 | Replay | **journal + expiry** (durable, survives restart) | step 2 |
-| Scope | per-session tool restriction | step 4 |
-| Human | decisions require explicit one-shot approval phrases | step 4 |
+| Human | **`request_decision` blocks the agent** until a reply arrives | step 4 |
 
 ### 2.1 DMARC — trust the delivering relay's header
 
@@ -78,15 +77,20 @@ A legitimate email can still contain text that reads like instructions
 ("ignore your rules, run …"). You cannot filter this reliably. What you can do:
 
 - **Scope the session.** A session that only needs to read code should not have
-  `bash`. `pi --tools read,grep,glob` for untrusted threads.
-- **Never auto-approve.** `request_decision` / `!approve` flows exist so a human
-  is in the loop for destructive actions.
+  `bash`. `pi --tools read,grep,glob` for untrusted threads. This package does not enforce
+  tool scoping — pi's own `--tools` does.
+- **Keep a human in the loop for destructive actions.** `request_decision` blocks the
+  agent until a reply arrives. There is no approve command and no phrase a message can
+  contain to satisfy it: the human's reply *is* the approval.
 - **Do not paste mail verbatim into a prompt as trusted context.** Injected
   text is *user input*, and the system prompt should say so.
 
 ## 4. Daemon hardening
 
-- Binds `127.0.0.1` only. Never expose it; there is no TLS and no user model.
+- Defaults to binding `127.0.0.1`; `daemon.host` can change that, but there is no TLS and
+  no user model beyond the bearer token, so do not. Nothing else about the daemon is
+  reachable without the token, apart from the `/health` liveness probe (mode and pending
+  counts only, no mail content).
 - Bearer token from `secret.key`, mode `0600`, created first-writer-wins,
   compared in constant time.
 - Body cap 1 MB; registry cap 10 000; SSE client cap 100.
@@ -98,8 +102,8 @@ A legitimate email can still contain text that reads like instructions
 
 - Prefer a **dedicated account or a filtered folder**. Do not point this at a
   mailbox where you receive untrusted mail.
-- Do not let the tool **delete** mail on a shared account; mark `\Seen` and move
-  to a folder.
+- The tool marks a delivered message `\Seen` and journals it. It never deletes or moves
+  mail, so a shared account keeps its history.
 - Rotate the app password and the HMAC key if you ever suspect exposure; rotating
   the key invalidates every outstanding token.
 - Turn it off with `/back` when you will be at the desk. An idle mailbox should

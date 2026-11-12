@@ -78,10 +78,12 @@ security.allowFrom               = ["you@hotmail.com"]
 security.allowSelfReplies        = true      # required, or every reply is a "self" loop
 ```
 
-`allowSelfReplies` accepts a message from your own address **only when it carries
-`In-Reply-To`** — i.e. only when it is genuinely a reply. Your own outbound
-notification has no `In-Reply-To` and is still rejected (`self-echo`), so pi cannot
-re-ingest its own mail as instructions.
+`allowSelfReplies` accepts a message from your own address **only when it is genuinely a
+reply**. Two things make that safe. Notifications after the first are threaded, so they
+*do* carry `In-Reply-To` — which means the header alone cannot be the discriminator. The
+scanner therefore also compares the message's own `Message-ID` against the outbound
+registry and rejects anything it sent itself (`self-echo`). So pi cannot re-ingest its own
+mail as instructions, threaded or not.
 
 Once configured, prove it without pi:
 
@@ -119,10 +121,11 @@ way in.
 This package makes your inbox a control channel for an agent that can run shell
 commands. **Read [docs/SECURITY.md](./docs/SECURITY.md) before installing.**
 
-Gate order, all fail-closed: sender allowlist → pinned DMARC (`authserv-id`
-must match) → HMAC-signed routing token with a TTL → durable replay journal. The
-token routes; it never authorizes. Prefer a dedicated account or a filtered
-folder, never a mailbox that receives untrusted mail.
+Gate order, all fail-closed: sender allowlist → DMARC pin (`security.requireDmarcPass`, on
+by default; `authserv-id` must match) → routing, which is a short `[pi:abc123]` id, a
+legacy HMAC-signed token, or the reply chain → durable replay journal. Routing identifiers
+never authorize anything: authorization is the allowlist and DMARC alone. Prefer a
+dedicated account or a filtered folder, never a mailbox that receives untrusted mail.
 
 ## Install
 
@@ -363,9 +366,9 @@ map and the port from `opencode-afk`: [docs/MAPPING.md](./docs/MAPPING.md).
 ## Status
 
 `0.1.0` — feature-complete for the single-user, one-mailbox case, not yet
-battle-tested against a live mailbox. 269 hermetic tests cover the token, authz,
-scan pipeline, stores, daemon HTTP surface, lifecycle, extension surface, tools,
-attachments and the full end-to-end loop.
+battle-tested against a live mailbox. The hermetic suite (`npm test`) covers the token,
+authz, scan pipeline, stores, daemon HTTP surface, lifecycle, extension surface, tools,
+attachments and the full end-to-end loop; it needs no network, no mailbox and no socket.
 
 Not implemented: creating a *new* session from mail (`ctx.newSession()` replaces
 the active session, which is a different architecture), and MIME/S-MIME.

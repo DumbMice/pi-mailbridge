@@ -63,15 +63,19 @@ Loopback only. Every request carries `Authorization: Bearer <token>` from
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/health` | liveness probe |
+| GET | `/health` | liveness probe; **unauthenticated** by design (mode, pending and session counts — no content) |
 | GET | `/events` | SSE: `delivery`, `mode` |
 | GET | `/pending` | catch-up list for reconnecting clients |
-| POST | `/claim` | `{uid, sessionId, instanceId}` — atomic claim |
+| POST | `/claim` | `{uid, instanceId}` — atomic claim |
 | POST | `/ack` | claimant-only → `\Seen` + journal + prune |
 | POST | `/register` | reserve a session's single outstanding decision |
+| POST | `/bye` | a session is leaving; the daemon exits when the last one goes |
+| POST | `/ping` | heartbeat, the other half of the idle exit |
 | DELETE | `/register` | release the reservation |
 | GET/POST | `/mode` | global `on`/`off`, persisted + broadcast |
 | POST | `/send` | send mail (the daemon owns SMTP config) |
+| POST | `/reload` | re-read config in place |
+| POST | `/shutdown` | stop the daemon (used by the restart path) |
 
 Bounds: body ≤ 1 MB, registry ≤ 10 000 entries, SSE clients ≤ 100. A second
 daemon start fails with `EADDRINUSE` and exits quietly — that *is* the
@@ -94,7 +98,8 @@ authorization remains the sender allowlist plus pinned DMARC (§2.2). Because ro
 local, an id minted on one machine simply does not resolve on another — which is the
 desired behaviour, not an error.
 
-- Signed with the shared secret, so a reply to a forged subject is rejected.
+- A local lookup key, not a signature: an id that was never minted here resolves to
+  nothing. (Legacy tokens *are* HMAC-signed, and are verified when they appear.)
 - Carries the **device that minted it**. A daemon only persists a delivery whose
   token names its own device, so several machines sharing one mailbox never hold
   stale copies of each other's replies. A token with no device claim is accepted
@@ -198,28 +203,50 @@ systemd-started daemon never exits just because pi happens to be closed.
 
 ```
 src/
-  extension.ts          pi entry: tools, commands, events, own SSE client   [skeleton]
+  extension.ts          pi entry: tools, commands, polling client, session lifecycle
   core/
-    config.ts           layered config + env overrides                     [done]
-    mailer.ts           nodemailer transport (password | XOAUTH2)          [todo]
-    authz.ts            loop → robot → allowlist → pinned DMARC            [done]
-    reply-parse.ts      quote stripping, address + AR-header pinning        [done]
-    token.ts            HMAC sign/verify                                   [done]
-    messages.ts         user-facing strings                                [todo]
+    attachments.ts      image/markdown attachment rendering
+    authz.ts            loop → robot → allowlist → DMARC
+    commands.ts         /mailbridge parsing + usage text
+    config.ts           layered config, env overrides, type validation
+    deliveries.ts       claim → inject → ack, serialized per process
+    discover.ts         account autodiscovery
+    header-encoding.ts  RFC 2047 decode/encode
+    html.ts             text → HTML with quoted-history folding
+    inline-images.ts    local image paths → cid: parts
+    mailer.ts           nodemailer transport (password | XOAUTH2), headers
+    markdown.ts         notifications render as markdown
+    oauth*.ts           device-code + OpenID flows, one-retry token provider
+    reply-parse.ts      quote stripping, address + AR-header pinning
+    settle.ts           idle debounce, turn-settled notification
+    setup.ts            first-run scaffolding
+    smoke.ts            end-to-end send-and-read-back check
+    token.ts            HMAC sign/verify, subjects
+    token-source.ts     XOAUTH2 command tokens
   daemon/
-    main.ts             HTTP + SSE + lock + lifecycle                      [skeleton]
-    watcher.ts          imapflow IDLE, renew, backoff                      [todo]
-    process.ts          UID-cursor scan → authorize → parse → persist     [done]
+    imapflow.ts         imapflow adapter
+    main.ts             CLI + lifecycle
+    process.ts          UID-cursor scan → authorize → route → parse → persist
+    service.ts          the HTTP surface: /health /pending /claim /ack /send /events …
+    spawn.ts            ensureDaemon, single-instance
+    watcher.ts          imapflow IDLE, renew, backoff
   store/
-    paths.ts            XDG state dir                                      [done]
-    secret.ts           shared HMAC/bearer key, atomic 0600                [done]
-    pending-store.ts    durable pending + claim/ack state machine          [done]
-    uid-cursor.ts       monotonic cursor                                   [done]
-    journal.ts          acked UIDs — durable replay protection             [done]
-    mode-store.ts       on/off                                             [todo]
-    registry.ts         one outstanding decision per session               [todo]
+    journal.ts          acked UIDs — durable replay protection
+    mode-store.ts       on/off
+    oauth-store.ts      refresh tokens, 0600
+    paths.ts            XDG dirs
+    pending-store.ts    durable pending + claim/ack state machine
+    registry.ts         one outstanding decision per session
+    routes.ts           short routing ids, TTL
+    secret.ts           shared HMAC/bearer key, atomic 0600
+    threads.ts          outbound Message-IDs: threading + reply chain
+    uid-cursor.ts       monotonic cursor
 test/                   hermetic unit tests; no IMAP, no SMTP, no sockets
 ```
+
+`/events` (SSE) exists on the daemon for push clients; the extension currently polls
+`/pending` every few seconds instead, because replaying it is idempotent and needs no
+reconnect logic.
 
 `MailSource` (in `daemon/process.ts`) is the seam: `watcher.ts` implements it over
 imapflow, tests implement it over an in-memory fixture. That is why the whole

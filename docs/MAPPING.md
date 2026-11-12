@@ -39,13 +39,13 @@ Everything else ports essentially as-is.
 | `core/reply-parse.js` | 265 | `src/core/reply-parse.ts` | Ported — quote stripping + token extraction + HMAC verify |
 | `core/inject.js` | 181 | `src/extension.ts` (in-process) | **Replaced** by `pi.sendUserMessage(body, { deliverAs: "followUp" })` |
 | `core/pause-notify.js` | 143 | `src/extension.ts` → `pi.on("agent_settled")` | Replaced by the pi event (§4) |
-| `core/subscribe.js` | 271 | `src/extension.ts` | Ported — SSE client with reconnect + replay from `/pending` |
+| `core/subscribe.js` | 271 | `src/extension.ts` | Replaced — polls `/pending` and replays it (idempotent); `/events` SSE stays available for push clients |
 | `core/new-session.js` | 103 | **out of scope** | Deferred. Pi can do it (`ctx.newSession`) but it replaces the active session; see ARCHITECTURE §6 |
 | `request-decision.js` | 187 | `src/extension.ts` | Ported as a `pi.registerTool` |
 | `notify.js` | 125 | `src/extension.ts` | Ported as a `pi.registerTool` |
 | `mailer.js` | 86 | `src/core/mailer.ts` | Ported — `[omo:…]` → `[pi:…]`, nodemailer transport |
 | `config.js` | 184 | `src/core/config.ts` | Ported — layered config + env overrides |
-| `messages.js` | 102 | `src/core/messages.ts` | Ported — user-facing strings |
+| `messages.js` | 102 | *(inlined)* | Folded into the modules that emit the text (`commands.ts`, `settle.ts`, `smoke.ts`) — no separate table |
 | `install.js` | 168 | **dropped** | opencode-specific installer; pi installs via `pi install npm:pi-mailbridge` |
 | `store/paths.js` | 88 | `src/store/paths.ts` | Ported — XDG state dir |
 | `store/secret.js` | 116 | `src/store/secret.ts` | Ported — HMAC key file, first-writer-wins |
@@ -169,7 +169,7 @@ pi.registerCommand("mailbridge", { description: "Mailbridge status", handler: (_
 | New session from mail (`/new`) | supported | deferred | `ctx.newSession()` *replaces* the active session; needs its own design pass |
 | Service | opencode/qq mail tuned | provider-neutral | `config.mail.*`; no hard-coded host |
 | Transport | SMTP password | SMTP password **or** OAuth2/XOAUTH2 | Outlook requires OAuth2 since 2024-09-16 |
-| Reply parsing | hand-rolled | same baseline, swap-in `inreply` | quoted-reply stripping is the fragile part |
+| Reply parsing | hand-rolled | hand-rolled, quote-stripping covered by tests | no `inreply` dependency: the stripping rules are ours and tested |
 | Auth check | allowlist | allowlist **+ pinned DMARC header** | see SECURITY.md §2 |
 | Port | 4100 | 4177 | avoid colliding with a running afk |
 
@@ -177,10 +177,10 @@ pi.registerCommand("mailbridge", { description: "Mailbridge status", handler: (_
 
 ## 5. Publish checklist
 
-- [ ] `package.json` `files` limited to `src`, `docs`, `config.example.json`
-- [ ] no secrets in the package; `config.json` is gitignored and never shipped
-- [ ] `pi` manifest points at `./src/extension.ts`
-- [ ] peer deps on `@earendil-works/pi-coding-agent` and `pi-ai`, not hard deps
-- [ ] tests run with `node --test` and never touch real IMAP/SMTP
-- [ ] docs state the daemon is a **local, authenticated** service that can inject prompts
-- [ ] README leads with the threat model, not the feature list
+- [x] `package.json` `files` limited to `src`, `bin`, `docs`, `config.example.json`, `CHANGELOG.md`
+- [x] no secrets in the package; `config.json` is gitignored and never shipped
+- [x] `pi` manifest points at `./src/extension.ts`
+- [x] peer deps on `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai` and `@sinclair/typebox`, not hard deps
+- [x] tests run with `node --test` and never touch real IMAP/SMTP
+- [x] docs state the daemon is a **local, authenticated** service that can inject prompts
+- [x] README leads with the threat model, not the feature list

@@ -41,8 +41,8 @@ test/                unit tests — must never touch real IMAP or SMTP
 ## Style
 
 - ESM only, `.ts` imports with explicit extension.
-- Node built-ins first; the only runtime dependencies are `imapflow`,
-  `mailparser`, `nodemailer`. Justify any addition.
+- Node built-ins first; the only runtime dependencies are `imapflow`, `mailparser`,
+  `markdown-it`, `nodemailer` and `openid-client`. Justify any addition.
 - Pure functions for anything testable: token signing, reply parsing, cursor
   maths, config merging.
 - No `any` in `src/store` or `src/core/token.ts` — they are the trust boundary.

@@ -170,7 +170,7 @@ The `--` line is now dropped from the HTML part only - the border is the divider
 It stays in the text part, where RFC 3676 needs it and where quote stripping relies on
 it, and the metadata below it is untouched.
 
-### Local images are inlined as cid attachments### Local images are inlined as cid attachments
+### Local images are inlined as cid attachments
 
 A Markdown image pointing at a local file rendered as `<img src="./shot.png">`, which a
 mail client cannot resolve - the reader saw a broken image. Local images are now read and
@@ -189,7 +189,7 @@ Safety, because the src comes from model output and the result leaves the machin
 Relative paths resolve against the sending session's project directory, which the
 extension now passes to `/send` as `cwd`.
 
-### Tables in mail need inline borders### Tables in mail need inline borders
+### Tables in mail need inline borders
 
 Reported from a rendered notification: a Markdown table arrived as loose text. markdown-it
 emits a bare <table>, and mail clients default to no borders, while a <style> block is
@@ -472,8 +472,8 @@ of `os.hostname()`; override with config or `PI_MAILBRIDGE_DEVICE`.
 
 No app, account, relay or push service. Any client that can read the mailbox —
 another PC, a laptop, a tablet, a phone, webmail in a browser — can continue a
-session, because replies are routed by the signed token rather than by the
-sender's device.
+session, because replies carry the same short routing id whichever device answers —
+routing never depends on the sender's device.
 
 ### Dependency upgrades
 

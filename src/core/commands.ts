@@ -31,7 +31,7 @@ export const USAGE = [
 	"/mailbridge auth            approve OAuth2 device login",
 	"/mailbridge smoke           send one real mail, then read the folder back",
 	"/mailbridge prime           start watching from now, ignoring existing mail",
-	"/mailbridge restart         reload config in the daemon",
+	"/mailbridge restart         replace the daemon process (picks up new code, not just config)",
 ].join("\n")
 
 const SUBCOMMANDS: readonly MailbridgeSubcommand[] = [
