@@ -7,6 +7,8 @@ your work laptop, a webmail tab — anything that can read mail — and **that s
 continues**, with your answer as the next message. Notifications also carry rendered Markdown,
 screenshots inline, and any local file the agent linked, attached with its real name.
 
+![A pi-mailbridge notification in a mail client: a decision request with rendered Markdown, a recommendation, and a build log attached](./docs/images/notification.png)
+
 - **Your inbox is the client.** No app, no account, no relay, no push service. Any device with
   email works: a phone, a tablet, another PC, a webmail tab.
 - **Reply = resume.** The reply is injected into the session that sent the mail, as a follow-up,

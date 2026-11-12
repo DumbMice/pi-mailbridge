@@ -31,7 +31,8 @@
     "bin",
     "docs",
     "config.example.json",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "scripts/render-teaser.ts"
   ],
   "pi": {
     "extensions": [
