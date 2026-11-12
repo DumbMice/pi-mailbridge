@@ -64,7 +64,10 @@ export function createCommandTokenProvider(options: CommandTokenProviderOptions)
 	const exec = options.exec ?? defaultExec
 	const now = options.now ?? (() => Date.now())
 	const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS
-	const maxFailures = options.maxConsecutiveFailures ?? 1
+	// "A broken command should not be retried forever" is right; disabling after ONE failure
+	// is not - a DNS blip or a momentary exec failure then stops all mail until a restart.
+	// Three consecutive failures is still quick to notice and survives a transient one.
+	const maxFailures = options.maxConsecutiveFailures ?? 3
 
 	let token: string | undefined
 	let fetchedAt = 0
@@ -94,7 +97,9 @@ export function createCommandTokenProvider(options: CommandTokenProviderOptions)
 			failures++
 			if (failures >= maxFailures) disabled = true
 			const reason = error instanceof Error ? error.message : String(error)
-			const suffix = disabled ? " — OAuth2 is now disabled for this session; fix mail.smtp.tokenCommand and restart" : ""
+			const suffix = disabled
+				? " — OAuth2 is now disabled for this session; fix mail.smtp.tokenCommand and restart"
+				: ` — will retry on next use (${failures}/${maxFailures})`
 			throw new Error(`pi-mailbridge: OAuth2 token command failed (${describeCommand()}): ${reason}${suffix}`)
 		}
 	}

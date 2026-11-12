@@ -79,6 +79,20 @@ const DEFAULT_SKEW_MS = 60_000
  * instruction to run the login command. It never silently degrades to a password:
  * half-configured auth is worse than a clear error.
  */
+/** Consecutive refresh failures tolerated before the provider disables itself. */
+const MAX_REFRESH_FAILURES = 3
+
+/**
+ * Errors that mean the grant itself is gone, so retrying cannot help.
+ * Everything else (DNS, TLS, timeout, 5xx) is treated as transient.
+ */
+function isCredentialError(error: unknown): boolean {
+	const text = error instanceof Error ? `${error.name} ${error.message}` : String(error)
+	return /invalid_grant|invalid_request|unauthorized_client|consent_required|interaction_required|refresh token (?:is )?(?:invalid|expired|revoked)/i.test(
+		text,
+	)
+}
+
 export function createDeviceCodeProvider(options: DeviceCodeProviderOptions): TokenProvider & {
 	/** Run the interactive login once and persist the refresh token. */
 	login(): Promise<DeviceAuthorization>
@@ -123,9 +137,15 @@ export function createDeviceCodeProvider(options: DeviceCodeProviderOptions): To
 			return refreshed.accessToken
 		} catch (error) {
 			failures++
-			disabled = true
+			// A revoked grant is permanent: say so now. A network failure is not - disabling
+			// on the first DNS blip stopped every notification until a human restarted pi.
+			const fatal = isCredentialError(error) || failures >= MAX_REFRESH_FAILURES
+			if (fatal) disabled = true
 			const reason = error instanceof Error ? error.message : String(error)
-			throw new Error(`pi-mailbridge: OAuth2 token refresh failed: ${reason} — re-run \`pi-mailbridge --auth\``)
+			const suffix = fatal
+				? " — re-run `pi-mailbridge --auth`"
+				: ` — retrying on next use (${failures}/${MAX_REFRESH_FAILURES})`
+			throw new Error(`pi-mailbridge: OAuth2 token refresh failed: ${reason}${suffix}`)
 		}
 	}
 

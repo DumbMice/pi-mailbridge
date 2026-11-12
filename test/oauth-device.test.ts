@@ -153,3 +153,27 @@ test("device response prefers the combined verification URL", () => {
 	assert.equal(mapped.verificationUri, "https://x/device?code=abcd")
 	assert.equal(mapped.userCode, "abcd")
 })
+
+test("a transient refresh failure retries, a revoked grant disables immediately", async () => {
+	// One DNS blip used to disable the provider for the process lifetime: the daemon kept
+	// running and silently stopped sending mail until a human restarted it.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-oauth-")) }
+	const store = fileTokenStore(env)
+	store.write({ refreshToken: "rt-0", accessToken: "expired", expiresAt: NOW - 1_000 })
+	let mode: "transient" | "revoked" = "transient"
+	const { client } = fakeClient({
+		refresh: async () => {
+			throw new Error(
+				mode === "revoked" ? "invalid_grant: refresh token revoked" : "getaddrinfo ENOTFOUND login.microsoftonline.com",
+			)
+		},
+	})
+	const provider = createDeviceCodeProvider({ client, store, now: () => NOW })
+
+	await assert.rejects(() => provider.getToken(), /will retry|retrying/i)
+	assert.equal(provider.isDisabled(), false, "a network error must not disable it")
+
+	mode = "revoked"
+	await assert.rejects(() => provider.getToken(), /re-run/)
+	assert.equal(provider.isDisabled(), true, "a revoked grant is fatal")
+})

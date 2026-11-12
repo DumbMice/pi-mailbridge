@@ -64,16 +64,24 @@ test("only the last line of output is used", async () => {
 	assert.equal(await p.getToken(), "tok-final")
 })
 
-test("a failing command produces an actionable error and disables the provider", async () => {
+test("a failing command produces an actionable error, and disables only after the budget", async () => {
+	// One ENOENT is often transient (an exec hiccup, a briefly missing PATH entry). Disabling
+	// on the first failure stopped all mail until a restart, so the budget is three.
 	const f = fakeExec([new Error("ENOENT: ortie not found")])
 	const p = createCommandTokenProvider({ command: ["ortie", "token", "show"], exec: f.exec })
 
-	await assert.rejects(() => p.getToken(), (e: Error) => {
-		assert.match(e.message, /OAuth2 token command failed/)
-		assert.match(e.message, /ortie/)
-		assert.match(e.message, /ENOENT/)
-		return true
-	})
+	for (let attempt = 1; attempt <= 2; attempt++) {
+		await assert.rejects(() => p.getToken(), (e: Error) => {
+			assert.match(e.message, /OAuth2 token command failed/)
+			assert.match(e.message, /ortie/)
+			assert.match(e.message, /ENOENT/)
+			assert.match(e.message, /will retry on next use/, "says it will retry")
+			return true
+		})
+		assert.equal(p.isDisabled(), false, "still enabled after a transient failure")
+	}
+
+	await assert.rejects(() => p.getToken(), /disabled/)
 	assert.equal(p.isDisabled(), true)
 
 	// Disabled means no further process spawns — this is the anti-loop guard.
@@ -92,8 +100,8 @@ test("an empty command is rejected without spawning anything", async () => {
 test("empty output counts as a failure", async () => {
 	const f = fakeExec(["   \n  "])
 	const p = createCommandTokenProvider({ command: ["broker"], exec: f.exec })
-	await assert.rejects(() => p.getToken(), /failed/)
-	assert.equal(p.isDisabled(), true)
+	for (let i = 0; i < 3; i++) await assert.rejects(() => p.getToken(), /failed/)
+	assert.equal(p.isDisabled(), true, "disabled only after the budget")
 })
 
 test("a successful fetch after a transient failure resets the failure count", async () => {
