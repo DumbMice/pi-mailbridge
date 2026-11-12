@@ -16,7 +16,9 @@ Break one of these and the package loses mail or becomes a hole:
    injected the reply. Never at parse time.
 2. **The UID cursor advances only after the pending record is durable.** Never
    before, never on broadcast.
-3. **Poll by UID cursor.** Never `UNSEEN`, never by SUBJECT alone. `\Seen` is
+3. **Scan on a timer, not only on IMAP events.** `daemon.scanIntervalSecs` (default 60) sweeps
+   while mode is on: a provider can stop pushing `EXISTS`, and a reply must not depend on it.
+   Poll by UID cursor. Never `UNSEEN`, never by SUBJECT alone. `\Seen` is
    shared mutable state.
 4. **The routing id routes; it does not authorize.** Sender allowlist and DMARC come first
    (pinning the `authserv-id` is optional, and wrong for consumer accounts). DMARC is off in
@@ -36,7 +38,7 @@ Break one of these and the package loses mail or becomes a hole:
 ```
 src/extension.ts     pi entry: tools, commands, events, polling client
 src/core/            authz, config, mailer, token, reply parsing, oauth, rendering, settle
-src/daemon/          main (CLI+lifecycle), service (HTTP), watcher (IDLE), process (scan)
+src/daemon/          main (CLI, lifecycle, periodic sweep), service (HTTP), watcher (IDLE), process (scan)
 src/store/           paths, secret, pending, journal, routes, threads, cursor, mode, registry, oauth
 docs/                ARCHITECTURE, SECURITY, OAUTH, MAPPING
 test/                unit tests — must never touch real IMAP or SMTP
