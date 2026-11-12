@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { inlineLocalImages, sniffImage, MAX_INLINE_BYTES } from "../src/core/inline-images.ts"
+import { inlineLocalImages, sniffImage, MAX_INLINE_BYTES, MAX_INLINE_COUNT, MAX_FILE_BYTES } from "../src/core/inline-images.ts"
 import { renderMessage } from "../src/core/html.ts"
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
@@ -30,7 +30,7 @@ test("a small local image becomes a cid attachment", () => {
 	const result = inlineLocalImages('<p><img src="./shot.png" alt="shot"></p>', { root })
 	assert.equal(result.attachments.length, 1)
 	assert.equal(result.attachments[0]!.contentType, "image/png")
-	assert.match(result.attachments[0]!.cid, /^pi-[0-9a-f]{16}@pi\.local$/)
+	assert.match(result.attachments[0]!.cid!, /^pi-[0-9a-f]{16}@pi\.local$/)
 	assert.match(result.html, /<img src="cid:pi-[0-9a-f]{16}@pi\.local"/)
 	assert.doesNotMatch(result.html, /src="\.\/shot\.png"/)
 	assert.match(result.html, /max-width:100%/)
@@ -69,7 +69,8 @@ test("an oversized image is refused with the size in the note", () => {
 	const result = inlineLocalImages('<img src="big.png" alt="big">', { root })
 	assert.equal(result.attachments.length, 0)
 	assert.deepEqual(result.skipped.map((s) => s.reason), ["too-large"])
-	assert.match(result.html, /over the 128 KB limit/)
+	// The note names the actual limit, so raising MAX_INLINE_BYTES cannot leave it lying.
+	assert.match(result.html, new RegExp(`over the ${Math.round(MAX_INLINE_BYTES / 1024)} KB limit`))
 })
 
 test("the same image twice is attached once", () => {
@@ -83,13 +84,14 @@ test("the same image twice is attached once", () => {
 test("the count cap is enforced", () => {
 	const root = dir()
 	// Distinct content so each has its own cid.
-	for (let i = 0; i < 6; i++) writeFileSync(join(root, `i${i}.png`), Buffer.concat([PNG, Buffer.from([i])]))
+	const over = MAX_INLINE_COUNT + 2
+	for (let i = 0; i < over; i++) writeFileSync(join(root, `i${i}.png`), Buffer.concat([PNG, Buffer.from([i])]))
 
 	const result = inlineLocalImages(
-		[0, 1, 2, 3, 4, 5].map((i) => `<img src="i${i}.png" alt="i${i}">`).join(""),
+		Array.from({ length: over }, (_, i) => `<img src="i${i}.png" alt="i${i}">`).join(""),
 		{ root },
 	)
-	assert.equal(result.attachments.length, 4)
+	assert.equal(result.attachments.length, MAX_INLINE_COUNT)
 	assert.equal(result.skipped.filter((s) => s.reason === "too-many").length, 2)
 })
 
@@ -102,4 +104,56 @@ test("renderMessage wires images through the Markdown body", () => {
 	assert.match(rendered.html, /<img src="cid:/)
 	assert.match(rendered.html, /<h2>Result<\/h2>/)
 	assert.match(rendered.html, /border-top:1px solid #d8dee4/, "the signature block reads as a divider")
+})
+
+test("a linked local file is attached with its real name", () => {
+	const root = dir()
+	const bytes = Buffer.from("%PDF-1.4 quarterly report\n")
+	writeFileSync(join(root, "report.pdf"), bytes)
+
+	const result = inlineLocalImages('<p><a href="./report.pdf">the quarterly report</a></p>', { root })
+	assert.equal(result.attachments.length, 1)
+	const file = result.attachments[0]!
+	// The real filename, not the link text: that is what the reader sees in their mail client.
+	assert.equal(file.filename, "report.pdf")
+	assert.equal(file.contentType, "application/pdf")
+	assert.equal(file.contentDisposition, "attachment")
+	assert.equal(file.cid, undefined, "an attachment is not an inline part")
+	// The anchor cannot work in a mail client, so the text stays and the file is named.
+	assert.match(result.html, /the quarterly report/)
+	assert.match(result.html, /\[attached: report\.pdf\]/)
+	assert.doesNotMatch(result.html, /href="\.\/report\.pdf"/)
+})
+
+test("a linked file outside the allowlist is not attached", () => {
+	// The path comes from model output, and the one thing that must never happen is mailing a
+	// private key because a prompt asked for it.
+	const root = dir()
+	writeFileSync(join(root, "id_rsa"), "-----BEGIN OPENSSH PRIVATE KEY-----\n")
+	writeFileSync(join(root, ".env"), "SECRET=1\n")
+
+	for (const name of ["id_rsa", ".env"]) {
+		const result = inlineLocalImages(`<p><a href="./${name}">config</a></p>`, { root })
+		assert.equal(result.attachments.length, 0, `${name} must not be attached`)
+		assert.deepEqual(result.skipped.map((s) => s.reason), ["not-allowed"])
+	}
+})
+
+test("an attached file is capped, and a big one is refused with the reason", () => {
+	const root = dir()
+	writeFileSync(join(root, "huge.pdf"), Buffer.alloc(MAX_FILE_BYTES + 1))
+	const result = inlineLocalImages('<a href="huge.pdf">report</a>', { root })
+	assert.equal(result.attachments.length, 0)
+	assert.match(result.html, /over the limit/)
+})
+
+test("one file linked twice rides once; remote links are untouched", () => {
+	const root = dir()
+	writeFileSync(join(root, "a.txt"), "same content")
+	const result = inlineLocalImages(
+		'<a href="a.txt">one</a><a href="./a.txt">two</a><a href="https://x.test/a.txt">remote</a>',
+		{ root },
+	)
+	assert.equal(result.attachments.length, 1)
+	assert.match(result.html, /href="https:\/\/x\.test\/a\.txt"/, "a remote link stays a link")
 })

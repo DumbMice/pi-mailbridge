@@ -1,7 +1,10 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
+import { mkdtempSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
-import { escapeHtml, textToHtml } from "../src/core/html.ts"
+import { escapeHtml, renderMessage, textToHtml } from "../src/core/html.ts"
 import { sendMail, type TransportLike } from "../src/core/mailer.ts"
 import type { ResolvedConfig } from "../src/core/config.ts"
 
@@ -68,4 +71,16 @@ test("the message goes out as text plus html", async () => {
 	assert.equal(sent[0]!.text, "done & <ok>", "the text part is unchanged")
 	assert.match(String(sent[0]!.html), /done &amp; &lt;ok&gt;/, "the html part is escaped")
 	assert.match(String(sent[0]!.html), /<div style=/, "so clients treat it as html and fold quotes")
+})
+
+test("a notification that links a report mails the report too", () => {
+	// End to end through renderMessage: markdown link -> anchor -> attachment with a real name.
+	const root = mkdtempSync(join(tmpdir(), "html-link-"))
+	writeFileSync(join(root, "build.log"), "line 1\nline 2\n")
+	const rendered = renderMessage("Build finished. See [the log](./build.log).", { root })
+	const file = rendered.attachments.find((a) => a.filename === "build.log")
+	assert.ok(file, `expected build.log, got ${JSON.stringify(rendered.attachments.map((a) => a.filename))}`)
+	assert.equal(file!.contentType, "text/plain")
+	assert.equal(file!.contentDisposition, "attachment")
+	assert.match(rendered.html, /\[attached: build\.log\]/)
 })

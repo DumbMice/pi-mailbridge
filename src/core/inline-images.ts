@@ -1,4 +1,16 @@
-// Inline local images as CID attachments.
+// Attach local files that a notification links to.
+//
+// Two shapes, both resolved from the agent's working directory:
+//
+//   ![shot](./shot.png)     an <img> - inlined as a CID part so it renders in place
+//   [report](./report.pdf)  an <a>   - attached with its real filename, and the link text
+//                                      says so, because a mail client cannot follow a
+//                                      relative path and a cid: anchor is unreliable
+//
+// The result is mailed, so the safety rules are the point: an image must sniff as an image
+// (magic bytes, not an extension), a non-image must have an allowlisted extension, every
+// file is size- and count-capped, and anything unreadable degrades to a sentence instead of
+// a broken link. Content is hashed, so one file referenced twice rides once.
 //
 // A Markdown image pointing at a local path renders as `<img src="./shot.png">`, which a
 // mail client cannot resolve - the reader sees a broken image. The standard fix is a
@@ -24,12 +36,15 @@ export interface InlineAttachment {
 	filename: string
 	content: Buffer
 	contentType: string
-	cid: string
+	/** Present for inlined images; absent for an ordinary file attachment. */
+	cid?: string
+	/** nodemailer: "attachment" shows a paperclip rather than a broken inline reference. */
+	contentDisposition?: "inline" | "attachment"
 }
 
 export interface SkippedImage {
 	src: string
-	reason: "not-found" | "not-an-image" | "too-large" | "too-many" | "unreadable"
+	reason: "not-found" | "not-an-image" | "too-large" | "too-many" | "unreadable" | "not-allowed"
 }
 
 export interface InlineResult {
@@ -38,11 +53,46 @@ export interface InlineResult {
 	skipped: SkippedImage[]
 }
 
-/** Per-image cap. Most screenshots are well under this. */
-export const MAX_INLINE_BYTES = 128 * 1024
+/** Per-image cap, inlined. Screenshots are the common case and they have grown. */
+export const MAX_INLINE_BYTES = 2 * 1024 * 1024
+/** Per-file cap for an attached (non-inline) file. */
+export const MAX_FILE_BYTES = 5 * 1024 * 1024
 /** Total payload cap, so a mail cannot turn into a file transfer. */
-export const MAX_INLINE_TOTAL_BYTES = 384 * 1024
-export const MAX_INLINE_COUNT = 4
+export const MAX_INLINE_TOTAL_BYTES = 12 * 1024 * 1024
+export const MAX_INLINE_COUNT = 8
+
+/**
+ * Extensions we will attach from a link.
+ *
+ * An allowlist rather than "anything readable": the path comes from model output, and the
+ * one thing that must never happen is mailing a private key because a prompt said so. Add
+ * to this list deliberately.
+ */
+const ALLOWED_FILE_EXTENSIONS: Record<string, string> = {
+	pdf: "application/pdf",
+	txt: "text/plain",
+	log: "text/plain",
+	md: "text/markdown",
+	csv: "text/csv",
+	tsv: "text/tab-separated-values",
+	json: "application/json",
+	yml: "application/yaml",
+	yaml: "application/yaml",
+	xml: "application/xml",
+	html: "text/html",
+	zip: "application/zip",
+	gz: "application/gzip",
+	tar: "application/x-tar",
+	png: "image/png",
+	jpg: "image/jpeg",
+	jpeg: "image/jpeg",
+	gif: "image/gif",
+	webp: "image/webp",
+	svg: "image/svg+xml",
+	docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
 
 /**
  * Identify an image from its magic bytes rather than trusting the extension.
@@ -77,6 +127,19 @@ export function sniffImage(buffer: Buffer): { contentType: string; ext: string }
 const IMG_TAG = /<img\b[^>]*>/gi
 const SRC_ATTR = /\bsrc\s*=\s*"([^"]*)"/i
 const ALT_ATTR = /\balt\s*=\s*"([^"]*)"/i
+/** Markdown links become anchors; the text between them is already rendered HTML. */
+const LINK_TAG = /<a\s+href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi
+
+/** A filename a mail client will accept: no separators, no control characters, bounded. */
+function safeFilename(path: string, fallback: string): string {
+	const base = path.split(/[\\/]/).pop() ?? fallback
+	const cleaned = base
+		.normalize("NFKC")
+		.replace(/[\u0000-\u001f\u007f"<>|:*?]+/g, "-")
+		.replace(/^[.]+/, "")
+		.trim()
+	return (cleaned || fallback).slice(0, 120)
+}
 
 function escapeHtml(value: string): string {
 	return value
@@ -172,5 +235,54 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 		return `<img src="cid:${cid}" alt="${escapeHtml(alt)}" style="max-width:100%;height:auto">`
 	})
 
-	return { html: replaced, attachments, skipped }
+	// Links to local files become ordinary attachments. Their anchors cannot work in a mail
+	// client - a relative path does not exist there and `cid:` in an <a href> is unreliable -
+	// so the text stays and the filename is named beside it.
+	const withLinks = replaced.replace(LINK_TAG, (_tag, href: string, inner: string) => {
+		if (!href || /^(?:https?:|mailto:|tel:|cid:|data:|#)/i.test(href)) return _tag
+		const path = resolvePath(href, root)
+
+		// The skipped reason is a stable code (tests and diagnostics match on it); the note is
+		// what the reader sees.
+		const refuse = (reason: SkippedImage["reason"], text: string): string => {
+			skipped.push({ src: href, reason })
+			return `${inner} ${note("not attached", text)}`
+		}
+		if (attachments.length >= maxCount) return refuse("too-many", "too many attachments")
+		const filename = safeFilename(href, "file")
+		const ext = filename.includes(".") ? filename.split(".").pop()!.toLowerCase() : ""
+		const contentType = ALLOWED_FILE_EXTENSIONS[ext]
+		if (!contentType) return refuse("not-allowed", "this file type is not attached")
+
+		let bytes: Buffer
+		try {
+			const bytesOnDisk = size(path)
+			if (bytesOnDisk > MAX_FILE_BYTES || total + bytesOnDisk > MAX_INLINE_TOTAL_BYTES) {
+				return refuse("too-large", `${Math.round(bytesOnDisk / 1024)} KB, over the limit`)
+			}
+			bytes = read(path)
+		} catch {
+			skipped.push({ src: href, reason: "not-found" })
+			return `${inner} ${note("not attached", "file not found")}`
+		}
+
+		// Same content, same part: a report linked from two places is attached once.
+		const digest = createHash("sha256").update(bytes).digest("hex").slice(0, 16)
+		const existing = byCid.get(`file-${digest}`)
+		const name = existing?.filename ?? filename
+		if (!existing) {
+			const attachment: InlineAttachment = {
+				filename,
+				content: bytes,
+				contentType,
+				contentDisposition: "attachment",
+			}
+			byCid.set(`file-${digest}`, attachment)
+			attachments.push(attachment)
+			total += bytes.length
+		}
+		return `${inner} <span style="opacity:.7">[attached: ${escapeHtml(name)}]</span>`
+	})
+
+	return { html: withLinks, attachments, skipped }
 }
