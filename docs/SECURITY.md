@@ -56,10 +56,11 @@ Rules:
    sending domain, not the authority to command your agent. An allowlisted sender
    whose account is compromised still passes DMARC.
 
-### 2.2 The token is routing, not authorization
+### 2.2 The routing tag is not authorization
 
-A valid `[pi:…]` token proves the subject was minted by this installation. It
-does **not** prove the message came from you. Anyone who replies to one of your
+A valid `[pi:…]` tag proves the subject was minted by this installation — nothing
+more. New notifications carry a short local route id (`[pi:f913c9]`); older ones carry
+a signed token, and both are accepted. Neither proves the message came from you. Anyone who replies to one of your
 notification emails (or forwards it) can carry the token into the mailbox.
 
 That is why token verification is *never* the only gate — the allowlist and

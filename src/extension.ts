@@ -22,6 +22,7 @@ import { buildTokenProvider } from "./core/token-source.ts"
 import { createOpenidClient } from "./core/oauth-openid.ts"
 import { createDeviceCodeProvider } from "./core/oauth-device.ts"
 import { fileTokenStore } from "./store/oauth-store.ts"
+import { registerRoute } from "./store/routes.ts"
 import { fileURLToPath } from "node:url"
 
 const POLL_MS = 10_000
@@ -237,6 +238,13 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			},
 			secret: () => secret,
 			config: config.notify,
+			tagFor: (context) =>
+				registerRoute({
+					sessionId: context.sessionId,
+					...(context.device ? { device: context.device } : {}),
+					subject: `pi: ${context.sessionName ?? context.cwd}`,
+					env,
+				}),
 			timers,
 			onError: (error) => ctx?.ui.notify(`mailbridge: could not send (${error.message})`, "warning"),
 		})
@@ -508,7 +516,6 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			const secret = secretFn()
 			if (!secret) return { content: [{ type: "text", text: "Mailbridge secret missing." }], details: {} }
 
-			const { stampSubject } = await import("./core/token.ts")
 			const options = (params["options"] as string[] | undefined) ?? []
 			const recommendation = params["recommendation"] as string | undefined
 			const body = [
@@ -520,8 +527,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				"Reply above this line with your answer.",
 			].join("\n")
 
+			const tag = registerRoute({
+				sessionId,
+				device: config.device.name,
+				subject: String(params["subject"] ?? "pi: decision"),
+				env,
+			})
 			const sent = await client.send({
-				subject: stampSubject(sessionId, String(params["subject"] ?? "pi: decision"), secret, { device: config.device.name }),
+				subject: `[pi:${tag}] ${String(params["subject"] ?? "pi: decision")}`,
 				text: body,
 			})
 			if (!sent.ok) {
@@ -545,11 +558,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			}
 			const secret = secretFn()
 			if (!secret) return { content: [{ type: "text", text: "Mailbridge secret missing." }], details: {} }
-			const { stampSubject } = await import("./core/token.ts")
+			const tag = registerRoute({
+				sessionId: sessionContext()?.sessionId ?? "",
+				device: config.device.name,
+				subject: String(params["subject"] ?? "pi: update"),
+				env,
+			})
 			const sent = await client.send({
-				subject: stampSubject(sessionContext()?.sessionId ?? "", String(params["subject"] ?? "pi: update"), secret, {
-					device: config.device.name,
-				}),
+				subject: `[pi:${tag}] ${String(params["subject"] ?? "pi: update")}`,
 				text: String(params["message"] ?? ""),
 			})
 			return {

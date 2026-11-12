@@ -81,6 +81,21 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### Shorter subject: a local route id instead of a signed blob
+
+The subject carried a signed token of ~88 characters, so a notification preview showed
+almost nothing but base64. New mail now carries a six-hex local route id:
+
+    before  [pi:AgGhxFPy_HFpjIlpyT-hoVJRP2HY.e2uUO7fw] pi: fix-login @ ybc-linux is waiting for you   (87)
+    after   [pi:f913c9] pi: fix-login @ ybc-linux is waiting for you                                    (56)
+
+- store/routes.ts: id -> {sessionId, device, expiry}, capped at 2000, atomic, expired
+  entries pruned on write. Routing only; authorization is still allowlist + DMARC.
+- Routing preference is now: short id, then signed token (mail already in flight),
+  then the reply chain.
+- ids are local, so a route minted on one machine does not resolve on another - the
+  behaviour we already wanted, now with no base64 in the subject.
+
 ### Fixed: the notification never contained the agent's answer
 
 Every settle email said "(the agent produced no text this turn)". The extension never

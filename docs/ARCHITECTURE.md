@@ -82,8 +82,17 @@ single-instance lock.
 Subject format:
 
 ```
-[pi:<base64url(sessionId|expiry|device|hmac)>] <human subject>
+[pi:f913c9] <human subject>
 ```
+
+A six-hex-character **local route id**, resolved from `store/routes.ts`. It replaced a
+signed token (~88 characters) that made every subject unreadable in a notification
+preview. Signed tokens still verify, so mail already in flight keeps working.
+
+The id is a lookup key, not a credential: an unknown id resolves to nothing, and
+authorization remains the sender allowlist plus pinned DMARC (§2.2). Because routes are
+local, an id minted on one machine simply does not resolve on another — which is the
+desired behaviour, not an error.
 
 - Signed with the shared secret, so a reply to a forged subject is rejected.
 - Carries the **device that minted it**. A daemon only persists a delivery whose

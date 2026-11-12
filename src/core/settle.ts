@@ -30,13 +30,15 @@ export const REPLY_HINT = "Reply above this line to continue the session."
  * reply land back here. Both facts are in the subject because that is all a
  * notification preview shows on a phone, tablet or another PC.
  */
-export function buildSettleSubject(context: SettleContext, secret: Buffer): string {
+export function buildSettleSubject(context: SettleContext, secret: Buffer, tag?: string): string {
 	const label = context.sessionName?.trim() || context.cwd.split("/").filter(Boolean).pop() || "session"
 	const device = context.device?.trim()
 	const where = device ? ` @ ${device}` : ""
-	return stampSubject(context.sessionId, `pi: ${label}${where} is waiting for you`, secret, {
-		...(device ? { device } : {}),
-	})
+	const body = `pi: ${label}${where} is waiting for you`
+	// A short local id keeps the subject readable; the signed token remains the
+	// fallback for callers that have no store to register against.
+	if (tag) return `[pi:${tag}] ${body}`
+	return stampSubject(context.sessionId, body, secret, { ...(device ? { device } : {}) })
 }
 
 /** Cap on the quoted agent text, so a long answer cannot become a 200-line email. */
@@ -83,6 +85,8 @@ export interface SettleNotifierDeps {
 		clearTimeout(handle: unknown): void
 	}
 	onError?: (error: Error) => void
+	/** Mint a short routing id for this notification. Falls back to a signed token. */
+	tagFor?: (context: SettleContext) => string | undefined
 }
 
 export type SettleOutcome = "scheduled" | "mode-off" | "aborted" | "disabled" | "no-context"
@@ -107,7 +111,7 @@ export function createSettleNotifier(deps: SettleNotifierDeps): SettleNotifier {
 		try {
 			await deps.send({
 				to: "", // the daemon fills in mail.to
-				subject: buildSettleSubject(context, secret),
+				subject: buildSettleSubject(context, secret, deps.tagFor?.(context)),
 				text: buildSettleBody(context),
 			})
 		} catch (error) {

@@ -7,6 +7,7 @@ import type { DaemonResult } from "../src/daemon/spawn.ts"
 import type { UserContent } from "../src/core/attachments.ts"
 import type { PendingRecord } from "../src/store/pending-store.ts"
 import { sessionIdFromSubject } from "../src/core/token.ts"
+import { resolveRoute, routeIdFromSubject } from "../src/store/routes.ts"
 
 const SECRET = Buffer.alloc(32, 4)
 const SESSION = "sess-abc"
@@ -198,7 +199,16 @@ test("agent_settled schedules exactly one email with a routing token", async () 
 
 	const settles = daemon.sent.filter((m) => /is waiting for you/.test(m.subject))
 	assert.equal(settles.length, 1)
-	assert.equal(sessionIdFromSubject(settles[0]!.subject, SECRET), SESSION)
+
+	// Subjects now carry a short local route id, not a base64 blob.
+	const tag = routeIdFromSubject(settles[0]!.subject)
+	assert.ok(tag, `expected a short [pi:xxxxxx] tag in: ${settles[0]!.subject}`)
+	assert.ok(settles[0]!.subject.length < 90, `subject should stay readable, got ${settles[0]!.subject.length} chars`)
+	assert.equal(
+		resolveRoute(tag, { env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" }, device: "test-device" })?.sessionId,
+		SESSION,
+		"the short id must resolve back to this session",
+	)
 	assert.match(settles[0]!.text, /fix-login/)
 })
 
@@ -301,7 +311,13 @@ test("request_decision reserves, sends, and a second call is refused", async () 
 	assert.match(result.content[0]!.text, /Emailed the decision/)
 	assert.deepEqual(daemon.registered, [SESSION])
 	assert.equal(daemon.sent.length, 1)
-	assert.equal(sessionIdFromSubject(daemon.sent[0]!.subject, SECRET), SESSION)
+	const decisionTag = routeIdFromSubject(daemon.sent[0]!.subject)
+	assert.ok(decisionTag, `expected a short tag in: ${daemon.sent[0]!.subject}`)
+	assert.equal(
+		resolveRoute(decisionTag, { env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" }, device: "test-device" })
+			?.sessionId,
+		SESSION,
+	)
 	assert.match(daemon.sent[0]!.text, /yes.*no/s)
 })
 

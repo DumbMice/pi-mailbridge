@@ -19,6 +19,7 @@ import { stripQuoted, type HeaderLike } from "../core/reply-parse.ts"
 import { tokenFromSubject } from "../core/token.ts"
 import { selectAttachments, type RawAttachment } from "../core/attachments.ts"
 import { parseMessageIds, lookupChain } from "../store/threads.ts"
+import { routeIdFromSubject, resolveRoute } from "../store/routes.ts"
 import { addPending, type PendingRecord } from "../store/pending-store.ts"
 import { isJournaled } from "../store/journal.ts"
 import { advanceCursor, readCursor } from "../store/uid-cursor.ts"
@@ -128,41 +129,57 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			continue
 		}
 
-		// Routing token: present and MAC-valid, or the message is not ours. When the
-		// token names a device, only that device may persist it — otherwise several
-		// machines sharing one mailbox would each hold a stale copy of the same reply.
-		const token = tokenFromSubject(message.subject, deps.secret, now())
+		// Routing, in order of preference:
+		//   1. a short local route id  [pi:a1b2c3]  — what new notifications carry
+		//   2. a signed token          [pi:<base64>.<mac>] — messages already in flight
+		//   3. the reply chain         In-Reply-To / References → recorded Message-ID
+		// All three are routing only; authorization happened above.
 		let sessionId: string | undefined
-		let tokenDevice: string | undefined
+		const routeId = routeIdFromSubject(message.subject)
 
-		if (token) {
-			if (token.device && token.device !== config.device.name) {
+		if (routeId) {
+			// Short ids are local, so an id minted on another machine simply does not
+			// resolve here — which is the behaviour we want, not an error.
+			const route = resolveRoute(routeId, { device: config.device.name, now: now(), env })
+			if (!route) {
 				result.rejected++
-				bump(result.reasons, "other-device")
+				bump(result.reasons, "unknown-route")
 				result.cursor = advanceCursor(env, uid)
 				continue
 			}
-			sessionId = token.sessionId
-			tokenDevice = token.device
-		} else if (config.security.allowHeaderThreading !== false) {
-			// Fallback: the reply chain itself. A human editing the subject, or a client
-			// rewriting it, still leaves In-Reply-To/References intact — that is how
-			// "reply to this mail" works.
-			const ids = [
-				...parseMessageIds(message.headers.inReplyTo),
-				...parseMessageIds((message.headers.references ?? []).join(" ")),
-			]
-			const thread = lookupChain(env, ids)
-			if (thread?.device && thread.device !== config.device.name) {
-				result.rejected++
-				bump(result.reasons, "other-device")
-				result.cursor = advanceCursor(env, uid)
-				continue
-			}
-			if (thread) {
-				sessionId = thread.sessionId
-				tokenDevice = thread.device
-				bump(result.reasons, "threaded")
+			sessionId = route.sessionId
+			bump(result.reasons, "routed")
+		} else {
+			const token = tokenFromSubject(message.subject, deps.secret, now(), config.device.name)
+			if (token) {
+				// deviceMatches === false means the token was minted for another machine.
+				// undefined means the format carries no device, which is not a mismatch.
+				if (token.deviceMatches === false || (token.device && token.device !== config.device.name)) {
+					result.rejected++
+					bump(result.reasons, "other-device")
+					result.cursor = advanceCursor(env, uid)
+					continue
+				}
+				sessionId = token.sessionId
+			} else if (config.security.allowHeaderThreading !== false) {
+				// Fallback: the reply chain itself. A human editing the subject, or a
+				// client rewriting it, still leaves In-Reply-To/References intact —
+				// that is how "reply to this mail" works.
+				const ids = [
+					...parseMessageIds(message.headers.inReplyTo),
+					...parseMessageIds((message.headers.references ?? []).join(" ")),
+				]
+				const thread = lookupChain(env, ids)
+				if (thread?.device && thread.device !== config.device.name) {
+					result.rejected++
+					bump(result.reasons, "other-device")
+					result.cursor = advanceCursor(env, uid)
+					continue
+				}
+				if (thread) {
+					sessionId = thread.sessionId
+					bump(result.reasons, "threaded")
+				}
 			}
 		}
 
