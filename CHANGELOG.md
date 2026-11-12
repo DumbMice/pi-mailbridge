@@ -81,6 +81,15 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### Correction: the Developer Program sandbox is gated
+
+The E5 sandbox is only granted to Visual Studio Professional/Enterprise
+subscribers, ISV Success members, AI Cloud Partner participants and Premier/Unified
+Support customers. A personal account that joins gets the learning resources and a
+Graph tutorial and **no option to provision a sandbox** - which is exactly what the
+dashboard shows. docs/OAUTH.md no longer presents it as a route; the Azure free
+account is the only way to a tenant for a personal mailbox.
+
 ### Microsoft 365 work/school tenants
 
 A developer-sandbox or work mailbox has no ISPDB entry and an arbitrary subdomain.

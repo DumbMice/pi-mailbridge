@@ -125,17 +125,30 @@ Administrator, and app registration then works there. Two routes:
    <https://entra.microsoft.com> and you should now see it in the directory picker
 4. **App registrations → New registration**
 
-*Microsoft 365 Developer Program* — <https://developer.microsoft.com/microsoft-365/dev-program>:
-free, no credit card, gives a sandbox tenant with E5 licences where you are admin.
-The app registration step is the same. Slower to provision, but it avoids the billing
-step entirely.
+*Microsoft 365 Developer Program* — **does not work for a personal account.**
+Joining is free, but the E5 sandbox is gated: Microsoft grants it only to
 
-With a developer tenant you get two usable mailboxes, and they are not equivalent:
+- active **Visual Studio Professional or Enterprise** subscribers
+- **ISV Success** program members
+- **AI Cloud Partner** program participants
+- **Premier or Unified Support** plan members
+
+A personal `@outlook.com`/`@hotmail.com` account that joins the program gets the
+learning resources and a Graph tutorial, and **no dashboard option to provision a
+sandbox** — eligibility is decided server-side and cannot be requested. If you
+joined hoping for a tenant, that route is closed.
+
+So the only remaining way to obtain a tenant for a personal mailbox is the **Azure
+free account** above, which is why it asks for a card.
+
+### If you do end up with a work/school tenant
+
+A tenant mailbox is not equivalent to the personal one:
 
 | pi mailbox | Authority | Risk |
 | --- | --- | --- |
 | `pi-xyz@hotmail.com` (personal) | `consumers/v2.0` | the personal-Outlook IMAP/SMTP refusals below |
-| `pi@yourtenant.onmicrosoft.com` (work) | `organizations/v2.0` | tied to the sandbox, which renews every 90 days |
+| `pi@yourtenant.onmicrosoft.com` (work) | `organizations/v2.0` | tied to the tenant; a sandbox renews every 90 days |
 
 The app must list **personal Microsoft accounts** in its supported account types for
 the `consumers` row to work; for the `organizations` row, any tenant member will do.
