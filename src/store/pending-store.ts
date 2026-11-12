@@ -112,14 +112,24 @@ export function claimPending(
 	return { ok: true }
 }
 
-/** Remove a delivery. Only the claimant may ack. */
-export function ackPending(env: NodeJS.ProcessEnv, uid: number, instanceId: string): boolean {
+/**
+ * Remove a delivery. Only the claimant may ack.
+ *
+ * An unclaimed record must NOT be ackable: with two sessions on one machine, any
+ * authenticated client could otherwise delete, journal and mark `\Seen` another
+ * session's reply - and nothing would re-read it, because the cursor has already moved.
+ * Returns the record's session so the caller releases the right decision slot instead of
+ * trusting whatever session id the request body carried.
+ */
+export type AckResult = { ok: true; sessionId: string } | { ok: false; reason: "not-found" | "not-claimed" }
+
+export function ackPending(env: NodeJS.ProcessEnv, uid: number, instanceId: string): AckResult {
 	const items = load(env)
 	const record = items.find((r) => r.uid === uid)
-	if (!record) return false
-	if (record.claimedBy && record.claimedBy !== instanceId) return false
+	if (!record) return { ok: false, reason: "not-found" }
+	if (record.claimedBy !== instanceId) return { ok: false, reason: "not-claimed" }
 	save(env, items.filter((r) => r.uid !== uid))
-	return true
+	return { ok: true, sessionId: record.sessionId }
 }
 
 export function pendingSize(env: NodeJS.ProcessEnv): number {

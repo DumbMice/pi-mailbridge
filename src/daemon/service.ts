@@ -220,9 +220,12 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					// polling session claims and injects the same reply twice. Losing the
 					// journal write after a successful ack only re-opens dedupe for a UID that
 					// is no longer in `pending`, which the scanner never reads again.
-					if (!ackPending(env, uid, instanceId)) return fail(409, "not_claimed")
+					const acked = ackPending(env, uid, instanceId)
+					if (!acked.ok) return fail(acked.reason === "not-found" ? 404 : 409, acked.reason)
 					journal(env, uid)
-					registry.release(String(body?.sessionId ?? ""))
+					// The record's session, never the request body's: a client that acks
+					// another session's mail must not also free its decision slot.
+					registry.release(acked.sessionId)
 
 					// Mailbox hygiene only. A failure here must not resurrect the delivery.
 					try {

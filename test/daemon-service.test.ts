@@ -578,3 +578,38 @@ test("/send without a sessionId sets no threading headers", async () => {
 		await service.close()
 	}
 })
+
+test("/ack refuses a record nobody claimed, so another session's reply survives", async () => {
+	// End-to-end version of the ownership rule: the service must not let an authenticated
+	// client consume a reply it never claimed.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-ack-")) }
+	const { addPending, pendingSize } = await import("../src/store/pending-store.ts")
+	addPending(env, {
+		uid: 42,
+		sessionId: "victim-session",
+		from: "you@example.com",
+		subject: "re",
+		body: "ship it",
+		receivedAt: 1,
+	})
+
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env,
+		source: { searchAfter: async () => [], fetch: async () => undefined },
+		send: async () => ({ messageId: "<x@qq.com>" }),
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	try {
+		const res = await fetch(`http://127.0.0.1:${port}/ack`, {
+			method: "POST",
+			headers: { ...auth(), "content-type": "application/json" },
+			body: JSON.stringify({ uid: 42, instanceId: "attacker-inst", sessionId: "attacker-session" }),
+		})
+		assert.equal(res.status, 409)
+		assert.equal(pendingSize(env), 1, "the victim's reply is still pending")
+	} finally {
+		await service.close()
+	}
+})

@@ -71,10 +71,24 @@ test("pending: only the claimant may ack", () => {
 	const e = env()
 	addPending(e, rec(1))
 	claimPending(e, 1, "A")
-	assert.equal(ackPending(e, 1, "B"), false, "non-claimant ack refused")
+	assert.equal(ackPending(e, 1, "B").ok, false, "non-claimant ack refused")
 	assert.equal(pendingSize(e), 1, "record survives a refused ack")
-	assert.equal(ackPending(e, 1, "A"), true)
+	const acked = ackPending(e, 1, "A")
+	assert.equal(acked.ok, true)
+	assert.equal(acked.ok && acked.sessionId, "s1", "the record's session is returned")
 	assert.equal(pendingSize(e), 0)
+})
+
+test("pending: an unclaimed record cannot be acked", () => {
+	// The escape hatch this closes: with two sessions on one machine, any authenticated
+	// client could ack - and therefore delete, journal and mark Seen - a reply the victim
+	// had not claimed yet. Nothing re-reads it, so the mail was simply lost.
+	const e = env()
+	addPending(e, rec(1))
+	assert.deepEqual(ackPending(e, 1, "anyone"), { ok: false, reason: "not-claimed" })
+	assert.equal(pendingSize(e), 1, "the unclaimed reply must survive")
+	assert.equal(ackPending(e, 1, "anyone").ok, false)
+	assert.equal(pendingSize(e), 1)
 })
 
 test("uid cursor: monotonic, never moves backwards", () => {
