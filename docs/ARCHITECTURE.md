@@ -133,6 +133,10 @@ An inbound message is matched to a session by the first rule that succeeds:
    subject or a client rewriting it. The chain is searched newest-first, so the
    closest ancestor wins, and entries age out with `security.tokenTtlHours` so the chain
    cannot route mail forever.
+   Some providers replace the `Message-ID` we stamp (QQ rewrites it to `<tencent_…@qq.com>`),
+   so the id the reply actually references is one we never minted. With
+   `mail.imap.sentFolder` set, the daemon reads the just-sent copy back and records the
+   delivered id as well, which restores this rule on those providers.
 4. Otherwise the message is rejected (`no-token`) and left unread - the cursor has moved
    past it, so the retry is a new reply, not an edited subject.
 
@@ -264,6 +268,7 @@ src/
     reply-parse.ts      quote stripping, address + AR-header pinning
     settle.ts           idle debounce, turn-settled notification
     status.ts           scan summary → the lines /mailbridge status prints
+    sent-index.ts       record the Message-ID the provider actually delivered
     setup.ts            first-run scaffolding
     smoke.ts            end-to-end send-and-read-back check
     token.ts            HMAC sign/verify, subjects

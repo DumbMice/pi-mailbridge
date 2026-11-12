@@ -50,6 +50,14 @@ for new configs; it never rewrites an existing one. `/mailbridge check` and
 as `ExecStartPre`, that combination stops the unit from starting rather than starting a
 daemon that rejects every reply.
 
+### The reply chain now survives providers that rewrite Message-ID
+
+A live test against QQ showed our stamped `<uuid@qq.com>` replaced by `<tencent_…@qq.com>` on
+delivery, with the human's reply referencing the tencent id. The reply-chain fallback matches
+ids we recorded, so on such a provider it never matched and the subject tag was the only route.
+Setting `mail.imap.sentFolder` makes the daemon read the just-sent copy and record the
+delivered id too.
+
 ### Daemon
 
 - A session that attaches to an already-running daemon now reloads it when `config.json` is

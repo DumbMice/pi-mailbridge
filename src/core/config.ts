@@ -17,6 +17,12 @@ export interface ImapConfig {
 	authType?: "LOGIN" | "XOAUTH2"
 	/** argv whose stdout is an access token. Required when authType is XOAUTH2. */
 	tokenCommand?: string[]
+	/**
+	 * Folder holding mail we sent. When set, the daemon reads the just-sent copy back and
+	 * records the Message-ID the provider actually delivered - some providers (QQ) replace the
+	 * one we stamp, which silently breaks the reply-chain fallback.
+	 */
+	sentFolder?: string
 }
 
 export interface SmtpConfig {

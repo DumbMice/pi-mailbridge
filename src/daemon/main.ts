@@ -28,6 +28,7 @@ import { ensureSecret } from "../store/secret.ts"
 import { readMode, scanningEnabled } from "../store/mode-store.ts"
 import { createScanQueue } from "./scan-queue.ts"
 import { sendMail } from "../core/mailer.ts"
+import { captureDeliveredMessageId } from "../core/sent-index.ts"
 import { createCommandTokenProvider } from "../core/oauth.ts"
 import { createOpenidClient } from "../core/oauth-openid.ts"
 import { buildTokenProvider } from "../core/token-source.ts"
@@ -454,6 +455,16 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 			const provider = tokenProvider
 			// The service minted and recorded the Message-ID already (before it called us),
 			// so a mail that comes straight back is recognised as ours.
+			// Read the delivered Message-ID back from the Sent folder when one is configured:
+			// providers that rewrite our stamp would otherwise make the reply-chain fallback
+			// silently useless. Fire-and-forget; a send never fails because of it.
+			if (message.sessionId) {
+				void captureDeliveredMessageId({
+					config: currentConfig,
+					subject: message.subject,
+					sessionId: message.sessionId,
+				}).catch(() => undefined)
+			}
 			return sendMail(currentConfig, message, {
 				...(provider ? { getAccessToken: () => provider.getToken() } : {}),
 				// Lets a revoked grant be refreshed once instead of failing the notification.
