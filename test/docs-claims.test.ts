@@ -880,3 +880,16 @@ test("the commands a mail reply may run match the code", () => {
 		assert.ok(security.includes(name), `SECURITY omits refused ${name}`)
 	}
 })
+
+test("the two mode subcommands are the only way mode is toggled", () => {
+	// They replaced top-level /afk and /back. A stray top-level registration would put a generic
+	// name back into pi's global namespace, where a collision is silent.
+	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
+	const registered = [...extension.matchAll(/registerCommand\("([a-z]+)"/g)].map((m) => m[1]!)
+	assert.deepEqual([...new Set(registered)], ["mailbridge"], `unexpected top-level command: ${registered.join(", ")}`)
+	assert.match(extension, /case "away":[\s\S]{0,200}setMode\("on"/, "away turns mode on")
+	assert.match(extension, /case "here":[\s\S]{0,200}setMode\("off"/, "here turns mode off")
+	for (const stale of ['"/afk"', '"/back"']) {
+		assert.ok(!extension.includes(stale), `${stale} must not linger`)
+	}
+})

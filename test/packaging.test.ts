@@ -64,9 +64,12 @@ test("runtime deps stay minimal and pi is only a peer dependency", () => {
 // --- commands documented == commands implemented ---------------------------
 
 test("every command in the README is registered in the extension", () => {
-	const documented = [...readme.matchAll(/`\/(afk|back|mailbridge)`/g)].map((m) => m[1])
+	// Only `/mailbridge` exists as a top-level command: away/here are subcommands of it.
+	const documented = [...readme.matchAll(/`\/([a-z]+)`/g)]
+		.map((m) => m[1]!)
+		.filter((name) => name === "mailbridge")
 	const unique = [...new Set(documented)]
-	assert.ok(unique.length >= 3, `expected 3 commands in README, found ${unique.length}`)
+	assert.ok(unique.length >= 1, `expected /mailbridge in README, found ${unique.length}`)
 	for (const name of unique) {
 		assert.ok(
 			extensionSource.includes(`registerCommand("${name}"`),

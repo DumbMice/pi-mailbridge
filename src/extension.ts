@@ -209,9 +209,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				} else {
 					const mode = await client?.mode()
 					if (mode?.ok) emailMode = mode.data.mode === "on" ? "on" : "off"
-					// `/back` closes the channel: no claim, no injection while it is off.
+					// `/mailbridge here` closes the channel: no claim, no injection while it is off.
 					// Anything already queued stays pending and is delivered on the next
-					// /afk, which is why the docs say so explicitly.
+					// `away`, which is why the docs say so explicitly.
 					if (emailMode === "on") await runner?.drain()
 				}
 			} catch {
@@ -296,7 +296,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			inject: async (body, record) => {
 				// A command by mail runs the same handler the prompt would, and then there is
 				// nothing to inject: the human asked for an action, not for the agent to read a
-				// sentence. Anything we do not run here stays a message, so a quoted "/back" or a
+				// sentence. Anything we do not run here stays a message, so a quoted "/mailbridge here" or a
 				// refused "/mailbridge setup" is never executed by accident.
 				const command = parseMailCommand(body)
 				if (command) {
@@ -310,7 +310,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				const content = toUserContent(body, record.attachments ?? [])
 				// A reply is text from a human, never a command. With template expansion on, pi
 				// dispatches a message starting with "/" as an extension command and never gives
-				// it to the model - so a reply of "/back" would run a command, return without a
+				// it to the model - so a reply of "/mailbridge here" would run a command, return without a
 				// turn, and the runner would ack and \Seen it. The human would believe the agent
 				// had read it.
 				pi.sendUserMessage(content, { deliverAs: "followUp", expandPromptTemplates: false })
@@ -318,7 +318,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			onError: (error) => ctx?.ui.notify(`mailbridge: reply not delivered (${error.message})`, "warning"),
 		})
 
-		// Catch-up on connect, but only when the channel is actually open: /back must not
+		// Catch-up on connect, but only when the channel is actually open: `here` must not
 		// be bypassed by a session starting up.
 		if (emailMode === "on") await runner.drain()
 		return true
@@ -424,7 +424,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			c.ui.notify(mode === "on" ? "mailbridge: email mode ON" : "mailbridge: email mode OFF", "info")
 			return
 		}
-		// No daemon: fall back to the local file so /afk is never a silent no-op.
+		// No daemon: fall back to the local file so the mode change is never a silent no-op.
 		const { writeMode } = await import("./store/mode-store.ts")
 		writeMode(env, mode)
 		// The settle notifier reads this mirror, not the file. Without it the command reports
@@ -434,7 +434,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	}
 
 	// The same handlers back both the in-pi command and a command arriving as a mail reply, so
-	// `/back` by mail and `/back` typed at the prompt cannot drift apart.
+	// the mode subcommands cannot drift between mail and prompt.
 	const commandHandlers = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
 	const registerCommand = (
 		name: string,
@@ -445,11 +445,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		pi.registerCommand(name, { description, handler })
 	}
 
-	registerCommand("afk", "Email mode ON: decisions mail you", (_a, c) => setMode("on", c))
-	registerCommand("back", "Email mode OFF: decisions ask in the terminal", (_a, c) => setMode("off", c))
-
 	registerCommand("mailbridge",
-		"Status, setup, check, auth, smoke, restart",
+		"Status, away/here, setup, check, auth, smoke, restart",
 		async (args, c) => {
 			// Re-read config on every command. It can change underneath us: `--setup`
 			// run from a shell, or an edit to config.json, would otherwise leave the
@@ -507,6 +504,12 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			}
 
 			switch (parsed.sub) {
+				case "away":
+					return void (await setMode("on", c))
+
+				case "here":
+					return void (await setMode("off", c))
+
 				case "help":
 					return void c.ui.notify(USAGE, "info")
 
@@ -538,7 +541,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						const started = await ensureRuntime(c.ui)
 						c.ui.notify(
 							started
-								? "daemon started — /mailbridge smoke, then /afk"
+								? "daemon started — /mailbridge smoke, then /mailbridge away"
 								: "config written, but the daemon did not start — /mailbridge restart",
 							started ? "info" : "warning",
 						)

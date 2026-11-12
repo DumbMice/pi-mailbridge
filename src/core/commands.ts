@@ -5,6 +5,8 @@
 // command and (where it makes sense) the headless entry point.
 
 export type MailbridgeSubcommand =
+	| "away"
+	| "here"
 	| "status"
 	| "setup"
 	| "check"
@@ -26,6 +28,8 @@ export interface ParsedCommand {
 
 export const USAGE = [
 	"/mailbridge                 status",
+	"/mailbridge away            decisions mail you (away from the terminal)",
+	"/mailbridge here            decisions ask in this terminal",
 	"/mailbridge setup <pi-address> [to <your-address>] [force]",
 	"/mailbridge check           validate config, and that credentials are present",
 	"/mailbridge auth            approve OAuth2 device login",
@@ -35,6 +39,8 @@ export const USAGE = [
 ].join("\n")
 
 const SUBCOMMANDS: readonly MailbridgeSubcommand[] = [
+	"away",
+	"here",
 	"status",
 	"setup",
 	"check",

@@ -23,7 +23,8 @@ can read the mailbox. That exact session continues.
   as a follow-up, so it queues correctly if a run is still in flight. Reply with a
   screenshot or a log file instead of prose and it still counts: images and text
   attachments (up to 4 files / 1 MB) arrive as content blocks, not as a broken path.
-- **Explicit, not inferred.** `/afk` turns email mode on; `/back` turns it off. Off means
+- **Explicit, not inferred.** `/mailbridge away` turns email mode on and `/mailbridge here`
+  turns it off. Off means
   off in both directions: no notifications, and replies are not claimed or injected until
   you turn it back on (they wait in the mailbox).
   No focus heuristics, no "probably idle".
@@ -122,7 +123,7 @@ both, prefix that line with `-` (systemd ignores the failure) once you have conf
 mail really carries the header.
 
 Point layout B at a mailbox you would not mind an agent reading, or prime it before your
-first `/afk` (below). The isolation of layout A is real, and this layout gives it up.
+first `/mailbridge away` (below). The isolation of layout A is real, and this layout gives it up.
 
 Once configured, prove it without pi:
 
@@ -215,7 +216,7 @@ Where to look:
 | --- | --- |
 | `$XDG_STATE_HOME/pi-mailbridge/daemon.log` (default `~/.local/state/…`); under systemd, `journalctl --user -u pi-mailbridge` | scan summaries, connect errors, rejected reasons |
 | `…/uid-cursor.json` | last seen UID + the mailbox's UIDVALIDITY; a change resets it |
-| `…/mode.json` | the global on/off state `/afk` and `/back` write |
+| `…/mode.json` | the global on/off state `/mailbridge away` and `here` write |
 | `…/pending.json` | accepted replies waiting for a session |
 | `…/routes.json` | short routing ids (`security.tokenTtlHours`) |
 | `…/threads.json` | outbound Message-IDs used for threading and the reply chain |
@@ -303,7 +304,7 @@ leave that configuration running.
 
 ### Start watching from now, not from history
 
-Do this **before your first `/afk`**, which is when the first scan runs. (The daemon may
+Do this **before your first `/mailbridge away`**, which is when the first scan runs. (The daemon may
 already be running — in pi, `setup` starts it; headless `--setup` only writes the file — but
 nothing is read while email mode is off.)
 
@@ -323,12 +324,12 @@ written is the cursor itself.
 Email mode starts **off**. Turn it on, let a turn settle, and the first mail arrives:
 
 ```
-/afk
+/mailbridge away
 ```
 
-Reply to it from any device. The reply continues that same session. `/back` turns it off
+Reply to it from any device. The reply continues that same session. `/mailbridge here` turns it off
 again — in both directions: while it is off nothing is scanned, claimed or injected, and
-replies wait in the mailbox until you `/afk`.
+replies wait in the mailbox until you `/mailbridge away` again.
 
 Prefer to write it yourself? Copy [`config.example.json`](./config.example.json).
 
@@ -366,8 +367,8 @@ In pi:
 
 ```
 /mailbridge          # status: daemon, mode, session, mailbox, allowlist, pending
-/afk                 # email mode on
-/back                # email mode off
+/mailbridge away      # email mode on: decisions mail you
+/mailbridge here      # email mode off: decisions ask in the terminal
 ```
 
 The daemon can be started by the extension on demand. To keep it resident:
@@ -397,8 +398,8 @@ systemctl --user enable --now pi-mailbridge
 
 | Command | Effect |
 | --- | --- |
-| `/afk` | Email mode on: decisions mail you and end the turn |
-| `/back` | Email mode off: decisions ask in the terminal |
+| `/mailbridge away` | Email mode on: decisions mail you and end the turn |
+| `/mailbridge here` | Email mode off: decisions ask in the terminal |
 | `/mailbridge` | Status: daemon health, mode, session, secret, mailbox, allowlist, pending replies |
 | `/mailbridge help` | Same command list, from inside the session |
 
@@ -409,15 +410,16 @@ agent — useful when you are away and want the phone to do something:
 
 | Reply | Effect |
 | --- | --- |
-| `/afk` | email mode ON (decisions mail you) |
-| `/back` | email mode OFF (decisions ask at the terminal) |
+| `/mailbridge away` | email mode ON (decisions mail you) |
+| `/mailbridge here` | email mode OFF (decisions ask at the terminal) |
 | `/mailbridge` or `/mailbridge status` | the status panel |
 | `/mailbridge check`, `/mailbridge smoke` | validate the config / send one test mail |
 | `/mailbridge help` | the command list |
 
 Four are deliberately **not** runnable by mail — `/mailbridge setup`, `auth`, `restart` and
 `prime`. Anything else, including a reply that merely quotes a command under your text, is
-delivered to the agent as a message, so a quoted `/back` never switches your mode by accident.
+delivered to the agent as a message, so a quoted `/mailbridge here` never switches your mode by
+accident.
 
 The reply is dispatched by this package, not handed to pi's command parser, for two reasons: the
 daemon can then tell "the command ran" from "pi rejected the prompt", and the refused four can
@@ -432,7 +434,7 @@ off by design).
 
 ## Turning it off for good
 
-`/back` closes the channel but leaves everything installed. To remove it:
+`/mailbridge here` closes the channel but leaves everything installed. To remove it:
 
 ```bash
 # 1. the daemon (skip if you never installed the unit)

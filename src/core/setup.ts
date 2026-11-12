@@ -98,7 +98,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
 		)
 		steps.push(
 			"if the mailbox already has mail you do not want the agent to read, run /mailbridge prime " +
-				"before your first /afk",
+				"before your first /mailbridge away",
 		)
 		steps.push(
 			"DMARC checks are off for this shape: a message from your address to the same address is " +

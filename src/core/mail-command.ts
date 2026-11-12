@@ -9,19 +9,26 @@
 // refuse the commands that must never be triggered by mail.
 //
 // The parse is deliberately strict: the *entire* body must be one command line. A reply that
-// says "please run this" and quotes `/back` underneath is a message, not an instruction.
+// says "please run this" and quotes `/mailbridge here` underneath is a message, not an instruction.
 
-export type SafeSubcommand = "status" | "check" | "smoke" | "help"
+export type SafeSubcommand = "away" | "here" | "status" | "check" | "smoke" | "help"
 
 /** Subcommands a mail reply may run. Everything else stays text for the agent to read. */
-export const MAIL_SAFE_SUBCOMMANDS: readonly SafeSubcommand[] = ["status", "check", "smoke", "help"]
+export const MAIL_SAFE_SUBCOMMANDS: readonly SafeSubcommand[] = [
+	"away",
+	"here",
+	"status",
+	"check",
+	"smoke",
+	"help",
+]
 
 /** Subcommands that change the machine, the credentials or the queue - never by mail. */
 export const MAIL_REFUSED_SUBCOMMANDS = ["setup", "auth", "restart", "prime"] as const
 
 export interface MailCommand {
 	/** The command name as registered in pi, without the slash. */
-	name: "afk" | "back" | "mailbridge"
+	name: "mailbridge"
 	/** Text after the command name; for `mailbridge`, the subcommand and its arguments. */
 	args: string
 	/** Present for `mailbridge`: the subcommand, already checked against the safe list. */
@@ -48,10 +55,6 @@ export function parseMailCommand(body: string): MailCommand | undefined {
 	const name = (space === -1 ? line.slice(1) : line.slice(1, space)).toLowerCase()
 	const args = space === -1 ? "" : line.slice(space + 1).trim()
 
-	if (name === "afk" || name === "back") {
-		// Both take no arguments; ignore any (a signature line would otherwise break them).
-		return { name, args: "" }
-	}
 	if (name !== "mailbridge") return undefined
 
 	// Bare `/mailbridge` prints status, exactly as it does at the prompt.

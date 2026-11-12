@@ -193,9 +193,10 @@ test("registers agent_settled and never agent_end", () => {
 	assert.ok(!pi.events.includes("agent_end"), "agent_end is not a finished signal and must not be wired")
 })
 
-test("registers the three commands and the two tools", () => {
+test("registers one command and the two tools", () => {
+	// `/afk` and `/back` were top-level names in a global namespace; they are subcommands now.
 	const pi = boot(fakeDaemon(), fakeTimers().timers)
-	assert.deepEqual(pi.commands.sort(), ["afk", "back", "mailbridge"])
+	assert.deepEqual(pi.commands.sort(), ["mailbridge"])
 	assert.deepEqual(pi.tools.sort(), ["notify_user", "request_decision"])
 })
 
@@ -252,7 +253,7 @@ test("email mode off suppresses the settle mail", async () => {
 
 // --- commands --------------------------------------------------------------
 
-test("/afk and /back push the mode through the daemon", async () => {
+test("/mailbridge away and here push the mode through the daemon", async () => {
 	const daemon = fakeDaemon({ mode: "off" })
 	const captured = new Map<string, (args: string, ctx: ExtensionCtxLike) => Promise<void>>()
 	const pi = fakePi(ctx())
@@ -271,8 +272,8 @@ test("/afk and /back push the mode through the daemon", async () => {
 	// session_start is what wires the daemon client and seeds the mode mirror.
 	await pi.fire("session_start")
 
-	await captured.get("afk")!("", ctx())
-	await captured.get("back")!("", ctx())
+	await captured.get("mailbridge")!("away", ctx())
+	await captured.get("mailbridge")!("here", ctx())
 	assert.deepEqual(daemon.modes, ["on", "off"])
 })
 
@@ -574,7 +575,7 @@ test("a refused send is surfaced to the user, not silently dropped", async () =>
 })
 
 test("while email mode is off, a queued reply is not claimed or injected", async () => {
-	// SECURITY.md promised that /back closes the control channel. Mode used to gate only
+	// SECURITY.md promised that /mailbridge here closes the control channel. Mode used to gate only
 	// outbound mail, so a reply sent while "off" was still claimed and injected.
 	const t = fakeTimers()
 	const daemon = fakeDaemon({
@@ -749,7 +750,7 @@ test("a delivered reply is injected as a followUp", async () => {
 
 test("a mode change that cannot reach the daemon still updates this session's mirror", async () => {
 	// The command writes mode.json and says "stored locally", but the settle notifier reads a
-	// local variable. Without updating it, /afk reports ON while every notification is dropped
+	// local variable. Without updating it, /mailbridge away reports ON while every notification is dropped
 	// as "mode off" until a poll tick happens to succeed.
 	const t = fakeTimers()
 	const notes: string[] = []
@@ -773,7 +774,7 @@ test("a mode change that cannot reach the daemon still updates this session's mi
 	// The daemon becomes unreachable exactly for the mode change.
 	const client = daemon.client as unknown as { setMode: unknown }
 	client.setMode = async () => ({ ok: false as const, status: 0, code: "network" })
-	await captured.get("afk")!("", ctx(notes))
+	await captured.get("mailbridge")!("away", ctx(notes))
 	assert.ok(notes.some((n) => /stored locally/.test(n)), `the fallback ran (notes: ${JSON.stringify(notes)})`)
 
 	// A settle now must be considered ON: the notifier should try to send.
@@ -793,7 +794,7 @@ test("a command reply runs the command instead of prompting the agent", async ()
 	const t = fakeTimers()
 	const daemon = fakeDaemon({
 		mode: "on",
-		pending: [{ uid: 9, sessionId: SESSION, from: "you@example.com", subject: "re", body: "/back", receivedAt: 1 }],
+		pending: [{ uid: 9, sessionId: SESSION, from: "you@example.com", subject: "re", body: "/mailbridge here", receivedAt: 1 }],
 	})
 	const pi = boot(daemon, t.timers)
 	await pi.fire("session_start")
@@ -802,7 +803,7 @@ test("a command reply runs the command instead of prompting the agent", async ()
 	await new Promise((r) => setImmediate(r))
 
 	assert.equal(pi.sent.length, 0, "nothing was injected for the agent to read")
-	assert.equal(daemon.modes.at(-1), "off", "/back switched email mode off")
+	assert.equal(daemon.modes.at(-1), "off", "/mailbridge here switched email mode off")
 })
 
 test("a reply that merely mentions a command is still a message", async () => {
@@ -815,7 +816,7 @@ test("a reply that merely mentions a command is still a message", async () => {
 				sessionId: SESSION,
 				from: "you@example.com",
 				subject: "re",
-				body: "please stop mailing me\n/back",
+				body: "please stop mailing me\n/mailbridge here",
 				receivedAt: 1,
 			},
 		],

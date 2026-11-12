@@ -51,9 +51,9 @@ Everything else ports essentially as-is.
 | `store/secret.js` | 116 | `src/store/secret.ts` | Ported — HMAC key file, first-writer-wins |
 | `store/pending-store.js` | 215 | `src/store/pending-store.ts` | Ported — durable pending replies |
 | `store/uid-cursor.js` | 123 | `src/store/uid-cursor.ts` | Ported, then extended — monotonic within a UID space; resets when the mailbox renumbers |
-| `store/mode-store.js` | 86 | `src/store/mode-store.ts` | Ported — global on/off `/afk` · `/back` |
+| `store/mode-store.js` | 86 | `src/store/mode-store.ts` | Ported — global on/off via `/mailbridge away` · `here` |
 | `store/registry.js` | 106 | `src/store/registry.ts` | Ported — one-outstanding-decision guard |
-| `command/afk.md`, `command/back.md` | short | `pi.registerCommand` | Inline, no separate command files |
+| `command/afk.md`, `command/back.md` | short | `/mailbridge away` · `here` subcommands | Renamed and namespaced: `back` is too generic a top-level name |
 | `AGENTS.md` | — | `AGENTS.md` | Rewritten for contributors + agents |
 
 ---
@@ -139,7 +139,7 @@ follow-ups after it.
 ```
 
 ```ts
-pi.registerCommand("afk",  { description: "Email mode ON",  handler: (_, ctx) => setMode("on",  ctx) })
+pi.registerCommand("mailbridge", { description: "…, away, here, …", handler: (args, ctx) => … })
 pi.registerCommand("back", { description: "Email mode OFF", handler: (_, ctx) => setMode("off", ctx) })
 pi.registerCommand("mailbridge", { description: "Status, setup, check, auth, smoke, restart", handler: (_, ctx) => status(ctx) })
 ```
@@ -165,7 +165,7 @@ pi.registerCommand("mailbridge", { description: "Status, setup, check, auth, smo
    unreadable (a 39-character token, in a subject over 80 characters). HMAC tokens still
    verify for mail already in flight, and
    authorization never depended on the token either way.
-5. **Global mode store.** `/afk` and `/back` are explicit, persisted, and
+5. **Global mode store.** `/mailbridge away` and `/mailbridge here` are explicit, persisted, and
    independent of focus heuristics.
 6. **Backoff + IDLE renew.** Renew well under the ~29-minute server timeout;
    exponential reconnect 1 s → 60 s.

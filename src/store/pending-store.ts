@@ -226,7 +226,7 @@ export function dropPendingFromOtherSpaces(
 }
 
 /** Records older than this, for sessions that are gone, are expired under queue pressure only
- * (see `process.ts`): never on connect, where a `/back` plus a holiday would delete replies. */
+ * (see `process.ts`): never on connect, where a `/mailbridge here` plus a holiday would delete replies. */
 export const PENDING_MAX_AGE_MS = 7 * 24 * 3600_000
 
 /**

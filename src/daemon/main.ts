@@ -333,9 +333,9 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 	}
 
 	async function scanNow(why: string): Promise<void> {
-		// `/back` must actually close the channel, not just stop the mail coming back.
+		// `here` must actually close the channel, not just stop the mail coming back.
 		// While mode is off nothing is fetched or persisted and the cursor stays put, so
-		// turning /afk back on processes what arrived meanwhile.
+		// turning `/mailbridge away` back on processes what arrived meanwhile.
 		if (!scanningEnabled(readMode(process.env))) {
 			if (!reportedModeOff) {
 				reportedModeOff = true
