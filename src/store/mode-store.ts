@@ -52,7 +52,7 @@ export function writeMode(env: NodeJS.ProcessEnv, mode: Mode, now: number = Date
 }
 
 /**
- * The single rule for whether the daemon may touch the mailbox. `/mailbridge here` is documented as
+ * The single rule for whether the daemon may touch the mailbox. `/mailbridge off` is documented as
  * closing the control channel, so this is the gate that makes that true.
  */
 export function scanningEnabled(mode: Mode): boolean {

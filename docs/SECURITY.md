@@ -148,10 +148,10 @@ A legitimate email can still contain text that reads like instructions
     are dropped on every connect (and untagged ones on a detected renumbering), so recent mail
     can be delivered once more instead of being skipped.
   Secrets (`secret.key`, `oauth.json`) live beside them; rotating those is covered above.
-- Turn it off with `/mailbridge here` when you will be at the desk: while mode is off the daemon
+- Turn it off with `/mailbridge off` when you will be at the desk: while mode is off the daemon
   does not scan and the extension does not claim or inject, so the mailbox is not a
   listening control channel in either direction. Replies that arrive meanwhile stay in the
-  mailbox and are processed when you `/mailbridge away` again — which also means turning it back on can
+  mailbox and are processed when you `/mailbridge on` again — which also means turning it back on can
   deliver a burst. To stop entirely, stop the daemon (`systemctl --user stop pi-mailbridge`,
   or let it exit: it quits ~120 s after the last pi session stops pinging).
 - **One mailbox for both roles** (`security.allowSelfReplies`). The loop guard is relaxed
@@ -183,7 +183,7 @@ A legitimate email can still contain text that reads like instructions
 
 ## 6a. Commands arriving by mail
 
-A reply whose entire body is one command line executes that command (`/mailbridge away`, `/mailbridge here`,
+A reply whose entire body is one command line executes that command (`/mailbridge on`, `/mailbridge off`,
 `/mailbridge status|check|smoke|help`). It is **not** handed to pi's command parser, and the
 commands that change the machine are refused: `setup` (rewrites the config and the target
 address), `auth` (starts a credential flow), `restart` (replaces the daemon) and `prime` (skips

@@ -2,7 +2,7 @@
 //
 // THE ORDERING HERE IS THE CORRECTNESS PROPERTY (docs/ARCHITECTURE.md §2):
 //
-//   0. skip everything if mode is off       `/mailbridge here` must close the channel, not just mute it
+//   0. skip everything if mode is off       `/mailbridge off` must close the channel, not just mute it
 //   1. search `UID <cursor>+1:*`            UID cursor, never \Seen, never SUBJECT
 //   2. fetch envelope + body
 //   3. self-echo, part 1: the marker header (before authorization, because in single-mailbox

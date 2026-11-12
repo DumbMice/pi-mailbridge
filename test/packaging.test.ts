@@ -64,7 +64,7 @@ test("runtime deps stay minimal and pi is only a peer dependency", () => {
 // --- commands documented == commands implemented ---------------------------
 
 test("every command in the README is registered in the extension", () => {
-	// Only `/mailbridge` exists as a top-level command: away/here are subcommands of it.
+	// Only `/mailbridge` exists as a top-level command: on/off are subcommands of it.
 	const documented = [...readme.matchAll(/`\/([a-z]+)`/g)]
 		.map((m) => m[1]!)
 		.filter((name) => name === "mailbridge")

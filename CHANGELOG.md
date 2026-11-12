@@ -104,20 +104,19 @@ notifications. A *partial* section produced by the env merge is repaired the sam
 matters because `{"daemon": null}` plus any daemon env var used to yield a daemon with no host
 and no port.
 
-### `/afk` and `/back` are now `/mailbridge away` and `/mailbridge here`
+### `/afk` and `/back` are now `/mailbridge on` and `/mailbridge off`
 
 Mode was two top-level commands in pi's global command namespace. `back` is generic enough to be
 shadowed silently by another extension — pi resolves commands by first match and warns about
-nothing — and neither name appeared in `/mailbridge help`. They are subcommands now, named for
-where decisions go rather than where the human is, and the usage text lists them. Both still
+nothing — and neither name appeared in `/mailbridge help`. They are subcommands now, named for the mode they set, and the usage text lists them. Both still
 work as a mail reply. Nothing was published, so there is no alias to carry.
 
 ### Commands by mail, dispatched here
 
 A reply whose entire body is one command line now runs that command:
-`/mailbridge [away|here|status|check|smoke|help]`. `setup`, `auth`, `restart` and `prime` are refused and
+`/mailbridge [on|off|status|check|smoke|help]`. `setup`, `auth`, `restart` and `prime` are refused and
 delivered as text, and anything longer than a single line is a message (so a quoted
-`/mailbridge here` cannot change your mode). Dispatch happens in `core/mail-command.ts`, not through pi's
+`/mailbridge off` cannot change your mode). Dispatch happens in `core/mail-command.ts`, not through pi's
 `expandPromptTemplates`, because pi's dispatcher returns `void`: a caller cannot distinguish a
 command that ran from a prompt pi rejected, and this package acks and marks `\Seen` after the
 call returns. Sending mail through that dispatcher would have consumed a reply the agent never

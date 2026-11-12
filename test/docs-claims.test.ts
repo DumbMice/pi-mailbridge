@@ -887,8 +887,8 @@ test("the two mode subcommands are the only way mode is toggled", () => {
 	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
 	const registered = [...extension.matchAll(/registerCommand\("([a-z]+)"/g)].map((m) => m[1]!)
 	assert.deepEqual([...new Set(registered)], ["mailbridge"], `unexpected top-level command: ${registered.join(", ")}`)
-	assert.match(extension, /case "away":[\s\S]{0,200}setMode\("on"/, "away turns mode on")
-	assert.match(extension, /case "here":[\s\S]{0,200}setMode\("off"/, "here turns mode off")
+	assert.match(extension, /case "on":[\s\S]{0,200}setMode\("on"/, "on turns mode on")
+	assert.match(extension, /case "off":[\s\S]{0,200}setMode\("off"/, "off turns mode off")
 	for (const stale of ['"/afk"', '"/back"']) {
 		assert.ok(!extension.includes(stale), `${stale} must not linger`)
 	}

@@ -9,14 +9,14 @@
 // refuse the commands that must never be triggered by mail.
 //
 // The parse is deliberately strict: the *entire* body must be one command line. A reply that
-// says "please run this" and quotes `/mailbridge here` underneath is a message, not an instruction.
+// says "please run this" and quotes `/mailbridge off` underneath is a message, not an instruction.
 
-export type SafeSubcommand = "away" | "here" | "status" | "check" | "smoke" | "help"
+export type SafeSubcommand = "on" | "off" | "status" | "check" | "smoke" | "help"
 
 /** Subcommands a mail reply may run. Everything else stays text for the agent to read. */
 export const MAIL_SAFE_SUBCOMMANDS: readonly SafeSubcommand[] = [
-	"away",
-	"here",
+	"on",
+	"off",
 	"status",
 	"check",
 	"smoke",

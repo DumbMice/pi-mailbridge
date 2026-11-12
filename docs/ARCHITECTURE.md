@@ -191,8 +191,8 @@ arrive once more. The daemon logs the change, the reset and how many records it 
 
 ## 5. Modes
 
-`/mailbridge away` → mode `on`: decisions mail the human and end the turn.
-`/mailbridge here` → mode `off`: decisions use the terminal as usual.
+`/mailbridge on` → mode `on`: decisions mail the human and end the turn.
+`/mailbridge off` → mode `off`: decisions use the terminal as usual.
 
 Mode is global per machine (one human, one mailbox) and persisted, so a daemon
 restart does not silently re-enable mailing. Each session reads it on its poll tick (the

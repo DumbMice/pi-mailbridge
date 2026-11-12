@@ -209,9 +209,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				} else {
 					const mode = await client?.mode()
 					if (mode?.ok) emailMode = mode.data.mode === "on" ? "on" : "off"
-					// `/mailbridge here` closes the channel: no claim, no injection while it is off.
+					// `/mailbridge off` closes the channel: no claim, no injection while it is off.
 					// Anything already queued stays pending and is delivered on the next
-					// `away`, which is why the docs say so explicitly.
+					// `on`, which is why the docs say so explicitly.
 					if (emailMode === "on") await runner?.drain()
 				}
 			} catch {
@@ -296,7 +296,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			inject: async (body, record) => {
 				// A command by mail runs the same handler the prompt would, and then there is
 				// nothing to inject: the human asked for an action, not for the agent to read a
-				// sentence. Anything we do not run here stays a message, so a quoted "/mailbridge here" or a
+				// sentence. Anything we do not run here stays a message, so a quoted "/mailbridge off" or a
 				// refused "/mailbridge setup" is never executed by accident.
 				const command = parseMailCommand(body)
 				if (command) {
@@ -310,7 +310,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				const content = toUserContent(body, record.attachments ?? [])
 				// A reply is text from a human, never a command. With template expansion on, pi
 				// dispatches a message starting with "/" as an extension command and never gives
-				// it to the model - so a reply of "/mailbridge here" would run a command, return without a
+				// it to the model - so a reply of "/mailbridge off" would run a command, return without a
 				// turn, and the runner would ack and \Seen it. The human would believe the agent
 				// had read it.
 				pi.sendUserMessage(content, { deliverAs: "followUp", expandPromptTemplates: false })
@@ -318,7 +318,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			onError: (error) => ctx?.ui.notify(`mailbridge: reply not delivered (${error.message})`, "warning"),
 		})
 
-		// Catch-up on connect, but only when the channel is actually open: `here` must not
+		// Catch-up on connect, but only when the channel is actually open: `off` must not
 		// be bypassed by a session starting up.
 		if (emailMode === "on") await runner.drain()
 		return true
@@ -446,7 +446,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	}
 
 	registerCommand("mailbridge",
-		"Status, away/here, setup, check, auth, smoke, restart",
+		"Status, on/off, setup, check, auth, smoke, restart",
 		async (args, c) => {
 			// Re-read config on every command. It can change underneath us: `--setup`
 			// run from a shell, or an edit to config.json, would otherwise leave the
@@ -504,10 +504,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			}
 
 			switch (parsed.sub) {
-				case "away":
+				case "on":
 					return void (await setMode("on", c))
 
-				case "here":
+				case "off":
 					return void (await setMode("off", c))
 
 				case "help":
@@ -541,7 +541,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						const started = await ensureRuntime(c.ui)
 						c.ui.notify(
 							started
-								? "daemon started — /mailbridge smoke, then /mailbridge away"
+								? "daemon started — /mailbridge smoke, then /mailbridge on"
 								: "config written, but the daemon did not start — /mailbridge restart",
 							started ? "info" : "warning",
 						)

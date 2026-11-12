@@ -69,7 +69,7 @@ export function applyUidValidity(
 	// an already-advanced cursor, which is why the drop runs every connect. Their decision
 	// slots are freed, or that session would be told it has an outstanding decision for a day.
 	// Only records from another UID space are dropped here. Age-based expiry used to run on every
-	// connect, which deleted replies for sessions that were merely quiet - a user on `here` for a
+	// connect, which deleted replies for sessions that were merely quiet - a user on `off` for a
 	// week came home to nothing to drain, with the cursor already past the mail. Expiry now
 	// happens under queue pressure only (see process.ts).
 	// On a reset, unknown-space records go too: see dropPendingFromOtherSpaces.
