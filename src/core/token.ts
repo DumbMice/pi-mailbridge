@@ -7,7 +7,7 @@
 // Two wire formats, because subjects are user-visible and the first one was ugly:
 //
 //   v2 (current)  [pi:<payload>.<mac>]
-//     payload = base64url( [0x02][16 session uuid][2 expiry days][2 device hash] )
+//     payload = base64url( [0x02][16 session uuid][3 expiry minutes][2 device hash] )
 //     mac     = base64url(HMAC-SHA256(secret, payload)) truncated to 6 bytes
 //     → 28 + 1 + 8 = 37 characters, so a whole subject stays under ~90
 //
@@ -27,7 +27,18 @@ const MAC_BYTES_V1 = 16
 export const DEFAULT_TOKEN_TTL_HOURS = 30 * 24
 
 const V2 = 0x02
-const V2_PAYLOAD_BYTES = 1 + 16 + 2 + 2
+/**
+ * [version][16 session][3 expiry][2 device]
+ *
+ * Expiry is minutes since the epoch: three bytes covers ~31 years, and a day of
+ * granularity (two bytes) let a token expire up to 24 h earlier than configured.
+ */
+const V2_PAYLOAD_BYTES = 1 + 16 + 3 + 2
+/**
+ * Expiry is minutes since 2020, not since 1970: three bytes reaches ~2052 from here, where
+ * minutes since 1970 topped out in 2001 and silently clamped every token to "expired".
+ */
+const MINUTE_EPOCH = Date.UTC(2020, 0, 1)
 
 export interface TokenBody {
 	/** session id */
@@ -81,10 +92,9 @@ export function signToken(sessionId: string, secret: Buffer, opts: SignOptions =
 		const payload = Buffer.alloc(V2_PAYLOAD_BYTES)
 		payload[0] = V2
 		compactSession.copy(payload, 1)
-		// Days since the epoch: two bytes covers ~179 years, and nobody needs
-		// finer resolution on a token that lives for a month.
-		payload.writeUInt16BE(Math.min(0xffff, Math.floor(expiresAt / 86_400_000)), 17)
-		;(opts.device ? deviceHash(opts.device) : NO_DEVICE).copy(payload, 19)
+		const minutes = Math.floor((expiresAt - MINUTE_EPOCH) / 60_000)
+		payload.writeUIntBE(Math.max(0, Math.min(0xffffff, minutes)), 17, 3)
+		;(opts.device ? deviceHash(opts.device) : NO_DEVICE).copy(payload, 20)
 		const encoded = payload.toString("base64url")
 		return `${encoded}.${mac(secret, encoded, MAC_BYTES_V2)}`
 	}
@@ -137,9 +147,9 @@ export function verifyToken(token: string, secret: Buffer, now: number = Date.no
 	// --- v2: compact binary payload ---
 	if (bytes.length === V2_PAYLOAD_BYTES && bytes[0] === V2) {
 		if (!macMatches(given, mac(secret, payload, MAC_BYTES_V2))) return { ok: false, reason: "bad-mac" }
-		const expiresAt = bytes.readUInt16BE(17) * 86_400_000
+		const expiresAt = MINUTE_EPOCH + bytes.readUIntBE(17, 3) * 60_000
 		if (expiresAt <= now) return { ok: false, reason: "expired" }
-		const fingerprint = bytes.subarray(19, 21)
+		const fingerprint = bytes.subarray(20, 22)
 		const claimsDevice = !fingerprint.equals(NO_DEVICE)
 		const deviceMatches = device && claimsDevice ? fingerprint.equals(deviceHash(device)) : undefined
 		return {

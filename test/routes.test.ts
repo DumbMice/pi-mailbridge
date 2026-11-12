@@ -140,3 +140,11 @@ test("an 8-hex collision fallback is still matchable", async () => {
 	assert.equal(pattern.exec("[pi:abcdef12] pi: x")?.[1], "abcdef12")
 	assert.equal(pattern.exec("[pi:abcdef] pi: x")?.[1], "abcdef")
 })
+
+test("the configured TTL bounds a route as well as a token", async () => {
+	const e = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-routes-")) }
+	const t0 = Date.UTC(2026, 0, 1)
+	const id = ensureRouteForSession({ sessionId: "01a1c453-f2fc-7169-8c89-69c93fa1a152", subject: "x", env: e, now: t0, ttlHours: 1 })
+	assert.ok(resolveRoute(id, { env: e, now: t0 + 59 * 60_000 }))
+	assert.equal(resolveRoute(id, { env: e, now: t0 + 61 * 60_000 }), undefined)
+})

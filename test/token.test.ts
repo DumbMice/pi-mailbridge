@@ -55,3 +55,18 @@ test("newSecret is 32 bytes and unique", () => {
 	assert.equal(newSecret().length, 32)
 	assert.notDeepEqual(newSecret(), newSecret())
 })
+
+test("the configured TTL is honoured, at minute granularity", () => {
+	const now = Date.UTC(2026, 0, 1)
+	const token = signToken(SID, secret, { now, ttlHours: 1 })
+	// The old layout stored whole days, so a 1-hour token could live a whole day.
+	assert.equal(verifyToken(token, secret, now + 59 * 60_000).ok, true, "valid after 59 minutes")
+	assert.equal(verifyToken(token, secret, now + 61 * 60_000).ok, false, "expired after 61")
+})
+
+test("a token minted with the default TTL survives 30 days at the minute-epoch boundary", () => {
+	const now = Date.UTC(2026, 0, 1)
+	const token = signToken(SID, secret, { now })
+	assert.equal(verifyToken(token, secret, now + 29 * 86_400_000).ok, true)
+	assert.equal(verifyToken(token, secret, now + 31 * 86_400_000).ok, false)
+})

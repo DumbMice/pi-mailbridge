@@ -249,12 +249,13 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				})
 			},
 			secret: () => secret,
-			config: config.notify,
+			config: { ...config.notify, tokenTtlHours: config.security.tokenTtlHours },
 			tagFor: (context) =>
 				ensureRouteForSession({
 					sessionId: context.sessionId,
 					...(context.device ? { device: context.device } : {}),
 					subject: `pi: ${context.sessionName ?? context.cwd}`,
+					ttlHours: config.security.tokenTtlHours,
 					env,
 				}),
 			timers,
@@ -588,6 +589,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				sessionId,
 				device: config.device.name,
 				subject: String(params["subject"] ?? "pi: decision"),
+				ttlHours: config.security.tokenTtlHours,
 				env,
 			})
 			const sent = await client.send({
@@ -621,6 +623,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				sessionId: sessionContext()?.sessionId ?? "",
 				device: config.device.name,
 				subject: String(params["subject"] ?? "pi: update"),
+				ttlHours: config.security.tokenTtlHours,
 				env,
 			})
 			const sent = await client.send({
