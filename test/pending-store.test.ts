@@ -6,6 +6,7 @@ import { join } from "node:path"
 
 import {
 	CLAIM_TTL_MS,
+	PENDING_CAP,
 	ackPending,
 	addPending,
 	claimPending,
@@ -140,4 +141,27 @@ test("sessionThread reports the root and the latest message id", async () => {
 	assert.deepEqual(sessionThread(e, "s1"), { rootMessageId: "a@qq.com", lastMessageId: "b@qq.com" })
 	assert.deepEqual(sessionThread(e, "s2"), { rootMessageId: "c@qq.com", lastMessageId: "c@qq.com" })
 	assert.deepEqual(sessionThread(e, "unknown"), {})
+})
+
+test("pending: a full store refuses new records instead of dropping old ones", () => {
+	// The old save() sliced from the front, and those records were already accepted and
+	// unjournalled - they vanished with no log and no way to recover them.
+	const e = env()
+	for (let uid = 1; uid <= PENDING_CAP; uid++) addPending(e, rec(uid))
+	assert.equal(pendingSize(e), PENDING_CAP)
+
+	const refused = addPending(e, rec(PENDING_CAP + 1))
+	assert.deepEqual(refused, { ok: false, reason: "full" })
+	assert.equal(pendingSize(e), PENDING_CAP, "nothing was discarded to make room")
+	assert.ok(getPending(e, 1), "the oldest record survives")
+	assert.equal(getPending(e, PENDING_CAP + 1), undefined)
+})
+
+test("pending: replaying an existing uid is allowed even at the cap", () => {
+	const e = env()
+	for (let uid = 1; uid <= PENDING_CAP; uid++) addPending(e, rec(uid))
+	const replaced = addPending(e, { ...rec(5), body: "edited" })
+	assert.equal(replaced.ok, true)
+	assert.equal(getPending(e, 5)?.body, "edited")
+	assert.equal(pendingSize(e), PENDING_CAP)
 })

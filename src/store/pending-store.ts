@@ -62,8 +62,10 @@ function save(env: NodeJS.ProcessEnv, items: PendingRecord[]): void {
 	const p = path(env)
 	mkdirSync(dirname(p), { recursive: true, mode: 0o700 })
 	const tmp = `${p}.${process.pid}.tmp`
-	const trimmed = items.length > PENDING_CAP ? items.slice(items.length - PENDING_CAP) : items
-	writeFileSync(tmp, JSON.stringify({ items: trimmed } satisfies PendingFile), { mode: 0o600 })
+	// Never trim here. These records were accepted and the cursor has already moved past
+	// them, so dropping one is silent, unrecoverable mail loss. The cap is enforced at
+	// insertion instead, where the caller can refuse and leave the cursor alone.
+	writeFileSync(tmp, JSON.stringify({ items } satisfies PendingFile), { mode: 0o600 })
 	renameSync(tmp, p)
 }
 
@@ -79,12 +81,22 @@ export function getPending(env: NodeJS.ProcessEnv, uid: number): PendingRecord |
 	return load(env).find((r) => r.uid === uid)
 }
 
-/** Add or replace the record for `uid`. Idempotent on replay. */
-export function addPending(env: NodeJS.ProcessEnv, record: PendingRecord): PendingRecord {
-	const items = load(env).filter((r) => r.uid !== record.uid)
-	items.push(record)
-	save(env, items)
-	return record
+export type AddResult = { ok: true; record: PendingRecord } | { ok: false; reason: "full" }
+
+/**
+ * Add or replace the record for `uid`. Idempotent on replay.
+ *
+ * Refuses a NEW record once the store is full rather than making room by discarding an
+ * older one: every record here was already accepted, and the caller's cursor is about to
+ * move past it. Replacing an existing uid (replay) is always allowed.
+ */
+export function addPending(env: NodeJS.ProcessEnv, record: PendingRecord): AddResult {
+	const existing = load(env)
+	const without = existing.filter((r) => r.uid !== record.uid)
+	if (without.length >= PENDING_CAP) return { ok: false, reason: "full" }
+	without.push(record)
+	save(env, without)
+	return { ok: true, record }
 }
 
 /**

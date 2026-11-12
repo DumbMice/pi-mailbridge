@@ -7,6 +7,7 @@ import { join } from "node:path"
 import type { ResolvedConfig } from "../src/core/config.ts"
 import { signToken } from "../src/core/token.ts"
 import { scanAndProcess, type MailSource, type RawMessage } from "../src/daemon/process.ts"
+import { addPending, PENDING_CAP } from "../src/store/pending-store.ts"
 import { listPending } from "../src/store/pending-store.ts"
 import { journal } from "../src/store/journal.ts"
 import { readCursor } from "../src/store/uid-cursor.ts"
@@ -547,4 +548,26 @@ test("an empty reply with no usable attachment is still rejected", async () => {
 	})
 	assert.equal(r.reasons["empty-body"], 1)
 	assert.equal(r.persisted, 0)
+})
+
+test("a full pending store does not advance the cursor past the undelivered mail", async () => {
+	// Refusing at insertion is only safe if the scanner retries: it must leave the cursor
+	// where it is, so the same UID comes back instead of being lost behind a full queue.
+	const e = env()
+	for (let uid = 1; uid <= PENDING_CAP; uid++) {
+		addPending(e, {
+			uid,
+			sessionId: "other",
+			from: "you@example.com",
+			subject: "x",
+			body: "y",
+			receivedAt: 1,
+		})
+	}
+	const { readCursor } = await import("../src/store/uid-cursor.ts")
+	const beforeCursor = readCursor(e)
+	const r = await scanAndProcess(config(), { source: source([msg(PENDING_CAP + 1)]), secret: SECRET, env: e })
+	assert.equal(r.reasons["pending-full"], 1)
+	assert.equal(r.persisted, 0)
+	assert.equal(readCursor(e), beforeCursor, "cursor must not move past a record we could not store")
 })

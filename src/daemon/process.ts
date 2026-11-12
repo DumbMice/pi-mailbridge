@@ -242,7 +242,14 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		}
 
 		// Persist BEFORE the cursor moves. A crash here leaves the mail unseen.
-		addPending(env, record)
+		const added = addPending(env, record)
+		if (!added.ok) {
+			// The queue is full. Do NOT advance: the mail stays unread and this same UID is
+			// retried once space appears, instead of being silently discarded.
+			result.rejected++
+			bump(result.reasons, "pending-full")
+			continue
+		}
 		result.persisted++
 
 		result.cursor = advanceCursor(env, uid)
