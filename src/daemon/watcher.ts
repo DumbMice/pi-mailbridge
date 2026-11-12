@@ -16,6 +16,7 @@ import { simpleParser } from "mailparser"
 import type { ResolvedConfig } from "../core/config.ts"
 import type { RawMessage, MailSource } from "./process.ts"
 import type { HeaderLike } from "../core/reply-parse.ts"
+import { decodeRfc2047 } from "../core/header-encoding.ts"
 import type { RawAttachment } from "../core/attachments.ts"
 
 export const DEFAULT_IDLE_RENEW_MS = 25 * 60 * 1000
@@ -93,8 +94,9 @@ export function extractHeaders(raw: Buffer | string): ExtractedHeaders {
 		const values = headerValues.get(name)
 		if (!values) return undefined
 		// From/Subject are logically single-valued; servers may fold them, so join
-		// rather than silently using only the first instance.
-		return values.join(" ")
+		// rather than silently using only the first instance. Then decode RFC 2047:
+		// a client that encodes a subject makes the routing token unreadable otherwise.
+		return decodeRfc2047(values.join(" "))
 	}
 
 	return { headerValues, from: pick("from"), subject: pick("subject") }

@@ -22,6 +22,8 @@ const QUOTE_BOUNDARIES: RegExp[] = [
 	/^\s*-{2,}\s*Forwarded message\s*-{2,}\s*$/i,
 	// Mobile clients
 	/^\s*Sent from my\b/i,
+	// Outlook mobile app signature, in either the English or the Chinese build.
+	/^\s*(?:获取|Get)\s*Outlook\s*for\s+(?:Android|iOS|iPhone|iPad)\b/i,
 ]
 
 /** Signature delimiter per RFC 3676 §4.3 — "dash dash space". */

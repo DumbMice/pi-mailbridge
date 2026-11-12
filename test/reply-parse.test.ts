@@ -129,3 +129,10 @@ test("a pinned authserv-id that is absent fails closed rather than falling back"
 	const bare = "spf=pass; dmarc=pass header.from=hotmail.com"
 	assert.equal(findTrustedAuthResults({ authResults: [bare] }, "mx.example.com"), undefined)
 })
+
+test("the Outlook mobile signature is stripped", () => {
+	// Verbatim tail of a real reply from an Outlook.com account.
+	assert.equal(stripQuoted("It works!\n\n获取Outlook for Android<https://aka.ms/AAb9ysg>"), "It works!")
+	assert.equal(stripQuoted("Looks good\n\nGet Outlook for iOS<https://aka.ms/AAb9ysg>"), "Looks good")
+	assert.equal(stripQuoted("Get Outlook for Android"), "", "a signature with no content leaves nothing")
+})

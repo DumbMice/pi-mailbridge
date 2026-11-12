@@ -81,6 +81,30 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### Fixed: replies from real mail clients were rejected as no-token
+
+Found by replying to a live test mail from Outlook. The subject came back as RFC 2047
+encoded-words in gb2312:
+
+    =?gb2312?B?UmU6IFtwaTpleUp6...?= =?gb2312?Q?ease_reply_to_this?=
+
+Headers are read raw on purpose - Authentication-Results must keep its order and
+multiplicity - so nothing decoded them and the routing token was unreadable. Every
+reply from a client that encodes a subject (any non-ASCII character, including a
+Chinese session name or an em dash) was rejected as no-token.
+
+- core/header-encoding.ts: RFC 2047 decoder for B and Q words, dropping whitespace
+  between adjacent encoded words per section 6.2, with a charset fallback instead of
+  a throw
+- watcher: From and Subject are decoded after extraction; Authentication-Results
+  stays raw and ordered
+- TextDecoder handles gb2312/gbk via Node's full ICU, so no new dependency
+- reply-parse: strip the Outlook mobile signature, which the live reply carried into
+  the body
+
+Proof: rewinding the cursor and rescanning the same message turned
+rejected/no-token into persisted/reasons {} with the correct session id.
+
 ### Verified: QQ attaches Authentication-Results
 
 Checked a live QQ mailbox: external mail carries `Authentication-Results` with
