@@ -18,6 +18,11 @@ Environment=PATH=%h/.local/share/pi-node/current/bin:/usr/local/bin:/usr/bin:/bi
 # for a local checkout point it at that directory instead.
 Environment=PI_MAILBRIDGE_DIR=%h/.pi/agent/npm/node_modules/pi-mailbridge
 # Environment=PI_MAILBRIDGE_DIR=%h/Work/pi-mailbridge
+
+# systemd owns this process, so it must not exit when the last pi session stops
+# pinging - Restart=always would turn that into a restart loop. Setting this beats
+# editing the config file; the config key still works if you prefer it.
+Environment=PI_MAILBRIDGE_EXIT_WHEN_IDLE=false
 # ---------------------------------------------------------------------------
 
 ExecStartPre=/usr/bin/env node --experimental-strip-types ${PI_MAILBRIDGE_DIR}/src/daemon/main.ts --check
