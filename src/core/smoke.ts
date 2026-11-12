@@ -141,7 +141,12 @@ export async function runSmoke(config: ResolvedConfig, deps: SmokeDeps = {}): Pr
 				await sleep(delay)
 				for (const source of await connection.recentSources(since)) {
 					const head = (source.toString("utf8").split(/\r?\n\r?\n/)[0] ?? "").replace(/\r?\n[ \t]+/g, " ")
-					if (stampedIdFromHeaders(head) !== wanted) continue
+					// The stamp is how we find the copy, but a provider can strip it while leaving
+					// our marker. Treat that copy as ours too, or the probe reports "did not come
+					// back" for a notification the scanner would recognise perfectly well.
+					const stamped = stampedIdFromHeaders(head)
+					const marked = /^x-pi-mailbridge:\s*notification/im.test(head)
+					if (stamped !== wanted && !(marked && stamped === undefined)) continue
 					// Classify on what the scanner actually uses: the marker, then our
 					// Message-ID. Claiming the Message-ID survived without checking it was the
 					// bug the live account exposed.

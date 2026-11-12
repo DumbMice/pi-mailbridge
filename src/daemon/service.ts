@@ -211,7 +211,11 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				ok: true,
 				mode: readMode(env),
 				pending: listPending(env).length,
+				// `sessions` is the decision registry (sessions that were told about a
+				// notification), not connected clients — a raw payload showed `sessions: 0`
+				// next to `clients: 2`. Both keys, so neither reading is wrong.
 				sessions: registry.list().length,
+				registry: registry.list().length,
 				sseClients: streams.size,
 				// Liveness: how many sessions are pinging, and how long ago the last one did.
 				clients: pings.size,

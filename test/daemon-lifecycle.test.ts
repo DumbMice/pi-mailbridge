@@ -424,3 +424,40 @@ test("no session or no sentFolder means no read-back", async () => {
 	await new Promise((r) => setImmediate(r))
 	assert.equal(captured, 0)
 })
+
+test("a failed sent-copy read-back is reported, not swallowed", async () => {
+	// sendWithCapture is fire-and-forget, so a rejected capture is invisible unless onMissed
+	// runs. Nothing referenced onMissed before: deleting the call kept every test green.
+	const { sendWithCapture } = await import("../src/daemon/main.ts")
+	const message = { messageId: "<m1@example.com>", sessionId: "s1", subject: "hi" }
+	let missed = 0
+
+	const ok = await sendWithCapture(message, async () => "sent", {
+		sentFolder: "Sent Messages",
+		capture: async () => undefined,
+		onMissed: () => (missed += 1),
+	})
+	assert.equal(ok, "sent", "the notification must still be reported as sent")
+	await new Promise((r) => setTimeout(r, 0))
+	assert.equal(missed, 1, "a missing delivered id counts as missed")
+
+	missed = 0
+	await sendWithCapture(message, async () => "sent", {
+		sentFolder: "Sent Messages",
+		capture: async () => {
+			throw new Error("EACCES")
+		},
+		onMissed: () => (missed += 1),
+	})
+	await new Promise((r) => setTimeout(r, 0))
+	assert.equal(missed, 1, "a rejected capture counts too")
+
+	missed = 0
+	await sendWithCapture(message, async () => "sent", {
+		sentFolder: "Sent Messages",
+		capture: async () => "<delivered@qq.com>",
+		onMissed: () => (missed += 1),
+	})
+	await new Promise((r) => setTimeout(r, 0))
+	assert.equal(missed, 0, "a captured id reports nothing")
+})

@@ -197,6 +197,7 @@ arrived. If mode is off nothing is scanned at all, so this panel keeps showing t
 | `other-device` | the notification was minted by another pi machine, or `device.name` changed since | reply to a notification from this machine, or restore the old `device.name` |
 | `self` | single-mailbox mode, but `security.allowSelfReplies` is false, so a reply from your own address is refused | set it `true` (see One mailbox or two?) |
 | `self-echo` | our own notification looping back (the marker header or the recorded Message-ID identified it) | nothing to do; this is the guard working |
+| `expired` | a queued reply aged out (only under queue pressure) and was dropped | send it again; the original was never delivered |
 | `no-reply-evidence` | a message from your own address with no `In-Reply-To`/`References` — a freshly composed mail, or a client that dropped threading headers | reply to the notification instead; in single-mailbox mode the threading header is required |
 | `auto-generated` | a robot, a mailing list, or a bounce (`mailer-daemon`, `postmaster`, null sender) | nothing to do |
 | `empty-body` | no prose and no usable attachment | — |
@@ -388,6 +389,7 @@ systemctl --user enable --now pi-mailbridge
 | `/afk` | Email mode on: decisions mail you and end the turn |
 | `/back` | Email mode off: decisions ask in the terminal |
 | `/mailbridge` | Status: daemon health, mode, session, secret, mailbox, allowlist, pending replies |
+| `/mailbridge help` | Same command list, from inside the session |
 | `/mailbridge setup <addr> [to <addr>] [force]` | Discover servers + auth, write the config, and start or reload the daemon |
 | `/mailbridge check` | Validate the config and that credentials are present (in pi: no network; `--check` runs your `tokenCommand` if XOAUTH2 is configured) |
 | `/mailbridge auth` | Start the OAuth2 device login; prints the URL, polls in the background |
@@ -534,8 +536,9 @@ and the Gmail equivalent: **[docs/OAUTH.md](./docs/OAUTH.md)**.
 1. in the provider's web settings, enable **IMAP/SMTP服务**, then generate a 授权码
 2. `/mailbridge setup pi-yourname@qq.com to you@hotmail.com`
 3. paste the 授权码 into both password fields, then `/mailbridge smoke`
-4. add `"sentFolder": "Sent Messages"` to `mail.imap` — QQ replaces the `Message-ID` we stamp,
-   so without it a reply only routes while the `[pi:…]` tag survives
+4. check that `mail.imap.sentFolder` is `"Sent Messages"` — `setup` writes it for `qq.com` and
+   `foxmail.com`, because QQ replaces the `Message-ID` we stamp; without it a reply only routes
+   while the `[pi:…]` tag survives. Add it by hand for any *other* provider that rewrites ids
 
 `qq.com`, `foxmail.com`, `163.com` and `126.com` are in the built-in discovery
 table, so setup works even if the autoconfig service is slow. See

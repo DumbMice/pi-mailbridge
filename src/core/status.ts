@@ -57,8 +57,15 @@ export function formatScan(summary: ScanSummary | null | undefined): string[] {
 	const dropped = list((r) => r.startsWith("attachment-"))
 	const deferred = entries.some(([reason]) => DEFERRED.has(reason))
 
+	// Freshness stays visible after the first message: "last scan with mail: 10:00" alone cannot
+	// tell a live poll loop from one that died at 10:05.
+	const checked =
+		summary.checkedAt && summary.checkedAt - summary.at > 60_000
+			? ` (last checked ${new Date(summary.checkedAt).toLocaleTimeString()})`
+			: ""
+
 	return [
-		`last scan with mail: ${new Date(summary.at).toLocaleTimeString()} — examined ${summary.examined}, kept ${summary.persisted}, rejected ${summary.rejected}`,
+		`last scan with mail: ${new Date(summary.at).toLocaleTimeString()}${checked} — examined ${summary.examined}, kept ${summary.persisted}, rejected ${summary.rejected}`,
 		`rejections: ${refused || "none"}`,
 		...(handled ? [`handled: ${handled}`] : []),
 		...(dropped ? [`attachments dropped: ${dropped}`] : []),

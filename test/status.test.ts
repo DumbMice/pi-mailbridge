@@ -48,3 +48,12 @@ test("our own echo is handled, not a rejection", () => {
 	assert.ok(lines.some((l) => l.startsWith("rejections: none")), lines.join("\n"))
 	assert.ok(lines.some((l) => l.startsWith("handled: ") && l.includes("self-echo")))
 })
+
+test("staleness stays visible after the first message", () => {
+	// "last scan with mail: 10:00" cannot distinguish a live poll from one that died at 10:05.
+	const at = Date.UTC(2026, 0, 1, 10, 0, 0)
+	const fresh = formatScan({ at, checkedAt: at + 5_000, examined: 1, persisted: 1, rejected: 0, reasons: {} })
+	assert.doesNotMatch(fresh[0]!, /last checked/)
+	const stale = formatScan({ at, checkedAt: at + 600_000, examined: 1, persisted: 1, rejected: 0, reasons: {} })
+	assert.match(stale[0]!, /last checked/)
+})

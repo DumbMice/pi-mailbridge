@@ -143,9 +143,9 @@ A legitimate email can still contain text that reads like instructions
     re-opens replay of already-acked mail, so prefer leaving it unless you also cleared the
     mailbox.
   - `uid-cursor.json` — the last seen UID and the UIDVALIDITY it belongs to. A change of
-    UIDVALIDITY (a rebuilt or migrated folder) resets it; queued records from another numbering
-    are dropped on every connect, so recent mail can be delivered once more instead of being
-    skipped.
+    UIDVALIDITY (a rebuilt or migrated folder) resets it; queued records tagged with another numbering
+    are dropped on every connect (and untagged ones on a detected renumbering), so recent mail
+    can be delivered once more instead of being skipped.
   Secrets (`secret.key`, `oauth.json`) live beside them; rotating those is covered above.
 - Turn it off with `/back` when you will be at the desk: while mode is off the daemon
   does not scan and the extension does not claim or inject, so the mailbox is not a

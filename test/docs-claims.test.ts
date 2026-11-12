@@ -683,9 +683,14 @@ test("the renumbering behaviour is documented, including its cost", () => {
 	const arch = flat(doc("docs/ARCHITECTURE.md"))
 	const at = arch.indexOf("UIDs are only meaningful within one")
 	assert.ok(at > -1, "ARCHITECTURE should explain UIDVALIDITY")
-	const section = arch.slice(at, at + 900)
+	// The window has to cover the whole passage: it grew when the unknown-space rule was
+	// documented, and a too-tight slice starts failing on prose it never meant to read.
+	const section = arch.slice(at, at + 2000)
 	assert.match(section, /reset/i, "says the cursor is reset")
 	assert.match(section, /re-deliver|delivered once more/i, "and admits the re-delivery cost")
+	// The distinction that live evidence forced: tagged records go on every connect, untagged
+	// ones only on a detected renumbering.
+	assert.match(section, /no\*? ?space tag|untagged/i, "explains what happens to untagged records")
 	assert.match(flat(doc("docs/SECURITY.md")), /uid-cursor\.json/, "SECURITY lists the cursor file")
 })
 

@@ -220,15 +220,34 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 		resolved.notify = { ...resolved.notify, debounceMs: 10_000 }
 	}
 
-	// A negative or non-numeric interval would silently disable the safety net.
-	if (resolved.daemon.scanIntervalSecs !== undefined) {
-		const n = Number(resolved.daemon.scanIntervalSecs)
+	// A null section reaches here as `null` (JSON null is not a record), and every check below
+	// dereferences it. loadConfig's contract is that it never throws, so repair first.
+	if (!isRecord(resolved.daemon)) {
+		warnings.push("daemon must be an object — using the defaults")
+		resolved.daemon = { ...DEFAULTS.daemon }
+	}
+
+	// A negative, null or non-numeric interval would silently disable the safety net.
+	// `Number(null)` is 0, which would read as "the user disabled the sweep" — only a real
+	// number counts.
+	const rawInterval: unknown = resolved.daemon.scanIntervalSecs
+	if (rawInterval !== undefined) {
+		const n = typeof rawInterval === "number" ? rawInterval : Number.NaN
 		if (!Number.isFinite(n) || n < 0) {
 			warnings.push("daemon.scanIntervalSecs must be a non-negative number — using 60")
 			resolved.daemon = { ...resolved.daemon, scanIntervalSecs: 60 }
 		} else {
 			resolved.daemon = { ...resolved.daemon, scanIntervalSecs: n }
 		}
+	}
+
+	if (!isRecord(resolved.mail)) {
+		warnings.push("mail must be an object — using the defaults")
+		resolved.mail = { ...DEFAULTS.mail }
+	}
+	if (!isRecord(resolved.mail.imap)) {
+		warnings.push("mail.imap must be an object — using the defaults")
+		resolved.mail = { ...resolved.mail, imap: { ...DEFAULTS.mail.imap } }
 	}
 
 	const imap = resolved.mail.imap

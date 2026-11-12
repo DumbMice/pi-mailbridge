@@ -162,3 +162,24 @@ test("setup names the Sent folder on a provider that rewrites Message-ID", () =>
 	const generic = buildSetupConfig("someone@fastmail.com", "you@example.com", discovered("fastmail.com"))
 	assert.equal(generic.mail.imap.sentFolder, undefined, "only where it is known to be needed")
 })
+
+test("the auto-detected Sent folder cannot be triggered by a lookalike host", () => {
+	// A loosening to /qq\.com/ would pass the suite and would quietly write a Sent folder for
+	// hosts nobody measured.
+	const discovered = (host: string) => ({
+		provider: "other" as const,
+		imap: { host, port: 993, secure: true },
+		smtp: { host: host.replace("imap", "smtp"), port: 465, secure: true },
+		user: "someone@example.com",
+		folder: "INBOX",
+		authType: "LOGIN" as const,
+	})
+	for (const host of ["imap.notqq.com", "imap.qq.com.evil.example", "imap.qq.com.evil"]) {
+		const config = buildSetupConfig("someone@example.com", "you@example.com", discovered(host))
+		assert.equal(config.mail.imap.sentFolder, undefined, `${host} must not be treated as QQ`)
+	}
+	for (const host of ["imap.qq.com", "imap.foxmail.com"]) {
+		const config = buildSetupConfig("someone@example.com", "you@example.com", discovered(host))
+		assert.equal(config.mail.imap.sentFolder, "Sent Messages", `${host} is QQ/Foxmail`)
+	}
+})

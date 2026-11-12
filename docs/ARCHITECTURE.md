@@ -70,7 +70,7 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/health` | liveness probe; **unauthenticated** by design (mode, pending/client counts, the decision-registry size — sessions *with an outstanding decision*, not live sessions — ping timing, idle-exit armed, SSE subscribers, the last scan's summary, `configLoadedAt`; no content, no addresses) |
+| GET | `/health` | liveness probe; **unauthenticated** by design (mode, pending/client counts, the decision-registry size, emitted as both `sessions` and `registry` — sessions *with an outstanding decision*, not live sessions; live ones are `clients` — ping timing, idle-exit armed, SSE subscribers, the last scan's summary, `configLoadedAt`; no content, no addresses) |
 | GET | `/events` | SSE: `delivery`, `mode` (no client uses it; sessions poll) |
 | GET | `/pending` | the delivery channel: polled every 10 s, and replayed on reconnect |
 | POST | `/claim` | `{uid, instanceId, uidValidity?}` — atomic claim; refused as `stale-space` when the record belongs to another UID space |
@@ -137,7 +137,7 @@ An inbound message is matched to a session by the first rule that succeeds:
    Some providers replace the `Message-ID` we stamp (QQ rewrites it to `<tencent_…@qq.com>`),
    so the id the reply actually references is one we never minted. With
    `mail.imap.sentFolder` set, the daemon reads the just-sent copy back and records the
-   delivered id as well. Best-effort: it retries for up to a minute (the provider appends the
+   delivered id as well. Best-effort: it retries for about two minutes — six attempts totalling 112 s (the provider appends the
    copy asynchronously) and matches on the `X-Pi-Mailbridge-Id` header we stamp, so it can only
    ever record the copy of that exact notification. A capture in flight when the daemon stops
    is lost, and that notification falls back to the subject id.
@@ -176,9 +176,13 @@ future message, with `examined 0` as the only symptom.
 The daemon records the mailbox's `UIDVALIDITY` beside the cursor and compares it on every
 connect. On a change it resets the cursor (except the first observation after an upgrade, unless the
 cursor has fallen outside the new range) and ignores `journal.json` entries from the old
-numbering (they describe a space that no longer exists). Queued records from another numbering
-are dropped on **every** connect, not only on a change - a crash between the cursor write and
-the drop would otherwise leave a record that nothing can claim and nothing ever removes.
+numbering (they describe a space that no longer exists). Queued records tagged with another numbering are dropped
+on **every** connect, not only on a change - a crash between the cursor write and the drop
+would otherwise leave a record that nothing can claim and nothing ever removes. Records with
+*no* space tag predate that field: an ordinary connect keeps them (an upgrade must not discard
+a queued reply), but a detected renumbering drops them too, because they cannot be shown to
+belong to the new numbering - live, one was claimed there and delivered a different message's
+body.
 The cost is explicit: **a renumbering can re-deliver replies that were acked inside the
 route TTL**, because the only durable dedupe is UID-based. Nothing is lost; recent mail may
 arrive once more. The daemon logs the change, the reset and how many records it dropped.

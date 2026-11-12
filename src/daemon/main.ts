@@ -188,7 +188,7 @@ async function setup(argv: string[]): Promise<number> {
 function log(message: string): void {
 	// Timestamped: a live review had to read TCP counters to prove the poll was running, because
 	// the log carried no time and empty scans are silent.
-	console.error(`pi-mailbridge: ${new Date().toISOString().slice(11, 19)} ${message}`)
+	console.error(`pi-mailbridge: ${new Date().toISOString().slice(0, 19)}Z ${message}`)
 }
 
 /**
@@ -372,6 +372,24 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		}
 	}
 
+	const armPoll = (): void => {
+		// Clearing first makes this callable from /reload: setting the interval to 0 leaves no
+		// tick to re-read it, so without an external re-arm a later `/reload` could never turn
+		// the safety net back on.
+		if (pollHandle !== undefined) clearTimeout(pollHandle)
+		pollHandle = undefined
+		// Read the interval on every tick so `/reload` can change it, and reuse the same mode
+		// rule the scanner uses rather than spelling it out again.
+		const scanEveryMs = Math.max(0, currentConfig.daemon.scanIntervalSecs ?? 60) * 1000
+		if (scanEveryMs === 0) return
+		pollHandle = setTimeout(() => {
+			pollHandle = undefined
+			if (scanningEnabled(readMode(process.env)) && currentWatcher?.isHealthy()) void scanOnce("poll")
+			armPoll()
+		}, scanEveryMs)
+		pollHandle.unref?.()
+	}
+
 	let reloadInFlight: Promise<{ ok: boolean; error?: string; warning?: string }> | undefined
 
 	async function doReload(pass = 0): Promise<{ ok: boolean; error?: string; warning?: string }> {
@@ -392,6 +410,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 				// The config was re-read; the connection is what failed, and the watcher is
 				// retrying. Report it rather than calling the reload clean.
 				log("reloaded config, but IMAP did not connect (check the password/host)")
+				armPoll()
 				return { ok: true, warning: "config reloaded, but IMAP did not connect" }
 			}
 			// Someone wrote the config while we were re-dialling (a `/mailbridge setup` that
@@ -400,6 +419,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 			// just replaced until the next session notices.
 			if (pass === 0 && configStamp() > startedFrom) return doReload(1)
 			log("reloaded config and restarted the watcher")
+			armPoll()
 			return { ok: true }
 		} catch (error) {
 			// Do not leave the daemon holding a config whose watcher never started.
@@ -555,24 +575,12 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 	process.on("SIGINT", () => void shutdown("SIGINT"))
 
 	await startWatcher(currentConfig)
+	armPoll()
 
 	// Safety net: an IDLE that never fires (a provider that does not push, or a connection that
 	// silently stopped idling) would strand every reply until something else triggered a scan.
 	// A catch-up sweep costs one SEARCH that usually returns nothing. Observed live: a Hotmail
 	// reply sat unseen while the daemon reported "imap: connected".
-	const armPoll = (): void => {
-		// Read the interval on every tick so `/reload` can change it, and reuse the same mode
-		// rule the scanner uses rather than spelling it out again.
-		const scanEveryMs = Math.max(0, currentConfig.daemon.scanIntervalSecs ?? 60) * 1000
-		if (scanEveryMs === 0) return
-		pollHandle = setTimeout(() => {
-			pollHandle = undefined
-			if (scanningEnabled(readMode(process.env)) && currentWatcher?.isHealthy()) void scanOnce("poll")
-			armPoll()
-		}, scanEveryMs)
-		pollHandle.unref?.()
-	}
-	armPoll()
 }
 
 /**

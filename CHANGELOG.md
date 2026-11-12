@@ -56,17 +56,45 @@ Live: a reply sat in INBOX for minutes while `/health` reported `imap: connected
 only scanned on connect, on an IMAP `EXISTS` event, and on mode-on — and the provider stopped
 pushing `EXISTS`. `daemon.scanIntervalSecs` (default 60, `0` disables) sweeps on a timer while
 mode is on, and `/mailbridge status` now distinguishes "no mail yet — last checked …" from a
-dead daemon. The smoke echo probe was fixed in the same pass: it identifies the delivered copy
-by the stamped id and retries, instead of reading "the newest message" once (which reported a
-false alarm on a live account).
+dead daemon. The smoke echo probe was fixed in the same pass: it finds the delivered copy by the stamped id
+and retries instead of reading "the newest message" once (which reported a false alarm on a
+live account), and it now classifies what actually survived — our marker, our `Message-ID`, or
+neither (safe only with the Sent-folder read-back). It used to claim the `Message-ID` survived
+without comparing it, which on QQ printed an assurance that was false.
 
-### The reply chain can match providers that rewrite Message-ID (opt-in)
+### The reply chain can match providers that rewrite Message-ID
 
 A live test against QQ showed our stamped `<uuid@qq.com>` replaced by `<tencent_…@qq.com>` on
 delivery, with the human's reply referencing the tencent id. The reply-chain fallback matches
 ids we recorded, so on such a provider it never matched and the subject tag was the only route.
 Setting `mail.imap.sentFolder` makes the daemon read the just-sent copy and record the
-delivered id too.
+delivered id too. `setup` writes that key for `qq.com` and `foxmail.com` — the one provider
+measured doing this, and the one you cannot fix from the reply side. Elsewhere it stays opt-in.
+The read-back is best-effort: six attempts over ~112 s, one short-lived IMAP connection per
+notification, and a miss is logged rather than failing the send.
+
+### A queued reply cannot be delivered against the wrong numbering
+
+Pending records now carry the `UIDVALIDITY` they were scanned under. Records tagged with
+another numbering are dropped on every connect, and untagged ones (written before the field
+existed) on a detected renumbering — live, one of those was claimed in a new space and
+delivered a different message's body. On an ordinary connect untagged records are kept, so an
+upgrade does not discard a reply that was still waiting.
+
+Daemon log lines carry a full UTC timestamp (`2026-11-12T16:56:56Z`), because a live review had
+to read TCP counters to prove the periodic sweep was running: empty scans are silent, so the log
+had no evidence either way. `/health` also reports `registry` (the same number as `sessions`,
+which means "sessions that were told about a notification", not "connected clients" — the raw
+payload read wrong next to `clients: 2`). `/mailbridge status` keeps showing *last checked* after
+the first message, so a poll loop that died at 10:05 is visible behind a scan at 10:00.
+
+`/mailbridge status` distinguishes "no mail yet — last checked …" from a daemon that has never
+scanned, and reports when the last scan that saw mail happened. `daemon.scanIntervalSecs` is
+validated (`null`/negative/strings are refused rather than read as "0", which means off), and
+`/reload` can now turn the sweep back on after it has been disabled.
+
+`loadConfig` no longer throws on a null config section (`{"daemon": null}`): it warns and uses
+the defaults, keeping its promise never to take a session down mid-run.
 
 ### Daemon
 
