@@ -142,7 +142,9 @@ What this means in practice:
 
 - **Reply normally.** Mail clients set `In-Reply-To` or at least `References`, and either is
   accepted, so a plain Reply works.
-- **Editing the subject is safe** — the chain still routes it, until the TTL expires.
+- **Editing the subject is safe** — the chain still routes it, until the TTL expires. On a
+  provider that rewrites `Message-ID` (QQ does), set `mail.imap.sentFolder` or this fallback
+  cannot match: the reply references an id the provider invented, not the one we recorded.
 - **Composing a brand-new email** with no id and no reference is *not* identified. In
   layout A, use Reply or keep the `[pi:…]` tag in the subject; in layout B (one address)
   the tag alone is not enough — only Reply carries the threading headers that gate
@@ -225,8 +227,8 @@ again.
 This package makes your inbox a control channel for an agent that can run shell
 commands. **Read [docs/SECURITY.md](./docs/SECURITY.md) before installing.**
 
-Gate order, all fail-closed: **journal (already-seen UID) → size ceiling → our own marker
-header → `From:` present → loop guard (our own address) → auto-generated/bounce → sender
+Gate order, all fail-closed: **journal (already-seen UID) → our own marker header → size
+ceiling → `From:` present → loop guard (our own address) → auto-generated/bounce → sender
 allowlist → DMARC → our own Message-ID → routing → durable ack**. DMARC reads `Authentication-Results`; it is required by
 `security.requireDmarcPass` (on by default) and pinned to an `authserv-id` only when
 `security.trustedAuthservId` is set. Routing is a short `[pi:f913c9]` id, a legacy
@@ -441,7 +443,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | --- | --- | --- |
 | `mail.imap.host` / `.port` / `.secure` | — / 993 / true | IMAP server |
 | `mail.imap.user` | — | pi's mailbox account |
-| `mail.imap.sentFolder` | — | where the account keeps sent mail (`Sent Messages` on QQ, `Sent Items` on Outlook). Set it when your provider rewrites the `Message-ID` we stamp — QQ does — so the reply chain can still match |
+| `mail.imap.sentFolder` | — | where the account keeps sent mail (`Sent Messages` on QQ, `Sent Items` on Outlook). Set it when your provider rewrites the `Message-ID` we stamp — QQ does — so the reply chain can still match. Costs one short-lived IMAP connection per notification, and the copy must appear within a minute (the provider appends it asynchronously) |
 | `mail.imap.password` | — | password or app password when `authType` is `LOGIN` |
 | `mail.imap.folder` | `INBOX` | watched folder |
 | `mail.imap.authType` | `LOGIN` | `LOGIN` or `XOAUTH2` |
@@ -521,6 +523,8 @@ and the Gmail equivalent: **[docs/OAUTH.md](./docs/OAUTH.md)**.
 1. in the provider's web settings, enable **IMAP/SMTP服务**, then generate a 授权码
 2. `/mailbridge setup pi-yourname@qq.com to you@hotmail.com`
 3. paste the 授权码 into both password fields, then `/mailbridge smoke`
+4. add `"sentFolder": "Sent Messages"` to `mail.imap` — QQ replaces the `Message-ID` we stamp,
+   so without it a reply only routes while the `[pi:…]` tag survives
 
 `qq.com`, `foxmail.com`, `163.com` and `126.com` are in the built-in discovery
 table, so setup works even if the autoconfig service is slow. See

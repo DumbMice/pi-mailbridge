@@ -470,6 +470,10 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 					mintedId: message.messageId,
 					subject: message.subject,
 					sessionId: message.sessionId,
+					...(provider ? { getAccessToken: () => provider.getToken() } : {}),
+				}).then((id) => {
+					// One line on failure: "silently inert" was a real review finding.
+					if (!id) log("could not read the sent copy back; the reply chain may not match this mail")
 				})
 			}
 			return sent

@@ -39,6 +39,8 @@ export interface CaptureOptions {
 	sessionId: string
 	subject: string
 	env?: NodeJS.ProcessEnv
+	/** XOAUTH2 accounts need a token for this connection too, exactly like the watcher. */
+	getAccessToken?: () => Promise<string>
 	/** Injected for tests. */
 	connect?: () => Promise<SentLookupClient>
 	record?: typeof recordOutbound
@@ -88,7 +90,7 @@ async function attempt(options: CaptureOptions, folder: string): Promise<string 
 	const env = options.env ?? process.env
 	const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
 	const delays = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS
-	const connect = options.connect ?? (await defaultConnect(options.config))
+	const connect = options.connect ?? (await defaultConnect(options.config, options.getAccessToken))
 	const wanted = options.mintedId.replace(/[<>]/g, "")
 
 	let client: SentLookupClient | undefined
@@ -129,10 +131,15 @@ async function attempt(options: CaptureOptions, folder: string): Promise<string 
 	}
 }
 
-async function defaultConnect(config: ResolvedConfig): Promise<() => Promise<SentLookupClient>> {
+async function defaultConnect(
+	config: ResolvedConfig,
+	getAccessToken?: () => Promise<string>,
+): Promise<() => Promise<SentLookupClient>> {
 	const { createImapflowFactory } = await import("../daemon/imapflow.ts")
 	return async () => {
-		const client = await createImapflowFactory({})(config, { idleRenewMs: config.tuning.idleRenewMs })
+		const client = await createImapflowFactory({ ...(getAccessToken ? { getAccessToken } : {}) })(config, {
+			idleRenewMs: config.tuning.idleRenewMs,
+		})
 		try {
 			await client.connect()
 		} catch (error) {

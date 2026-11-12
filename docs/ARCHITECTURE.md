@@ -136,7 +136,9 @@ An inbound message is matched to a session by the first rule that succeeds:
    Some providers replace the `Message-ID` we stamp (QQ rewrites it to `<tencent_…@qq.com>`),
    so the id the reply actually references is one we never minted. With
    `mail.imap.sentFolder` set, the daemon reads the just-sent copy back and records the
-   delivered id as well, which restores this rule on those providers.
+   delivered id as well. Best-effort: it retries for up to a minute (the provider appends the
+   copy asynchronously) and matches on the `X-Pi-Mailbridge-Id` header we stamp, so it can only
+   ever record the copy of that exact notification.
 4. Otherwise the message is rejected (`no-token`) and left unread - the cursor has moved
    past it, so the retry is a new reply, not an edited subject.
 

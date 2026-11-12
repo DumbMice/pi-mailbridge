@@ -124,11 +124,18 @@ function withLock<T>(env: NodeJS.ProcessEnv, run: () => T): T {
 			}
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
-			// Steal only a lock old enough to belong to a dead holder.
+			// Steal only a lock old enough to belong to a dead holder, and steal it by
+			// *renaming* it aside: rename is atomic, so two stealers cannot both succeed (the
+			// loser gets ENOENT). The previous unlink-based steal let a second stealer delete
+			// the lock the first had just created, putting both writers in the critical section.
 			try {
-				if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) unlinkSync(lock)
+				if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) {
+					const aside = `${lock}.stale.${process.pid}.${randomBytes(4).toString("hex")}`
+					renameSync(lock, aside)
+					unlinkSync(aside)
+				}
 			} catch {
-				/* raced with the holder or another stealer */
+				/* raced with the holder or another stealer: retry */
 			}
 			sleep()
 		}

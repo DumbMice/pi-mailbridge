@@ -8,7 +8,8 @@
       "password": "<PASSWORD>",
       "folder": "INBOX",
       "authType": "LOGIN",
-      "tokenCommand": []
+      "tokenCommand": [],
+      "sentFolder": ""
     },
     "smtp": {
       "host": "smtp.example.com",

@@ -67,6 +67,7 @@ arrives with a header whose authserv-id is **`mx.qq.com`**, e.g.
 
 ```
 Authentication-Results: mx.qq.com; spf=pass(...) ...; dkim=pass(...) ...
+    ; dmarc=pass(p=NONE sp=NONE pct=100) header.from=your-provider.example
 ```
 
 Mail sent from QQ to QQ gets *no* header (same server, nothing to authenticate), so a
