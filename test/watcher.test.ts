@@ -456,3 +456,28 @@ test("a message over the size ceiling is not downloaded", async () => {
 	assert.equal(message?.text, "")
 	assert.equal(sourceFetches, 0, "the body must not be downloaded")
 })
+
+test("the watcher reports the open mailbox's UIDVALIDITY", async () => {
+	const t = fakeTimers()
+	const watcher = createImapWatcher(config(), {
+		timers: t.timers,
+		callbacks: { onMail: () => {}, onReady: () => {} },
+		factory: () =>
+			({
+				usable: true,
+				mailbox: { uidValidity: 42n },
+				async connect() {},
+				async logout() {},
+				async mailboxOpen() {},
+				async search() {
+					return []
+				},
+				async fetchOne() {
+					return undefined
+				},
+				on() {},
+			}) as never,
+	})
+	await watcher.start()
+	assert.equal(watcher.uidValidity(), 42, "bigint from imapflow is normalised to a number")
+})

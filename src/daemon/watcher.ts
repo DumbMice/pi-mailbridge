@@ -163,6 +163,8 @@ export interface ImapClientLike {
 	on(event: string, listener: (...args: unknown[]) => void): void
 	/** imapflow sets this false when the connection is gone. */
 	usable?: boolean
+	/** Populated once the mailbox is open; UID space identity. */
+	mailbox?: { uidValidity?: bigint | number }
 }
 
 export interface ImapClientFactory {
@@ -212,6 +214,8 @@ export interface ImapWatcher extends MailSource {
 	start(): Promise<void>
 	stop(): Promise<void>
 	isHealthy(): boolean
+	/** The open mailbox's UIDVALIDITY, when the server exposes it. */
+	uidValidity(): number | undefined
 }
 
 export function createImapWatcher(config: ResolvedConfig, options: WatcherOptions): ImapWatcher {
@@ -304,6 +308,14 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 				reconnectHandle = undefined
 			}
 			await teardown()
+		},
+
+		/** The open mailbox's UIDVALIDITY, when the client exposes one. */
+		uidValidity(): number | undefined {
+			const raw = client?.mailbox?.uidValidity
+			if (raw === undefined) return undefined
+			const value = typeof raw === "bigint" ? Number(raw) : raw
+			return Number.isFinite(value) ? value : undefined
 		},
 
 		isHealthy() {

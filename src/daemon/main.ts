@@ -40,7 +40,7 @@ import type { MailSource } from "./process.ts"
 import { runSmoke } from "../core/smoke.ts"
 import { runSetup } from "../core/setup.ts"
 import { listPending } from "../store/pending-store.ts"
-import { advanceCursor } from "../store/uid-cursor.ts"
+import { advanceCursor, syncUidValidity } from "../store/uid-cursor.ts"
 import { recordOutbound } from "../store/threads.ts"
 import { tokenFromSubject } from "../core/token.ts"
 
@@ -391,6 +391,13 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 			factory: createImapflowFactory({ getAccessToken: tokenProvider ? getAccessToken : undefined }),
 			callbacks: {
 				onReady: () => {
+					// UIDs are only meaningful within one UIDVALIDITY. A recreated or migrated
+					// folder renumbers from 1; without this the high-water cursor would skip
+					// every future message, with "examined 0" as the only symptom.
+					// `currentWatcher` is assigned before start(), so it is this watcher here.
+					if (syncUidValidity(process.env, currentWatcher?.uidValidity())) {
+						log("mailbox UIDVALIDITY changed; cursor reset - re-reading from the start")
+					}
 					log("imap ready; running catch-up scan")
 					void scanOnce("catch-up")
 				},

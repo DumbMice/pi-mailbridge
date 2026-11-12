@@ -183,3 +183,20 @@ test("an over-cap file on disk is preserved, not trimmed on the next write", () 
 	assert.equal(pendingSize(e), PENDING_CAP + 4, "an ack removes exactly one record")
 	assert.ok(getPending(e, 2), "the oldest remaining record is still there")
 })
+
+test("uid cursor: a changed UIDVALIDITY resets it, an unchanged one does not", async () => {
+	const { syncUidValidity } = await import("../src/store/uid-cursor.ts")
+	const e = env()
+	advanceCursor(e, 500)
+	// First observation just records the value - an upgrade must not re-scan the mailbox.
+	assert.equal(syncUidValidity(e, 1234), false)
+	assert.equal(readCursor(e), 500)
+	// Same value: nothing to do.
+	assert.equal(syncUidValidity(e, 1234), false)
+	assert.equal(readCursor(e), 500)
+	// A recreated folder renumbers from 1: reset, or every future message is skipped.
+	assert.equal(syncUidValidity(e, 5678), true)
+	assert.equal(readCursor(e), 0)
+	// Unknown validity changes nothing.
+	assert.equal(syncUidValidity(e, undefined), false)
+})

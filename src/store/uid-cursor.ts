@@ -15,6 +15,8 @@ import { statePath } from "./paths.ts"
 
 interface CursorFile {
 	lastUid: number
+	/** The mailbox's UIDVALIDITY when this cursor was written. */
+	uidValidity?: number
 }
 
 function path(env: NodeJS.ProcessEnv): string {
@@ -22,25 +24,53 @@ function path(env: NodeJS.ProcessEnv): string {
 }
 
 export function readCursor(env: NodeJS.ProcessEnv = process.env): number {
+	return readFile(env).lastUid
+}
+
+function readFile(env: NodeJS.ProcessEnv): CursorFile {
 	const p = path(env)
 	try {
-		if (!existsSync(p)) return 0
+		if (!existsSync(p)) return { lastUid: 0 }
 		const parsed = JSON.parse(readFileSync(p, "utf8")) as Partial<CursorFile>
 		const uid = parsed?.lastUid
-		return typeof uid === "number" && Number.isFinite(uid) && uid >= 0 ? uid : 0
+		const validity = parsed?.uidValidity
+		return {
+			lastUid: typeof uid === "number" && Number.isFinite(uid) && uid >= 0 ? uid : 0,
+			...(typeof validity === "number" && Number.isFinite(validity) ? { uidValidity: validity } : {}),
+		}
 	} catch {
-		// A corrupt cursor is treated as "start from the beginning" rather than
-		// throwing: worst case we re-examine mail, and the journal still dedupes.
-		return 0
+		return { lastUid: 0 }
 	}
 }
 
-function write(env: NodeJS.ProcessEnv, uid: number): void {
+function write(env: NodeJS.ProcessEnv, uid: number, uidValidity?: number): void {
 	const p = path(env)
 	mkdirSync(dirname(p), { recursive: true, mode: 0o700 })
 	const tmp = `${p}.${process.pid}.tmp`
-	writeFileSync(tmp, JSON.stringify({ lastUid: uid } satisfies CursorFile), { mode: 0o600 })
+	const body: CursorFile = { lastUid: uid, ...(uidValidity === undefined ? {} : { uidValidity }) }
+	writeFileSync(tmp, JSON.stringify(body), { mode: 0o600 })
 	renameSync(tmp, p)
+}
+
+/**
+ * Compare the mailbox's UIDVALIDITY with the one this cursor was written under.
+ *
+ * UIDs are only meaningful within one UIDVALIDITY. A recreated or migrated folder renumbers
+ * them from 1, and a persisted high-water cursor then skips everything for ever - visible
+ * only as "examined 0". When it changes, the cursor is reset so the new UID space is read
+ * from the start (the journal still prevents re-injecting anything already acked).
+ *
+ * @returns true when the cursor was reset.
+ */
+export function syncUidValidity(env: NodeJS.ProcessEnv, uidValidity: number | undefined): boolean {
+	if (uidValidity === undefined || !Number.isFinite(uidValidity)) return false
+	const current = readFile(env)
+	if (current.uidValidity === uidValidity) return false
+	// First observation on an existing cursor (upgrade from a version that stored none) just
+	// records the value; resetting would re-scan the whole mailbox for no reason.
+	const reset = current.uidValidity !== undefined && current.uidValidity !== uidValidity
+	write(env, reset ? 0 : current.lastUid, uidValidity)
+	return reset
 }
 
 /**
@@ -48,13 +78,13 @@ function write(env: NodeJS.ProcessEnv, uid: number): void {
  * @returns the cursor value after the call.
  */
 export function advanceCursor(env: NodeJS.ProcessEnv, uid: number): number {
-	const current = readCursor(env)
-	if (uid <= current) return current
-	write(env, uid)
+	const current = readFile(env)
+	if (uid <= current.lastUid) return current.lastUid
+	write(env, uid, current.uidValidity)
 	return uid
 }
 
 /** Test helper: force the cursor to a value (ignores monotonicity). */
 export function resetCursor(env: NodeJS.ProcessEnv, uid = 0): void {
-	write(env, uid)
+	write(env, uid, readFile(env).uidValidity)
 }
