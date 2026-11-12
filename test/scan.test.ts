@@ -6,7 +6,7 @@ import { join } from "node:path"
 
 import type { ResolvedConfig } from "../src/core/config.ts"
 import { signToken } from "../src/core/token.ts"
-import { scanAndProcess, type MailSource, type RawMessage } from "../src/daemon/process.ts"
+import { MAX_BODY_CHARS, scanAndProcess, type MailSource, type RawMessage } from "../src/daemon/process.ts"
 import { addPending, getPending, PENDING_CAP } from "../src/store/pending-store.ts"
 import { listPending } from "../src/store/pending-store.ts"
 import { journal } from "../src/store/journal.ts"
@@ -663,4 +663,28 @@ test("single-mailbox: a reply that carries only References is still a reply", as
 		env: e,
 	})
 	assert.equal(r.persisted, 1, `References-only reply must be accepted (reasons: ${JSON.stringify(r.reasons)})`)
+})
+
+test("an oversized message is refused without being parsed", async () => {
+	// The watcher refuses the body download and marks the message; the scanner must count it
+	// and move on rather than trying to strip quotes from an empty body.
+	const e = env()
+	const r = await scanAndProcess(config(), {
+		source: source([msg(1, { tooLarge: 50_000_000 })]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.reasons["too-large"], 1)
+	assert.equal(r.persisted, 0)
+})
+
+test("a huge body is truncated before it is stored", async () => {
+	const e = env()
+	const r = await scanAndProcess(config(), {
+		source: source([msg(1, { text: "x".repeat(500_000) })]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.persisted, 1)
+	assert.equal(listPending(e)[0]!.body.length, MAX_BODY_CHARS)
 })

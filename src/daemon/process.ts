@@ -26,6 +26,9 @@ import { addPending, type PendingRecord } from "../store/pending-store.ts"
 import { isJournaled } from "../store/journal.ts"
 import { advanceCursor, readCursor } from "../store/uid-cursor.ts"
 
+/** Longest body we keep. Well above any real instruction; far below "a whole newsletter". */
+export const MAX_BODY_CHARS = 100_000
+
 export interface RawMessage {
 	uid: number
 	from: string | undefined
@@ -36,6 +39,8 @@ export interface RawMessage {
 	attachments?: RawAttachment[]
 	headers: HeaderLike
 	receivedAt: number
+	/** Set when the server reported a message larger than we will parse. */
+	tooLarge?: number
 }
 
 /**
@@ -133,6 +138,15 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			continue
 		}
 
+		// The watcher refuses to download anything over the size ceiling and marks it here.
+		// Reject before authorization: this is our resource guard, not the sender's fault.
+		if (message.tooLarge) {
+			result.rejected++
+			bump(result.reasons, "too-large")
+			result.cursor = advanceCursor(env, uid)
+			continue
+		}
+
 		const authz = authorize({ from: message.from, headers: message.headers }, config)
 		if (!authz.ok) {
 			result.rejected++
@@ -216,7 +230,9 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			continue
 		}
 
-		const body = stripQuoted(message.text)
+		// A body cap as well as a message cap: the pending store is re-read on every poll and
+		// on every /health, so one enormous reply would be paid for repeatedly.
+		const body = stripQuoted(message.text).slice(0, MAX_BODY_CHARS)
 
 		// Attachments are filtered BEFORE persisting; a dropped one is recorded with
 		// a reason so `/mailbridge` can explain why the agent did not see it.

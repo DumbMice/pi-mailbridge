@@ -20,7 +20,14 @@ import { decodeRfc2047 } from "../core/header-encoding.ts"
 import type { RawAttachment } from "../core/attachments.ts"
 
 export const DEFAULT_IDLE_RENEW_MS = 25 * 60 * 1000
-export const DEFAULT_BACKOFF_INITIAL_MS = 1_000
+
+/**
+ * Hard ceiling on a message we will parse. The attachment caps (4 x 1 MB) live well inside
+ * it; anything larger is refused before the body is downloaded.
+ */
+export const MAX_MESSAGE_BYTES = 8 * 1024 * 1024
+
+const DEFAULT_BACKOFF_INITIAL_MS = 1_000
 export const DEFAULT_BACKOFF_MAX_MS = 60_000
 
 /** Headers the authorization and routing layers need. */
@@ -193,6 +200,8 @@ export interface WatcherOptions {
 interface FetchResultLike {
 	source?: Buffer
 	envelope?: { from?: { address?: string }[]; subject?: string }
+	/** RFC822 size, when the fetch asked for it. */
+	size?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -311,6 +320,26 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 		async fetch(uid: number): Promise<RawMessage | undefined> {
 			const c = client
 			if (!c) throw new Error("imap watcher not connected")
+
+			// Ask for the size first: the full source is downloaded before authorization, so
+			// an oversized message from any sender - spam, a 200 MB newsletter - would cost the
+			// one shared daemon a full download and parse. `size` is cheap and needs no body.
+			const meta = (await c.fetchOne(uid, { size: true, envelope: true }, { uid: true })) as
+				| FetchResultLike
+				| false
+				| undefined
+			if (meta && typeof meta.size === "number" && meta.size > MAX_MESSAGE_BYTES) {
+				return {
+					uid,
+					from: meta.envelope?.from?.[0]?.address,
+					subject: meta.envelope?.subject,
+					text: "",
+					headers: { subject: meta.envelope?.subject },
+					receivedAt: Date.now(),
+					tooLarge: meta.size,
+				}
+			}
+
 			const fetched = (await c.fetchOne(
 				uid,
 				{ source: true, envelope: true, headers: [...WANTED_HEADERS] },

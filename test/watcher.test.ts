@@ -4,6 +4,7 @@ import assert from "node:assert/strict"
 import type { ResolvedConfig } from "../src/core/config.ts"
 import {
 	createImapWatcher,
+	MAX_MESSAGE_BYTES,
 	extractHeaders,
 	nextBackoff,
 	searchRangeFor,
@@ -420,4 +421,38 @@ test("stop() during a dial logs out the connection that just opened", async () =
 	// (isHealthy() is already false because `stopped` short-circuits it, so asserting that
 	// would pass even on the broken code - the rejects below is what pins the fix.)
 	await assert.rejects(() => watcher.searchAfter(0), /not connected/, "a stopped watcher must fail fast")
+})
+
+test("a message over the size ceiling is not downloaded", async () => {
+	// The full source is fetched before authorization, so an oversized message from any
+	// sender would cost the shared daemon a full download and parse.
+	const t = fakeTimers()
+	let sourceFetches = 0
+	const watcher = createImapWatcher(config(), {
+		timers: t.timers,
+		callbacks: { onMail: () => {}, onReady: () => {} },
+		factory: () =>
+			({
+				usable: true,
+				async connect() {},
+				async logout() {},
+				async mailboxOpen() {},
+				async search() {
+					return []
+				},
+				async fetchOne(_uid: number, query: Record<string, unknown>) {
+					if (query.source) {
+						sourceFetches++
+						return { source: Buffer.from("Subject: x\r\n\r\nbody") }
+					}
+					return { size: MAX_MESSAGE_BYTES + 1, envelope: { subject: "huge" } }
+				},
+				on() {},
+			}) as never,
+	})
+	await watcher.start()
+	const message = await watcher.fetch(1)
+	assert.equal(message?.tooLarge, MAX_MESSAGE_BYTES + 1)
+	assert.equal(message?.text, "")
+	assert.equal(sourceFetches, 0, "the body must not be downloaded")
 })
