@@ -221,8 +221,10 @@ it means "entire body" below refers to the stripped body, not the raw mail.
 A notification carries the local files the agent linked, so what leaves the machine is decided by
 model output. The controls, all fail-closed:
 
-- **The project directory is the boundary.** Every path is `realpath`-resolved on both sides and
-  must land inside the agent's working directory. A symlink out of it (`ln -s ~/.config/… config.json`)
+- **The project directory is the boundary** on the notification path. Every path is
+  `realpath`-resolved on both sides and must land inside the agent's working directory. (An
+  authenticated caller of `POST /send` supplies `cwd`, so with `secret.key` the boundary moves to
+  wherever it says — same trust level as the `to` override in §4.) A symlink out of it (`ln -s ~/.config/… config.json`)
   is refused, and so is an absolute path outside it.
 - **A home-rooted or `/`-rooted launch attaches nothing**, because with `cwd = $HOME` the config
   file is "inside the project". Start pi in a project; that is the intended usage.
@@ -233,7 +235,8 @@ model output. The controls, all fail-closed:
   `cp ~/.ssh/id_rsa notes.txt` or `tar czf k.tar ~/.ssh` defeats it, and `realpath` cannot see a
   hardlink. Treat it as a guard rail against a naive single-shot injection, not a sandbox.
 - **Size caps**: 5 MB per inline image and 15 MB per linked file (fixed), and
-  `notify.maxAttachmentMb` (default 18 MB, max 45) for the total per mail, before base64. A
+  `notify.maxAttachmentMb` (default 18 MB, max 45) for the total per mail, before base64 — at most
+  10 attachments per mail. A
   non-regular file (FIFO, device) is refused rather than read, because it reports size 0 and
   then blocks.
 - **No automated path changes the recipient.** Every notification's `to` is config-derived, a

@@ -1,4 +1,7 @@
 import { test } from "node:test"
+import { mkdtempSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import assert from "node:assert/strict"
 
 import type { ResolvedConfig } from "../src/core/config.ts"
@@ -267,4 +270,30 @@ test("a non-auth failure is not retried", async () => {
 		}),
 	)
 	assert.equal(attempts, 1)
+})
+
+test("the configured attachment budget reaches the renderer", () => {
+	// Deleting the maxTotalBytes line in mailer.ts left the suite green: the cap was only ever
+	// tested through the renderer directly.
+	const root = mkdtempSync(join(tmpdir(), "mailer-cap-"))
+	writeFileSync(join(root, "big.log"), Buffer.alloc(2 * 1024 * 1024, 1))
+	const sent: { attachments?: unknown[] }[] = []
+	const withCap = { ...config(), notify: { ...config().notify, maxAttachmentMb: 1 } }
+
+	return sendMail(
+		withCap,
+		{ to: "you@example.com", subject: "s", text: "see [log](./big.log)", cwd: root },
+		{
+			transportFactory: () =>
+				({
+					sendMail: async (message: unknown) => {
+						sent.push(message as { attachments?: unknown[] })
+						return { messageId: "<x@y>" }
+					},
+				}) as never,
+		},
+	).then(() => {
+		assert.equal(sent.length, 1)
+		assert.equal(sent[0]!.attachments, undefined, "over the 1 MB budget, so nothing is attached")
+	})
 })

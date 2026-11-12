@@ -140,12 +140,23 @@ test("a linked file outside the allowlist is not attached", () => {
 	}
 })
 
-test("an attached file is capped, and a big one is refused with the reason", () => {
+test("an attached file is capped before it is read", () => {
+	// The refusal message is identical whether the cap runs before or after the read, so the
+	// assertion has to be on the read itself: a 15 GB log must not be loaded into memory on the
+	// daemon's only thread just to be refused.
 	const root = dir()
 	writeFileSync(join(root, "huge.pdf"), Buffer.alloc(MAX_FILE_BYTES + 1))
-	const result = inlineLocalImages('<a href="huge.pdf">report</a>', { root })
+	let reads = 0
+	const result = inlineLocalImages('<a href="huge.pdf">report</a>', {
+		root,
+		readFile: () => {
+			reads += 1
+			return Buffer.alloc(MAX_FILE_BYTES + 1)
+		},
+	})
 	assert.equal(result.attachments.length, 0)
 	assert.match(result.html, /over the limit/)
+	assert.equal(reads, 0, "the per-file cap is enforced before reading")
 })
 
 test("one file linked twice rides once; remote links are untouched", () => {
@@ -267,13 +278,27 @@ test("the project-directory guard fails closed", () => {
 	writeFileSync(join(stateDir, "uid-cursor.json"), "{}")
 	assert.equal(inlineLocalImages('<a href=".local/state/pi-mailbridge/uid-cursor.json">c</a>', { root: project }).attachments.length, 1,
 		"sanity: without the override it is just a json file in the project")
+	// Both halves of the denial, and the environment is restored rather than deleted, so an
+	// ambient value is not destroyed for anything running after this file.
+	const configDirUnderRoot = join(project, ".config", "pi-mailbridge")
+	mkdirSync(configDirUnderRoot, { recursive: true })
+	writeFileSync(join(configDirUnderRoot, "config.json"), '{"mail":{"imap":{"password":"hunter2"}}}')
+	const before = { state: process.env.XDG_STATE_HOME, config: process.env.XDG_CONFIG_HOME }
 	process.env.XDG_STATE_HOME = join(project, ".local", "state")
+	process.env.XDG_CONFIG_HOME = join(project, ".config")
 	try {
 		const secret = inlineLocalImages('<a href=".local/state/pi-mailbridge/uid-cursor.json">c</a>', { root: project })
 		assert.equal(secret.attachments.length, 0, "state dir is never attached")
 		assert.deepEqual(secret.skipped.map((s) => s.reason), ["root-refused"])
+
+		const configFile = inlineLocalImages('<a href=".config/pi-mailbridge/config.json">c</a>', { root: project })
+		assert.equal(configFile.attachments.length, 0, "and neither is the config with its password")
+		assert.deepEqual(configFile.skipped.map((s) => s.reason), ["root-refused"])
 	} finally {
-		delete process.env.XDG_STATE_HOME
+		if (before.state === undefined) delete process.env.XDG_STATE_HOME
+		else process.env.XDG_STATE_HOME = before.state
+		if (before.config === undefined) delete process.env.XDG_CONFIG_HOME
+		else process.env.XDG_CONFIG_HOME = before.config
 	}
 })
 
@@ -303,10 +328,16 @@ test("a FIFO is refused instead of blocking the send, on both paths", { skip: pr
 		const r = inlineLocalImages('<a href="pipe.log">p</a><img src="shot.png" alt="s">', { root: process.argv[1] })
 		console.log(JSON.stringify({ n: r.attachments.length, reasons: r.skipped.map((s) => s.reason) }))
 	`
-	const out = execFileSync(process.execPath, ["--experimental-strip-types", "-e", probe, root], {
-		timeout: 5_000,
-		encoding: "utf8",
-	})
+	// `--input-type=module` matters on the declared floor (Node 22.6): eval input with a static
+	// import is not module-detected automatically there.
+	const out = execFileSync(
+		process.execPath,
+		["--experimental-strip-types", "--input-type=module", "-e", probe, root],
+		{
+			timeout: 5_000,
+			encoding: "utf8",
+		},
+	)
 	const result = JSON.parse(out.trim()) as { n: number; reasons: string[] }
 	assert.equal(result.n, 0)
 	assert.deepEqual(result.reasons, ["unreadable", "unreadable"], "both paths refuse it")

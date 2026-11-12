@@ -235,7 +235,8 @@ A notification carries what it needs to be useful away from the desk:
 | `![shot](./shot.png)` | the image, inline, up to 5 MB each |
 | `[the log](./build.log)` | `build.log` as an attachment, named after the file, listed as `the log [attached: build.log]` |
 
-Up to 10 files, 15 MB each, 18 MB in total by default (`notify.maxAttachmentMb`). Attachments are
+Up to 10 attachments, 15 MB each for a linked file and 5 MB for an inline image, 18 MB in total
+by default (`notify.maxAttachmentMb`). Attachments are
 base64-encoded, which costs about a third, so the default stays under the smallest provider
 ceiling:
 

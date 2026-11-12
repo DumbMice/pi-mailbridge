@@ -933,3 +933,18 @@ test("the two mode subcommands are the only way mode is toggled", () => {
 		assert.ok(!extension.includes(stale), `${stale} must not linger`)
 	}
 })
+
+test("SECURITY's attachment allowlist is the code's allowlist", () => {
+	// It listed 11 of 23 and omitted the `tar` its own example uses - the exact drift a hand-copied
+	// list produces.
+	const source = readFileSync(join(root, "src/core/inline-images.ts"), "utf8")
+	const block = /const ALLOWED_FILE_EXTENSIONS[^{]*\{([\s\S]*?)\n\}/.exec(source)?.[1] ?? ""
+	const extensions = [...block.matchAll(/^\t([a-z0-9]+):/gm)].map((m) => m[1]!)
+	assert.ok(extensions.length >= 20, `expected the allowlist, got ${extensions.length}`)
+
+	const section = /## 6b\. Attachments[\s\S]*?(?=\n## )/.exec(doc("docs/SECURITY.md"))?.[0] ?? ""
+	assert.ok(section, "SECURITY should document outbound attachments")
+	for (const ext of extensions) {
+		assert.ok(new RegExp(`\\b${ext}\\b`).test(section), `SECURITY §6b omits ${ext}`)
+	}
+})

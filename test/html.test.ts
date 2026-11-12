@@ -84,3 +84,13 @@ test("a notification that links a report mails the report too", () => {
 	assert.equal(file!.contentDisposition, "attachment")
 	assert.match(rendered.html, /\[attached: build\.log\]/)
 })
+
+test("a linked file's bytes are what gets attached", () => {
+	// Content was never asserted: an empty or wrong payload would have passed.
+	const root = mkdtempSync(join(tmpdir(), "html-bytes-"))
+	const bytes = Buffer.from("line one\nline two\n")
+	writeFileSync(join(root, "build.log"), bytes)
+	const rendered = renderMessage("see [log](./build.log)", { root })
+	const file = rendered.attachments.find((a) => a.filename === "build.log")!
+	assert.deepEqual(file.content, bytes)
+})
