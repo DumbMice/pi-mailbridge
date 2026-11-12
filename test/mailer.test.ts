@@ -61,7 +61,12 @@ test("LOGIN: message fields reach the transport unchanged", async () => {
 	// send completes, and the marker is what lets inbound scanning recognise our own mail.
 	assert.deepEqual(Object.keys(t.sent[0]!).sort(), ["from", "headers", "html", "messageId", "subject", "text", "to"])
 	assert.match(String(t.sent[0]!.messageId), /^<[0-9a-f-]{36}@example\.com>$/)
-	assert.deepEqual(t.sent[0]!.headers, { "X-Pi-Mailbridge": "notification" })
+	// The second header carries our minted id: providers may rewrite Message-ID, and this is
+	// how the just-sent copy is found afterwards.
+	assert.deepEqual(t.sent[0]!.headers, {
+		"X-Pi-Mailbridge": "notification",
+		"X-Pi-Mailbridge-Id": t.sent[0]!.messageId,
+	})
 	assert.equal(t.sent[0]!.from, "pi@example.com")
 	assert.equal(t.sent[0]!.to, "you@example.com")
 	assert.equal(t.sent[0]!.subject, "[pi:a.b] pi: finished")

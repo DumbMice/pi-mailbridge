@@ -132,7 +132,9 @@ export async function sendMail(
 		// IMAP exists event.
 		messageId: stampedId,
 		// Belt and braces for single-mailbox mode: the scan refuses any message carrying it.
-		headers: { "X-Pi-Mailbridge": "notification" },
+		// The second header carries the id we minted: providers may replace Message-ID (QQ
+		// does), and this is how the just-sent copy is identified afterwards.
+		headers: { "X-Pi-Mailbridge": "notification", "X-Pi-Mailbridge-Id": stampedId },
 			to: message.to,
 			// The subject carries model-controlled text. A CR/LF would fold a new header into
 			// the message (the classic header-injection shape), and an unbounded subject is

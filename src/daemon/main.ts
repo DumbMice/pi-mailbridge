@@ -451,25 +451,28 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		config: initialConfig,
 		token,
 		source: sourceProxy,
-		send: (message) => {
+		send: async (message) => {
 			const provider = tokenProvider
 			// The service minted and recorded the Message-ID already (before it called us),
 			// so a mail that comes straight back is recognised as ours.
-			// Read the delivered Message-ID back from the Sent folder when one is configured:
-			// providers that rewrite our stamp would otherwise make the reply-chain fallback
-			// silently useless. Fire-and-forget; a send never fails because of it.
-			if (message.sessionId) {
-				void captureDeliveredMessageId({
-					config: currentConfig,
-					subject: message.subject,
-					sessionId: message.sessionId,
-				}).catch(() => undefined)
-			}
-			return sendMail(currentConfig, message, {
+			const sent = await sendMail(currentConfig, message, {
 				...(provider ? { getAccessToken: () => provider.getToken() } : {}),
 				// Lets a revoked grant be refreshed once instead of failing the notification.
 				...(provider ? { provider } : {}),
 			})
+			// AFTER the send resolves: the provider appends the Sent copy asynchronously (QQ
+			// took 20-30 s in one measurement), and the capture identifies it by the id we
+			// stamped. Fire-and-forget: the notification never fails because the bookkeeping
+			// could not be read back.
+			if (message.sessionId && message.messageId && currentConfig.mail.imap.sentFolder) {
+				void captureDeliveredMessageId({
+					config: currentConfig,
+					mintedId: message.messageId,
+					subject: message.subject,
+					sessionId: message.sessionId,
+				})
+			}
+			return sent
 		},
 		onSent: ({ messageId, subject, sessionId }) => {
 			if (!messageId) return

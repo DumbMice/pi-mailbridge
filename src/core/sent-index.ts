@@ -5,9 +5,14 @@
 // `<tencent_…@qq.com>`, and the human's reply carried the tencent id in In-Reply-To.
 //
 // The reply-chain fallback matches In-Reply-To against ids we recorded, so on such a provider
-// it silently never matches - the subject tag is the only remaining route. When
-// `mail.imap.sentFolder` is configured, the just-sent copy is read back and its Message-ID
-// recorded too, which makes the fallback work everywhere.
+// it never matches - the subject tag is the only remaining route.
+//
+// The just-sent copy is found by the `X-Pi-Mailbridge-Id` header, which carries the id we
+// minted. Two things learned the hard way (a live review caught both):
+//   - the copy is appended *after* the send completes, so this must run after it, and must
+//     retry: QQ took 20-30 s in one measurement;
+//   - matching on the marker header alone records a *different* notification's id when two
+//     sessions send close together, which routes a reply into the wrong session.
 
 import type { ResolvedConfig } from "./config.ts"
 import { recordOutbound } from "../store/threads.ts"
@@ -20,20 +25,25 @@ export interface SentLookupClient {
 	logout(): Promise<void>
 }
 
-/** Look back far enough for a slow append to the Sent folder. */
-const CAPTURE_WINDOW_MS = 15 * 60_000
-/** How many recent sent messages to inspect before giving up. */
-const CAPTURE_SCAN = 5
+/** Look back far enough to see a send that is still being appended. */
+const CAPTURE_WINDOW_MS = 30 * 60_000
+/** How many recent sent messages to inspect per attempt. */
+const CAPTURE_SCAN = 20
+/** Backoff between attempts: providers append asynchronously. */
+const DEFAULT_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 30_000] as const
 
 export interface CaptureOptions {
 	config: ResolvedConfig
-	/** The subject we sent, used to find the copy. */
-	subject: string
+	/** The id we minted and stamped into `X-Pi-Mailbridge-Id`. */
+	mintedId: string
 	sessionId: string
+	subject: string
 	env?: NodeJS.ProcessEnv
 	/** Injected for tests. */
 	connect?: () => Promise<SentLookupClient>
 	record?: typeof recordOutbound
+	retryDelaysMs?: readonly number[]
+	sleep?: (ms: number) => Promise<void>
 }
 
 /** Pull the first `Message-ID:` out of a header block. */
@@ -46,47 +56,70 @@ export function messageIdFromHeaders(headers: string): string | undefined {
 	return undefined
 }
 
+/** `X-Pi-Mailbridge-Id: <uuid@domain>` — normalised, without angle brackets. */
+export function stampedIdFromHeaders(headers: string): string | undefined {
+	const unfolded = headers.replace(/\r?\n[ \t]+/g, " ")
+	for (const line of unfolded.split(/\r?\n/)) {
+		const match = /^x-pi-mailbridge-id:\s*<?([^>\s]+)>?/i.exec(line.trim())
+		if (match) return match[1]!.trim()
+	}
+	return undefined
+}
+
 /**
  * Read the just-sent message back from the Sent folder and record its Message-ID for the
- * session. Best-effort: a failure here must never fail the send.
+ * session. Best-effort: a failure never fails the send, and one capture runs at a time.
  */
 export async function captureDeliveredMessageId(options: CaptureOptions): Promise<string | undefined> {
 	const folder = options.config.mail.imap.sentFolder
 	if (!folder) return undefined
+	return serialise(() => attempt(options, folder))
+}
+
+/** Captures are serialised: a burst of notifications must not open a connection each. */
+let queue: Promise<unknown> = Promise.resolve()
+function serialise<T>(run: () => Promise<T>): Promise<T> {
+	const next = queue.then(run, run)
+	queue = next.catch(() => undefined)
+	return next
+}
+
+async function attempt(options: CaptureOptions, folder: string): Promise<string | undefined> {
 	const env = options.env ?? process.env
+	const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+	const delays = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS
 	const connect = options.connect ?? (await defaultConnect(options.config))
+	const wanted = options.mintedId.replace(/[<>]/g, "")
+
 	let client: SentLookupClient | undefined
 	try {
 		client = await connect()
 		await client.mailboxOpen(folder)
-		// Not `search({subject})`: QQ's Sent folder answers that with nothing (measured), while a
-		// date-bounded search works. So look at recent sent mail and pick ours out by the marker
-		// header and the subject we sent.
-		const since = new Date(Date.now() - CAPTURE_WINDOW_MS)
-		const uids = await client.search({ since }, { uid: true })
-		if (!uids.length) return undefined
-		const newestFirst = uids.slice().sort((a, b) => b - a).slice(0, CAPTURE_SCAN)
-		for (const uid of newestFirst) {
-			const fetched = (await client.fetchOne(uid, { source: true }, { uid: true })) as
-				| { source?: Buffer }
-				| false
-				| undefined
-			if (!fetched || !fetched.source) continue
-			const text = fetched.source.toString("utf8")
-			const head = text.split(/\r?\n\r?\n/)[0] ?? ""
-			// The marker is decisive: only we write it, and it survives QQ's RFC 2047 encoding of
-			// the subject (which is why a subject match failed here in the live test).
-			const unfolded = head.replace(/\r?\n[ \t]+/g, " ")
-			if (!/^x-pi-mailbridge:\s*notification/im.test(unfolded)) continue
-			const messageId = messageIdFromHeaders(head)
-			if (!messageId) continue
-			;(options.record ?? recordOutbound)(env, {
-				messageId,
-				sessionId: options.sessionId,
-				...(options.config.device.name ? { device: options.config.device.name } : {}),
-				subject: options.subject,
-			})
-			return messageId
+		for (const delay of delays) {
+			if (delay > 0) await sleep(delay)
+			const since = new Date(Date.now() - CAPTURE_WINDOW_MS)
+			const uids = await client.search({ since }, { uid: true })
+			if (!uids.length) continue
+			const newestFirst = uids.slice().sort((a, b) => b - a).slice(0, CAPTURE_SCAN)
+			for (const uid of newestFirst) {
+				const fetched = (await client.fetchOne(uid, { source: true }, { uid: true })) as
+					| { source?: Buffer }
+					| false
+					| undefined
+				if (!fetched || !fetched.source) continue
+				const head = (fetched.source.toString("utf8").split(/\r?\n\r?\n/)[0] ?? "").replace(/\r?\n[ \t]+/g, " ")
+				// Only the copy of the message we just sent: the header carries our minted id.
+				if (stampedIdFromHeaders(head) !== wanted) continue
+				const messageId = messageIdFromHeaders(head)
+				if (!messageId) continue
+				;(options.record ?? recordOutbound)(env, {
+					messageId,
+					sessionId: options.sessionId,
+					...(options.config.device.name ? { device: options.config.device.name } : {}),
+					subject: options.subject,
+				})
+				return messageId
+			}
 		}
 		return undefined
 	} catch {
@@ -100,7 +133,13 @@ async function defaultConnect(config: ResolvedConfig): Promise<() => Promise<Sen
 	const { createImapflowFactory } = await import("../daemon/imapflow.ts")
 	return async () => {
 		const client = await createImapflowFactory({})(config, { idleRenewMs: config.tuning.idleRenewMs })
-		await client.connect()
+		try {
+			await client.connect()
+		} catch (error) {
+			// Do not leak the socket of a client whose connect failed.
+			await client.logout().catch(() => undefined)
+			throw error
+		}
 		return client as unknown as SentLookupClient
 	}
 }
