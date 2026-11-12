@@ -40,6 +40,13 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
 
 	const domain = domainOf(address)
 	if (!domain) return { ok: false, steps: [`not an email address: ${address}`] }
+	if (!domain.includes(".")) {
+		return {
+			ok: false,
+			steps: [`"${domain}" is not a domain — it has no dot`],
+			next: `addresses need a full domain — write something@${domain}.com`,
+		}
+	}
 
 	const target = configPath(env)
 	if (existsSync(target) && !options.force) {

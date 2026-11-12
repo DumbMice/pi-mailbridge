@@ -101,7 +101,10 @@ test("discoverDomain survives a network explosion", async () => {
 	const fetchImpl = (async () => {
 		throw new Error("ENOTFOUND")
 	}) as unknown as typeof fetch
-	assert.equal(await discoverDomain("outlook.com", { fetchImpl }), undefined)
+	// A supported provider still resolves from the built-in table...
+	assert.equal((await discoverDomain("outlook.com", { fetchImpl }))?.provider, "microsoft")
+	// ...while an unknown one is correctly reported as unknown, not guessed.
+	assert.equal(await discoverDomain("nowhere.example", { fetchImpl }), undefined)
 })
 
 test("domainOf extracts the domain and rejects nonsense", () => {
@@ -141,4 +144,47 @@ test("a password provider gets no oauth block at all", () => {
 	const config = buildSetupConfig("pi@example.com", "me@example.com", d)
 	assert.equal(config.oauth, undefined)
 	assert.equal(config.mail.imap.authType, "LOGIN")
+})
+
+// --- robustness: bad input and a missing/blocked ISPDB ---------------------
+
+test("a trailing dot in the domain is stripped", () => {
+	assert.equal(domainOf("pi@hotmail.com."), "hotmail.com")
+	assert.equal(domainOf("pi@hotmail.com.."), "hotmail.com")
+})
+
+test("ISPDB 404 falls back to the built-in provider table", async () => {
+	const fetchImpl = (async () => new Response("nope", { status: 404 })) as unknown as typeof fetch
+	const found = await discoverDomain("hotmail.com", { fetchImpl })
+	assert.ok(found, "hotmail.com is a supported provider even if ISPDB has no entry")
+	assert.equal(found.provider, "microsoft")
+	assert.deepEqual(found.imap, { host: "outlook.office365.com", port: 993, secure: true })
+	assert.deepEqual(found.smtp, { host: "smtp-mail.outlook.com", port: 587, secure: false })
+	assert.equal(found.authType, "XOAUTH2")
+})
+
+test("an offline machine still resolves the common providers", async () => {
+	const fetchImpl = (async () => {
+		throw new Error("ENOTFOUND")
+	}) as unknown as typeof fetch
+	assert.equal((await discoverDomain("gmail.com", { fetchImpl }))?.provider, "google")
+	assert.equal((await discoverDomain("outlook.com", { fetchImpl }))?.provider, "microsoft")
+	// Not a known provider and offline: correctly unknown.
+	assert.equal(await discoverDomain("mail.example.org", { fetchImpl }), undefined)
+})
+
+test("ISPDB still wins when it has an entry", async () => {
+	const fetchImpl = (async () =>
+		new Response(
+			`<clientConfig><emailProvider>
+			   <incomingServer type="imap"><hostname>custom.host</hostname><port>143</port>
+			     <socketType>STARTTLS</socketType><authentication>OAuth2</authentication></incomingServer>
+			   <outgoingServer type="smtp"><hostname>custom.smtp</hostname><port>25</port>
+			     <socketType>STARTTLS</socketType><authentication>OAuth2</authentication></outgoingServer>
+			 </emailProvider></clientConfig>`,
+			{ status: 200 },
+		)) as unknown as typeof fetch
+	const found = await discoverDomain("hotmail.com", { fetchImpl })
+	assert.equal(found?.imap.host, "custom.host", "the published document is authoritative, not the table")
+	assert.equal(found?.imap.secure, false)
 })

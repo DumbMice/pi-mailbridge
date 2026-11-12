@@ -310,7 +310,7 @@ map and the port from `opencode-afk`: [docs/MAPPING.md](./docs/MAPPING.md).
 ## Status
 
 `0.1.0` — feature-complete for the single-user, one-mailbox case, not yet
-battle-tested against a live mailbox. 256 hermetic tests cover the token, authz,
+battle-tested against a live mailbox. 265 hermetic tests cover the token, authz,
 scan pipeline, stores, daemon HTTP surface, lifecycle, extension surface, tools,
 attachments and the full end-to-end loop.
 

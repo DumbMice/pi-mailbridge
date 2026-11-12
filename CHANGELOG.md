@@ -81,6 +81,16 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### Setup robustness
+
+- Built-in provider table for the Microsoft and Google families (hotmail.com,
+  outlook.com, live.com, msn.com, gmail.com, googlemail.com) as a fallback when
+  ISPDB is unreachable or has no entry. ISPDB still wins when it answers, so the
+  published document stays authoritative.
+- A domain with no dot (e.g. someone typing `you@hotmail`) is now named as such
+  and given the exact fix, instead of a generic "no published mail settings".
+- Trailing dots on the domain are stripped (`hotmail.com.` works).
+
 ### Setup
 
 - `pi-mailbridge --setup <address> [--to <your-address>]`: discovers the

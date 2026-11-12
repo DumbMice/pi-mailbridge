@@ -86,6 +86,52 @@ export interface DiscoverOptions {
 
 const ISPDB = "https://autoconfig.thunderbird.net/v1.1"
 
+/**
+ * Built-in fallback for the provider families this package is used with.
+ *
+ * ISPDB is authoritative and current, so it is always tried first; this map only
+ * matters when it is unreachable or missing an entry. It also means the common
+ * cases work with no network at all.
+ */
+export const KNOWN_PROVIDERS: Record<string, Omit<Discovered, "provider"> & { provider: Discovered["provider"] }> = {
+	"hotmail.com": {
+		imap: { host: "outlook.office365.com", port: 993, secure: true },
+		smtp: { host: "smtp-mail.outlook.com", port: 587, secure: false },
+		authType: "XOAUTH2",
+		provider: "microsoft",
+	},
+	"outlook.com": {
+		imap: { host: "outlook.office365.com", port: 993, secure: true },
+		smtp: { host: "smtp-mail.outlook.com", port: 587, secure: false },
+		authType: "XOAUTH2",
+		provider: "microsoft",
+	},
+	"live.com": {
+		imap: { host: "outlook.office365.com", port: 993, secure: true },
+		smtp: { host: "smtp-mail.outlook.com", port: 587, secure: false },
+		authType: "XOAUTH2",
+		provider: "microsoft",
+	},
+	"msn.com": {
+		imap: { host: "outlook.office365.com", port: 993, secure: true },
+		smtp: { host: "smtp-mail.outlook.com", port: 587, secure: false },
+		authType: "XOAUTH2",
+		provider: "microsoft",
+	},
+	"gmail.com": {
+		imap: { host: "imap.gmail.com", port: 993, secure: true },
+		smtp: { host: "smtp.gmail.com", port: 465, secure: true },
+		authType: "XOAUTH2",
+		provider: "google",
+	},
+	"googlemail.com": {
+		imap: { host: "imap.gmail.com", port: 993, secure: true },
+		smtp: { host: "smtp.gmail.com", port: 465, secure: true },
+		authType: "XOAUTH2",
+		provider: "google",
+	},
+}
+
 /** Look a domain up in ISPDB. Returns undefined when the domain is unknown. */
 export async function discoverDomain(domain: string, options: DiscoverOptions = {}): Promise<Discovered | undefined> {
 	const doFetch = options.fetchImpl ?? fetch
@@ -94,10 +140,11 @@ export async function discoverDomain(domain: string, options: DiscoverOptions = 
 	const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 5_000)
 	try {
 		const response = await doFetch(`${base}/${encodeURIComponent(domain)}`, { signal: controller.signal })
-		if (!response.ok) return undefined
-		return parseAutoconfig(await response.text())
+		if (!response.ok) return KNOWN_PROVIDERS[domain.toLowerCase()]
+		return parseAutoconfig(await response.text()) ?? KNOWN_PROVIDERS[domain.toLowerCase()]
 	} catch {
-		return undefined
+		// Offline or blocked: fall back to the built-in table before giving up.
+		return KNOWN_PROVIDERS[domain.toLowerCase()]
 	} finally {
 		clearTimeout(timer)
 	}
@@ -106,7 +153,8 @@ export async function discoverDomain(domain: string, options: DiscoverOptions = 
 export function domainOf(address: string): string | undefined {
 	const at = address.lastIndexOf("@")
 	if (at <= 0 || at === address.length - 1) return undefined
-	return address.slice(at + 1).trim().toLowerCase()
+	// A trailing dot is a valid FQDN form but never what a person means to type.
+	return address.slice(at + 1).trim().toLowerCase().replace(/\.+$/, "") || undefined
 }
 
 /** Scope presets, kept here so setup and docs cannot drift apart. */
