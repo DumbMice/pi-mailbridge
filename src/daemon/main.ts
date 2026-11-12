@@ -460,33 +460,27 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		source: sourceProxy,
 		send: async (message) => {
 			const provider = tokenProvider
-			// The service minted and recorded the Message-ID already (before it called us),
-			// so a mail that comes straight back is recognised as ours.
-			const sent = await sendMail(currentConfig, message, {
-				...(provider ? { getAccessToken: () => provider.getToken() } : {}),
-				// Lets a revoked grant be refreshed once instead of failing the notification.
-				...(provider ? { provider } : {}),
-			})
-			// AFTER the send resolves: the provider appends the Sent copy asynchronously (QQ
-			// took 20-30 s in one measurement), and the capture identifies it by the id we
-			// stamped. Fire-and-forget: the notification never fails because the bookkeeping
-			// could not be read back.
-			if (message.sessionId && message.messageId && currentConfig.mail.imap.sentFolder) {
-				void captureDeliveredMessageId({
-					config: currentConfig,
-					mintedId: message.messageId,
-					subject: message.subject,
-					sessionId: message.sessionId,
-					...(provider ? { getAccessToken: () => provider.getToken() } : {}),
-				})
-					.then((id) => {
-						// One line on failure: "silently inert" was a real review finding.
-						if (!id) log("could not read the sent copy back; the reply chain may not match this mail")
-					})
-					// The dynamic import inside defaultConnect is outside attempt()'s try.
-					.catch(() => undefined)
-			}
-			return sent
+			return sendWithCapture(
+				message,
+				(current) =>
+					sendMail(currentConfig, current, {
+						...(provider ? { getAccessToken: () => provider.getToken() } : {}),
+						// Lets a revoked grant be refreshed once instead of failing the notification.
+						...(provider ? { provider } : {}),
+					}),
+				{
+					sentFolder: currentConfig.mail.imap.sentFolder,
+					capture: (mintedId, subject, sessionId) =>
+						captureDeliveredMessageId({
+							config: currentConfig,
+							mintedId,
+							subject,
+							sessionId,
+							...(provider ? { getAccessToken: () => provider.getToken() } : {}),
+						}),
+					onMissed: () => log("could not read the sent copy back; the reply chain may not match this mail"),
+				},
+			)
 		},
 		onSent: ({ messageId, subject, sessionId }) => {
 			if (!messageId) return
@@ -554,6 +548,35 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 	process.on("SIGINT", () => void shutdown("SIGINT"))
 
 	await startWatcher(currentConfig)
+}
+
+/**
+ * Send, then read the delivered Message-ID back.
+ *
+ * The order is the point: the provider appends the Sent copy asynchronously (QQ took 20-30 s
+ * in one measurement), and an earlier version that captured first recorded the *previous*
+ * notification's id against this session. Extracted so a test can hold that order.
+ */
+export async function sendWithCapture<M extends { messageId?: string; sessionId?: string; subject: string }, R>(
+	message: M,
+	send: (message: M) => Promise<R>,
+	deps: {
+		sentFolder?: string
+		capture: (mintedId: string, subject: string, sessionId: string) => Promise<string | undefined>
+		onMissed?: () => void
+	},
+): Promise<R> {
+	const sent = await send(message)
+	if (message.sessionId && message.messageId && deps.sentFolder) {
+		// Fire-and-forget: the notification never fails because the bookkeeping could not be read.
+		void deps
+			.capture(message.messageId, message.subject, message.sessionId)
+			.then((id) => {
+				if (!id) deps.onMissed?.()
+			})
+			.catch(() => undefined)
+	}
+	return sent
 }
 
 export async function main(): Promise<void> {

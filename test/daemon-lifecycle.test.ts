@@ -361,3 +361,66 @@ test("--check warns when DMARC is required for a single mailbox", async () => {
 		`check must warn (problems: ${JSON.stringify(problems)})`,
 	)
 })
+
+test("the sent copy is read back AFTER the send, not before", async () => {
+	// The live bug: capturing first recorded the *previous* notification's id against this
+	// session. The order is the fix, so pin it.
+	const { sendWithCapture } = await import("../src/daemon/main.ts")
+	const order: string[] = []
+	const sent = await sendWithCapture(
+		{ messageId: "<minted@qq.com>", sessionId: "sess-1", subject: "[pi:abc123] x" },
+		async () => {
+			order.push("send")
+			return "sent-result"
+		},
+		{
+			sentFolder: "Sent Messages",
+			capture: async () => {
+				order.push("capture")
+				return "tencent_x@qq.com"
+			},
+		},
+	)
+	assert.equal(sent, "sent-result")
+	await new Promise((r) => setImmediate(r))
+	assert.deepEqual(order, ["send", "capture"], "send first, then the read-back")
+})
+
+test("a failed send skips the read-back", async () => {
+	const { sendWithCapture } = await import("../src/daemon/main.ts")
+	let captured = 0
+	await assert.rejects(
+		sendWithCapture(
+			{ messageId: "<minted@qq.com>", sessionId: "sess-1", subject: "x" },
+			async () => {
+				throw new Error("smtp refused")
+			},
+			{
+				sentFolder: "Sent Messages",
+				capture: async () => {
+					captured++
+					return undefined
+				},
+			},
+		),
+	)
+	await new Promise((r) => setImmediate(r))
+	assert.equal(captured, 0, "nothing was sent, so there is nothing to read back")
+})
+
+test("no session or no sentFolder means no read-back", async () => {
+	const { sendWithCapture } = await import("../src/daemon/main.ts")
+	let captured = 0
+	const capture = async (): Promise<string | undefined> => {
+		captured++
+		return undefined
+	}
+	await sendWithCapture({ messageId: "<m@qq.com>", subject: "x" }, async () => "ok", { sentFolder: "Sent", capture })
+	await sendWithCapture(
+		{ messageId: "<m@qq.com>", sessionId: "s", subject: "x" },
+		async () => "ok",
+		{ capture },
+	)
+	await new Promise((r) => setImmediate(r))
+	assert.equal(captured, 0)
+})
