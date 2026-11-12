@@ -299,6 +299,11 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 				onError: (error, delay) => log(`imap error (${error.message}); reconnecting in ${delay}ms`),
 			},
 		})
+		// Assign BEFORE starting: `start()` fires onReady, and the catch-up scan it
+		// triggers reads through sourceProxy. With the assignment after `await`, every
+		// catch-up scan failed with "imap watcher not started" and mail that arrived
+		// while the daemon was down was only picked up on the next IDLE event.
+		currentWatcher = watcher
 		await watcher.start()
 		return watcher
 	}
@@ -335,7 +340,7 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 				await currentWatcher?.stop()
 				currentConfig = loadConfig()
 				tokenProvider = await buildTokenProvider(currentConfig)
-				currentWatcher = await startWatcher(currentConfig)
+				await startWatcher(currentConfig)
 				log("reloaded config and restarted the watcher")
 				return { ok: true }
 			} catch (error) {
@@ -370,7 +375,7 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 	process.on("SIGTERM", () => void shutdown("SIGTERM"))
 	process.on("SIGINT", () => void shutdown("SIGINT"))
 
-	currentWatcher = await startWatcher(currentConfig)
+	await startWatcher(currentConfig)
 }
 
 async function main(): Promise<void> {

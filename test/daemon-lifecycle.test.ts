@@ -236,3 +236,33 @@ test("POST /reload works on a real daemon and needs the bearer token", { timeout
 		await waitForExit(child, 10_000).catch(() => child.kill("SIGKILL"))
 	}
 })
+
+test("a spawned daemon writes to daemon.log instead of discarding output", async () => {
+	const port = await freePort()
+	const root = mkdtempSync(join(tmpdir(), "pmb-log-"))
+	const env = { ...process.env, XDG_STATE_HOME: join(root, "state"), XDG_CONFIG_HOME: join(root, "config") }
+	const { existsSync } = await import("node:fs")
+
+	let stdio: unknown
+	await ensureDaemon({
+		baseUrl: daemonBaseUrl(port),
+		scriptPath: "/tmp/nope.ts",
+		env,
+		spawnImpl: (_cmd, _args, opts) => {
+			stdio = (opts as { stdio?: unknown }).stdio
+			return { unref() {} }
+		},
+		fetchImpl: (async () => {
+			throw new Error("down")
+		}) as unknown as typeof fetch,
+		sleep: async () => {},
+		waitMs: 1,
+	})
+
+	// Either a log descriptor or "ignore" if the state dir was unusable; here it must
+	// be a descriptor pair, and the file must exist.
+	assert.ok(Array.isArray(stdio), "output should be redirected, not ignored")
+	assert.equal((stdio as unknown[])[0], "ignore", "stdin stays closed")
+	assert.equal(typeof (stdio as unknown[])[1], "number")
+	assert.ok(existsSync(join(env.XDG_STATE_HOME, "pi-mailbridge", "daemon.log")))
+})

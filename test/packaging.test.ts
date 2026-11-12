@@ -212,3 +212,14 @@ test("every parsed subcommand has a handler in the extension", () => {
 test("--prime is documented", () => {
 	assert.match(readme, /--prime|primed/i, "README should mention priming the cursor")
 })
+
+test("the daemon assigns currentWatcher before starting it", () => {
+	const src = read("../src/daemon/main.ts")
+	const assign = src.indexOf("currentWatcher = watcher")
+	const start = src.indexOf("await watcher.start()")
+	assert.ok(assign > 0 && start > 0, "both statements must exist")
+	assert.ok(
+		assign < start,
+		"start() fires onReady, whose catch-up scan reads through sourceProxy; assigning afterwards breaks it",
+	)
+})

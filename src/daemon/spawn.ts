@@ -9,8 +9,11 @@
 // able to reply from your phone.
 
 import { spawn as nodeSpawn, type SpawnOptions } from "node:child_process"
+import { closeSync, mkdirSync, openSync } from "node:fs"
+import { dirname } from "node:path"
 
 import type { PendingRecord } from "../store/pending-store.ts"
+import { statePath } from "../store/paths.ts"
 
 export interface ProbeOptions {
 	baseUrl: string
@@ -76,12 +79,32 @@ export async function ensureDaemon(options: EnsureDaemonOptions): Promise<Ensure
 	const execPath = options.execPath ?? process.execPath
 	const args = ["--experimental-strip-types", options.scriptPath, ...(options.args ?? [])]
 
+	// Detached with output ignored would make failures invisible: a catch-up scan could
+	// fail on every boot with nothing to show for it. Append to a log file instead.
+	const env = options.env ?? process.env
+	const logPath = statePath(env, "daemon.log")
+	let logHandle: number | undefined
+	try {
+		mkdirSync(dirname(logPath), { recursive: true, mode: 0o700 })
+		logHandle = openSync(logPath, "a", 0o600)
+	} catch {
+		// A read-only state dir must not stop the daemon from starting.
+	}
+
 	const child = spawn(execPath, args, {
 		detached: true,
-		stdio: "ignore",
-		env: options.env ?? process.env,
+		stdio: logHandle === undefined ? "ignore" : ["ignore", logHandle, logHandle],
+		env,
 	} as SpawnOptions)
 	child.unref?.()
+	if (logHandle !== undefined) {
+		// The child holds its own copy of the descriptor.
+		try {
+			closeSync(logHandle)
+		} catch {
+			/* already closed */
+		}
+	}
 
 	const sleep = options.sleep ?? defaultSleep
 	const deadline = Date.now() + (options.waitMs ?? 5_000)

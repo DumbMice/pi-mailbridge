@@ -81,6 +81,23 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### Fixed: the catch-up scan never ran, and the daemon logged nothing
+
+Found in a live `daemon.log` after a restart:
+
+    imap ready; running catch-up scan
+    catch-up: scan failed: pi-mailbridge: imap watcher not started
+
+`start()` fires `onReady`, whose catch-up scan reads through the source proxy, but
+`currentWatcher` was only assigned *after* `await watcher.start()`. Every catch-up scan
+failed, so mail that arrived while the daemon was down was picked up only on the next
+IDLE event - the opposite of what ARCHITECTURE.md promises.
+
+- main.ts: assign `currentWatcher` before starting, with a packaging test that fails if
+  the two statements are ever reordered
+- spawn.ts: a detached daemon now appends to `daemon.log` instead of discarding stdio.
+  `stdio: "ignore"` is why this failure was invisible; the log is what found it.
+
 ### Fixed: the body collapsed onto one line
 
 Reported after a live notification. The HTML part relied on `white-space: pre-wrap`
