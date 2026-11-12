@@ -60,6 +60,7 @@ export function applyUidValidity(
 	const validity = watcher?.uidValidity()
 	if (validity === undefined) return { reset: false, validity, dropped: 0 }
 	const reset = syncUidValidity(env, validity, watcher?.uidNext())
+
 	// Drop on EVERY connect, not only on a reset: a crash between the cursor write and the
 	// drop leaves records from another space that nothing can claim (the guard refuses them)
 	// and nothing would ever remove, because the cursor already carries the new validity.

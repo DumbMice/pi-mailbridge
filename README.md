@@ -192,8 +192,8 @@ to do something:
 
 | Reply | Effect |
 | --- | --- |
-| `/mailbridge on` | email mode ON |
-| `/mailbridge off` | email mode OFF; anything else in that batch stays pending until the next `on` |
+| `/mailbridge on` | only while the mode is already on (a no-op). It cannot re-open the channel from off: nothing scans and no session drains, so the reply is never read. Use the terminal |
+| `/mailbridge off` | email mode OFF (one-way by mail: re-opening it needs the terminal); anything else in that batch stays pending |
 | `/mailbridge` or `/mailbridge status` | the status panel |
 | `/mailbridge check` / `/mailbridge smoke` | validate the config / send one test mail |
 | `/mailbridge help` | the command list |
@@ -201,7 +201,9 @@ to do something:
 Output appears in the pi session, **not** in a reply mail. Four are deliberately **not** runnable
 by mail — `/mailbridge setup`, `auth`, `restart` and `prime` — and anything longer than one line
 is a message, so a quoted command never fires. The dispatch is ours, not pi's, so a refused
-command cannot reconfigure the account even if someone forges your address.
+command cannot reconfigure the account even if someone forges your address. What the dispatcher
+refuses is still delivered to the agent as text, so §1/§3 of SECURITY apply to it: the refusal is
+about what runs automatically, not about what the model may then do.
 
 ### The headless entry point
 
@@ -328,6 +330,7 @@ proof the channel is open.
 | `self-echo` | our own notification looping back — the guard working | nothing |
 | `expired` | a queued reply aged out under queue pressure | send it again; the original never arrived |
 | `no-reply-evidence` | a self-addressed mail with no threading headers | reply to the notification instead |
+| `empty-body` from a `From:`/`>`-leading reply | the first line starts with a quote marker, so the whole body is treated as quoted | write your text above the quote, or paste logs after a sentence |
 | `auto-generated` | a robot, mailing list or bounce | nothing |
 | `empty-body` | no prose and no usable attachment | — |
 | `attachment-*` | an attachment was dropped (type, size, count) | see the suffix |

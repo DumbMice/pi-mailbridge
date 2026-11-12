@@ -1,4 +1,5 @@
 import { test } from "node:test"
+import { createCommandTokenProvider } from "../src/core/oauth.ts"
 import assert from "node:assert/strict"
 import { mkdtempSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -176,4 +177,21 @@ test("a transient refresh failure retries, a revoked grant disables immediately"
 	mode = "revoked"
 	await assert.rejects(() => provider.getToken(), /re-run/)
 	assert.equal(provider.isDisabled(), true, "a revoked grant is fatal")
+})
+
+test("a failing token command does not leak its argv", () => {
+	// Node's execFile message is "Command failed: <file> <args...>\n<stderr>", and the argv tail
+	// is exactly what describeCommand() hides because it may carry a client secret. That message
+	// used to reach daemon.log and --check output verbatim.
+	const provider = createCommandTokenProvider({
+		command: ["ortie", "token", "--client-secret", "s3cr3t-value", "show"],
+	})
+	return provider
+		.getToken()
+		.then(() => assert.fail("expected the command to fail"))
+		.catch((error: Error) => {
+			assert.doesNotMatch(error.message, /s3cr3t-value/, "the secret must not appear")
+			assert.match(error.message, /OAuth2 token command failed/, "but the failure is named")
+			assert.match(error.message, /ortie/, "and the program is still identified")
+		})
 })

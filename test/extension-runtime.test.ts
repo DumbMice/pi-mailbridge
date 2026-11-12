@@ -877,3 +877,37 @@ test("a /mailbridge off reply stops the batch it arrived in", async () => {
 	assert.equal(pi.sent.length, 0, "the record behind the switch was not injected")
 	assert.deepEqual(daemon.acked ?? [], [41], "and it was not claimed or acked")
 })
+
+
+test("/mailbridge on builds the missing runtime instead of reporting a hollow ON", async () => {
+	// The documented "copy config.example.json" path: session_start found no secret, so no
+	// client, notifier or runner existed. Writing mode.json alone toasted "ON" while nothing
+	// could mail or deliver, and nothing retried until /mailbridge setup or restart.
+	const t = fakeTimers()
+	const daemon = fakeDaemon({ mode: "off" })
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const notes: string[] = []
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	let secret: Buffer | undefined
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => secret,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+
+	await pi.fire("session_start")
+	assert.deepEqual(daemon.modes, [], "no runtime was built without a secret")
+
+	// The secret appears (setup wrote one, or the user pasted the password and reloaded).
+	secret = SECRET
+	await captured.get("mailbridge")!("on", ctx(notes))
+	assert.deepEqual(daemon.modes, ["on"], "the mode change went through the daemon, not a local file")
+	assert.ok(notes.some((n) => /email mode ON/.test(n)), `notes: ${JSON.stringify(notes)}`)
+})

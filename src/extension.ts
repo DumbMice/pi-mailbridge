@@ -448,6 +448,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	// ---- commands ----------------------------------------------------------
 
 	async function setMode(mode: "on" | "off", c: ExtensionCtxLike): Promise<void> {
+		// No client means this session never built a runtime (it started before a config
+		// existed). Writing mode.json alone would report ON with no notifier and no runner - the
+		// documented "copy config.example.json yourself" path lands here.
+		if (!client && (await startRuntime())) startPolling()
 		const viaDaemon = client ? await client.setMode(mode) : undefined
 		if (viaDaemon?.ok) {
 			emailMode = mode

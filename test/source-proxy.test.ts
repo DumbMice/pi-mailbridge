@@ -1,12 +1,12 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync } from "node:fs"
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { applyUidValidity, createSourceProxy, type ProxyTarget } from "../src/daemon/source-proxy.ts"
 import { advanceCursor, readCursor, syncUidValidity } from "../src/store/uid-cursor.ts"
-import { journal, journalSize } from "../src/store/journal.ts"
+import { isJournaled, journal, journalSize } from "../src/store/journal.ts"
 import { addPending, pendingSize } from "../src/store/pending-store.ts"
 
 const env = (): NodeJS.ProcessEnv => ({ XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-proxy-")) })
@@ -133,3 +133,26 @@ test("a dropped record does not free a slot its session still uses", async () =>
 	assert.deepEqual(released, [], "but s1 still has a live record, so its slot stays")
 })
 
+
+test("a journal written before spaces were tagged stops answering for a new numbering", () => {
+	// journal.json from an older build has no uidValidity, so the space check falls through to
+	// `uids.includes(uid)`. After a renumbering, a reused uid would look "already seen" and the
+	// cursor would advance past genuinely new mail.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "proxy-journal-")) }
+	mkdirSync(join(env.XDG_STATE_HOME, "pi-mailbridge"), { recursive: true })
+	writeFileSync(
+		join(env.XDG_STATE_HOME, "pi-mailbridge", "journal.json"),
+		JSON.stringify({ uids: [5, 6, 7] }),
+	)
+	assert.equal(isJournaled(env, 5), true, "sanity: with no space known, a legacy journal answers")
+
+	// The cursor must already carry a space, or this is a first observation, not a renumbering.
+	syncUidValidity(env, 111, 3)
+	applyUidValidity(env, { uidValidity: () => 999, uidNext: () => 8 } as never)
+	// Once the live numbering is known, an untagged journal cannot claim its uids as seen: the
+	// existing space check treats `undefined !== 999` as a mismatch. (A reviewer read that guard
+	// as "both sides must be tagged" and proposed one; the assertion below is what shows it is not
+	// needed.) The entries stay on disk, space-scoped, as ARCHITECTURE says.
+	assert.equal(isJournaled(env, 5, 999), false, "the new numbering starts clean")
+	assert.equal(journalSize(env), 3, "and the old entries are kept, as documented")
+})

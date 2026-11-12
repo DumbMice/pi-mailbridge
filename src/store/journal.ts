@@ -56,8 +56,13 @@ function save(env: NodeJS.ProcessEnv, file: JournalFile): void {
  */
 export function isJournaled(env: NodeJS.ProcessEnv, uid: number, uidValidity?: number): boolean {
 	const file = loadFile(env)
-	if (uidValidity !== undefined && file.uidValidity !== undefined && file.uidValidity !== uidValidity) {
-		return false
+	if (uidValidity !== undefined) {
+		// The caller knows the live numbering. A journal tagged with a different space cannot
+		// answer for it - and neither can an untagged one, written before the field existed:
+		// after a renumbering its old UIDs are reused, and "already seen" would let the cursor
+		// advance past genuinely new mail.
+		if (file.uidValidity === undefined) return false
+		if (file.uidValidity !== uidValidity) return false
 	}
 	return file.uids.includes(uid)
 }

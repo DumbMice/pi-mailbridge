@@ -144,3 +144,25 @@ test("the attachment budget is validated, and the default is provider-safe", () 
 	writeFileSync(configPath(env), JSON.stringify({ notify: { maxAttachmentMb: 45 } }))
 	assert.equal(loadConfig(env).notify.maxAttachmentMb, 45, "a QQ-sized budget is allowed")
 })
+
+test("an idle timeout that would kill the daemon, and a TTL that would never expire", () => {
+	// `idleTimeoutSecs: 0` makes the daemon exit ~1 s after the first ping (looks like a crash
+	// loop, respawn throttled to a minute); `tokenTtlHours: "abc"` makes a route never expire.
+	const dir = mkdtempSync(join(tmpdir(), "cfg-timeouts-"))
+	const env = { XDG_CONFIG_HOME: dir }
+	mkdirSync(join(dir, "pi-mailbridge"), { recursive: true })
+
+	for (const bad of [0, -5, "120", null]) {
+		writeFileSync(configPath(env), JSON.stringify({ daemon: { idleTimeoutSecs: bad } }))
+		const config = loadConfig(env)
+		assert.equal(config.daemon.idleTimeoutSecs, 120, `idleTimeoutSecs: ${String(bad)}`)
+		assert.ok(config.warnings.some((w) => /idleTimeoutSecs/.test(w)))
+	}
+
+	for (const bad of [0, "720", Number.NaN]) {
+		writeFileSync(configPath(env), JSON.stringify({ security: { tokenTtlHours: bad } }))
+		const config = loadConfig(env)
+		assert.equal(config.security.tokenTtlHours, 720, `tokenTtlHours: ${String(bad)}`)
+		assert.ok(config.warnings.some((w) => /tokenTtlHours/.test(w)))
+	}
+})

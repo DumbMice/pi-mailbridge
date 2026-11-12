@@ -96,7 +96,18 @@ export function createCommandTokenProvider(options: CommandTokenProviderOptions)
 		} catch (error) {
 			failures++
 			if (failures >= maxFailures) disabled = true
-			const reason = error instanceof Error ? error.message : String(error)
+			// Node's execFile message is "Command failed: <file> <all args>\n<stderr>", and the
+			// argv tail is exactly what describeCommand() refuses to print because it may hold a
+			// client secret. Keep the exit shape, drop the rest.
+			const reason = (() => {
+				const raw = error instanceof Error ? error.message : String(error)
+				const code = (error as NodeJS.ErrnoException | undefined)?.code
+				const firstLine = raw.split("\n")[0] ?? ""
+				const withoutArgv = firstLine.replace(/^Command failed: .*$/i, "command failed")
+				const stderr = raw.split("\n").slice(1).join(" ").trim()
+				const detail = stderr ? `${withoutArgv}: ${stderr.slice(0, 200)}` : withoutArgv
+				return code && !detail.includes(code) ? `${detail} (${code})` : detail
+			})()
 			const suffix = disabled
 				? " — OAuth2 is now disabled for this session; fix mail.smtp.tokenCommand and restart"
 				: ` — will retry on next use (${failures}/${maxFailures})`

@@ -6,8 +6,10 @@
 //   3. start the HTTP service (so /health answers while IMAP is still dialling)
 //   4. catch-up scan, then the IDLE watcher
 //
-// Single-instance: the port IS the lock. EADDRINUSE means another daemon already
-// owns the mailbox, so this process exits 0 rather than fighting it.
+// Single-instance: a lock file in the state directory, not the port. The port is still checked
+// (EADDRINUSE exits 0), but two processes that disagree about `daemon.port` - a per-process
+// PI_MAILBRIDGE_PORT, or the config edited while one is running - would otherwise start two
+// daemons, two IMAP watchers, on one state directory whose stores have no cross-process lock.
 //
 // Modes:
 //   (none)          run the daemon
@@ -18,7 +20,8 @@
 //   --smoke         send one real mail, then open the folder and count
 //   --print-token   print the shared secret (for scripts and tests)
 
-import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs"
+import { statePath } from "../store/paths.ts"
 import { dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -184,6 +187,63 @@ async function prime(config: ResolvedConfig): Promise<number> {
 			/* already gone */
 		}
 	}
+}
+
+/**
+ * One daemon per state directory, whatever port it thinks it owns.
+ *
+ * `wx` makes the create atomic; the pid inside lets a later process tell a live holder from a
+ * crash. A holder that is gone is stolen, so a killed daemon does not lock the machine out.
+ */
+function acquireDaemonLock(env: NodeJS.ProcessEnv): { ok: true; release: () => void } | { ok: false; pid: number } {
+	const path = statePath(env, "daemon.lock")
+	const take = (): { ok: true; release: () => void } | undefined => {
+		try {
+			mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+			writeFileSync(path, String(process.pid), { flag: "wx", mode: 0o600 })
+			return {
+				ok: true,
+				release: () => {
+					// Only remove our own: a stolen lock belongs to someone else now.
+					try {
+						if (readFileSync(path, "utf8").trim() === String(process.pid)) unlinkSync(path)
+					} catch {
+						/* already gone */
+					}
+				},
+			}
+		} catch {
+			return undefined
+		}
+	}
+
+	const first = take()
+	if (first) return first
+
+	let holder = 0
+	try {
+		holder = Number(readFileSync(path, "utf8").trim())
+	} catch {
+		/* unreadable: treat as stale */
+	}
+	const alive = holder > 0 && holder !== process.pid && (() => {
+		try {
+			process.kill(holder, 0)
+			return true
+		} catch (error) {
+			return (error as NodeJS.ErrnoException).code === "EPERM"
+		}
+	})()
+	if (alive) return { ok: false, pid: holder }
+
+	// Stale: the holder is gone (a crash, or a reboot with a leftover file). Steal it.
+	try {
+		unlinkSync(path)
+	} catch {
+		/* someone else may have removed it first */
+	}
+	const second = take()
+	return second ?? { ok: false, pid: holder }
 }
 
 function argValue(argv: string[], flag: string): string | undefined {
@@ -368,7 +428,11 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		reportedModeOff = false
 		const before = new Set(listPending().map((r) => r.uid))
 		try {
-			const result = await scanAndProcess(currentConfig, { source: sourceProxy, secret: ensureSecret() })
+			const result = await scanAndProcess(currentConfig, {
+				source: sourceProxy,
+				secret: ensureSecret(),
+				onDropped: (sessionId) => registry.release(sessionId),
+			})
 			// Keep the last scan that actually saw mail. Overwriting it with every empty
 			// catch-up scan made the "why did my reply not arrive" panel a few seconds old on a
 			// mailbox that receives anything else.
@@ -423,6 +487,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 
 	async function doReload(pass = 0): Promise<{ ok: boolean; error?: string; warning?: string }> {
 		const previous = currentConfig
+		const previousProvider = tokenProvider
 		const previousStamp = configLoadedAt
 		// Stamped at entry: if the file changes while this reload runs, the caller(s) joined to
 		// it must not be told their newer config is in force.
@@ -451,8 +516,10 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 			armPoll()
 			return { ok: true }
 		} catch (error) {
-			// Do not leave the daemon holding a config whose watcher never started.
+			// Do not leave the daemon holding a config whose watcher never started - nor a token
+			// provider built for credentials that were just rolled back.
 			currentConfig = previous
+			tokenProvider = previousProvider
 			configLoadedAt = previousStamp
 			try {
 				await startWatcher(previous)
@@ -585,6 +652,11 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		process.exit(1)
 	})
 
+	const lock = acquireDaemonLock(process.env)
+	if (!lock.ok) {
+		log(`another daemon is already running (pid ${lock.pid}); exiting`)
+		process.exit(0)
+	}
 	const { port, host } = await service.listen()
 	log(`listening on http://${host}:${port}`)
 
@@ -595,6 +667,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		if (stopping) return
 		stopping = true
 		log(`${signal}: shutting down`)
+		lock.release()
 		if (pollHandle !== undefined) clearTimeout(pollHandle)
 		await currentWatcher?.stop()
 		await service.close()
@@ -646,7 +719,17 @@ export async function main(): Promise<void> {
 	// Stamp before reading: a write landing between the read and a later Date.now() would
 	// otherwise be invisible to the freshness check.
 	const startupStamp = configStamp()
-	const config = loadConfig()
+	let config = loadConfig()
+
+	// A daemon spawned by a session is told the port that session probed, so it cannot bind a
+	// different one from its own env and leave the session reporting "unreachable".
+	const portArg = argValue(argv, "--port")
+	if (portArg !== undefined) {
+		const port = Number(portArg)
+		if (Number.isInteger(port) && port >= 1 && port <= 65_535) {
+			config = { ...config, daemon: { ...config.daemon, port } }
+		}
+	}
 
 	if (argv.includes("--print-token")) {
 		process.stdout.write(`${ensureSecret().toString("base64url")}\n`)

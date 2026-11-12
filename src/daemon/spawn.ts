@@ -10,7 +10,7 @@
 // immortal: it exits once every session has stopped pinging - see `daemon.exitWhenIdle`.
 
 import { spawn as nodeSpawn, type SpawnOptions } from "node:child_process"
-import { closeSync, mkdirSync, openSync } from "node:fs"
+import { chmodSync, closeSync, mkdirSync, openSync, renameSync, statSync } from "node:fs"
 import { dirname } from "node:path"
 
 import type { PendingRecord } from "../store/pending-store.ts"
@@ -78,7 +78,21 @@ export async function ensureDaemon(options: EnsureDaemonOptions): Promise<Ensure
 
 	const spawn = options.spawnImpl ?? nodeSpawn
 	const execPath = options.execPath ?? process.execPath
-	const args = ["--experimental-strip-types", options.scriptPath, ...(options.args ?? [])]
+	// The port this process probed, so the child cannot pick a different one from its own env -
+	// otherwise two daemons can end up on one state directory, which has no cross-process locks.
+	const probedPort = (() => {
+		try {
+			return new URL(options.baseUrl).port
+		} catch {
+			return ""
+		}
+	})()
+	const args = [
+		"--experimental-strip-types",
+		options.scriptPath,
+		...(probedPort ? ["--port", probedPort] : []),
+		...(options.args ?? []),
+	]
 
 	// Detached with output ignored would make failures invisible: a catch-up scan could
 	// fail on every boot with nothing to show for it. Append to a log file instead.
@@ -87,7 +101,19 @@ export async function ensureDaemon(options: EnsureDaemonOptions): Promise<Ensure
 	let logHandle: number | undefined
 	try {
 		mkdirSync(dirname(logPath), { recursive: true, mode: 0o700 })
+		// One rotation at 5 MB: the log grows only when mail is seen, but it grows forever.
+		try {
+			if (statSync(logPath).size > 5 * 1024 * 1024) renameSync(logPath, `${logPath}.1`)
+		} catch {
+			/* no log yet, or cannot rotate - appending is still better than nothing */
+		}
 		logHandle = openSync(logPath, "a", 0o600)
+		// An older build created it 0644; the log carries addresses and session names.
+		try {
+			chmodSync(logPath, 0o600)
+		} catch {
+			/* best effort */
+		}
 	} catch {
 		// A read-only state dir must not stop the daemon from starting.
 	}

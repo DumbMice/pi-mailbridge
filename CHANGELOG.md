@@ -119,7 +119,40 @@ disagree.
 Mode was two top-level commands in pi's global command namespace. `back` is generic enough to be
 shadowed silently by another extension — pi resolves commands by first match and warns about
 nothing — and neither name appeared in `/mailbridge help`. They are subcommands now, named for the mode they set, and the usage text lists them. Both still
-work as a mail reply. Nothing was published, so there is no alias to carry.
+work as a mail reply, except `/mailbridge on`: with the mode off nothing is scanned or drained, so
+it can only be re-opened from the terminal. Nothing was published, so there is no alias to carry.
+
+### One daemon per state directory, whatever port it thinks it owns
+
+The port was the only single-instance guard, and `daemon.port` is a documented knob (plus a
+per-process env override). Two processes that disagreed about it could each start a daemon on one
+state directory — two IMAP watchers, and stores whose read-modify-write has no cross-process
+lock, so a reply could be lost and another injected twice. A `daemon.lock` in the state directory
+now decides: a live holder makes the newcomer exit 0, a dead one is stolen, and SIGTERM releases
+it. A spawned daemon is also told the port the session probed (`--port`), so it cannot bind a
+different one and leave the session reporting "unreachable".
+
+### Smaller fixes from the same review
+
+- `/mailbridge on` with no runtime (the "copy config.example.json yourself" path) now builds one
+  before reporting ON; previously it wrote `mode.json`, toasted "ON", and nothing could mail or
+  deliver until `setup`/`restart`.
+- `daemon.idleTimeoutSecs` below 5 and `security.tokenTtlHours` below 1 are refused with a
+  warning. A zero timeout made the daemon exit a second after the first ping (looks like a crash
+  loop); a NaN TTL made every route immortal.
+- a journal written before `UIDVALIDITY` tagging no longer answers "already seen" once the live
+  numbering is known — after a renumbering that could skip a new message whose UID was reused.
+- a failed `/reload` restores the token provider as well as the config.
+- a failing `tokenCommand` no longer puts its full argv and stderr into `daemon.log` and
+  `--check` output; the args are what `describeCommand()` hides because they may hold a secret.
+- expiry under queue pressure releases the dead session's decision slot, like the UID-space drop
+  already did.
+- `daemon.log` is created 0600 (an older build left it 0644, and it carries addresses and session
+  names) and rotates once at 5 MB.
+- docs: `/mailbridge on` by mail cannot re-open the channel (`off` is one-way, as §6a said);
+  stopping the daemon while pi is open is undone by the poll tick's respawn; a refused command is
+  still delivered to the agent as text, so "cannot reconfigure" was too strong; §4 now lists what
+  the bearer token actually authorises, including discarding queued replies.
 
 ### Notifications attach the files they link to
 

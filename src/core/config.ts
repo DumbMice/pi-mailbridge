@@ -291,6 +291,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 		}
 	}
 
+	// A zero or NaN idle timeout makes the daemon exit ~1 s after the first ping, which looks
+	// like a crash-loop; a NaN token TTL makes a route never expire. Both fail closed.
+	const rawIdle: unknown = resolved.daemon.idleTimeoutSecs
+	const idle = typeof rawIdle === "number" ? rawIdle : Number.NaN
+	if (!Number.isFinite(idle) || idle < 5) {
+		if (rawIdle !== undefined) warnings.push("daemon.idleTimeoutSecs must be a number of at least 5 — using 120")
+		resolved.daemon = { ...resolved.daemon, idleTimeoutSecs: 120 }
+	}
+
+	const rawTtl: unknown = resolved.security.tokenTtlHours
+	const ttl = typeof rawTtl === "number" ? rawTtl : Number.NaN
+	if (!Number.isFinite(ttl) || ttl < 1) {
+		if (rawTtl !== undefined) warnings.push("security.tokenTtlHours must be a positive number — using 720")
+		resolved.security = { ...resolved.security, tokenTtlHours: 30 * 24 }
+	}
+
 	// A negative, null or non-numeric interval would silently disable the safety net.
 	// `Number(null)` is 0, which would read as "the user disabled the sweep" — only a real
 	// number counts.

@@ -24,7 +24,7 @@ import { tokenFromSubject } from "../core/token.ts"
 import { selectAttachments, type RawAttachment } from "../core/attachments.ts"
 import { findOutbound, parseMessageIds, lookupChain } from "../store/threads.ts"
 import { routeIdFromSubject, resolveRoute } from "../store/routes.ts"
-import { addPending, expirePending, type PendingRecord } from "../store/pending-store.ts"
+import { addPending, expirePending, listPending, type PendingRecord } from "../store/pending-store.ts"
 import { isJournaled } from "../store/journal.ts"
 import { advanceCursor, readCursor } from "../store/uid-cursor.ts"
 
@@ -69,6 +69,8 @@ export interface ScanDeps {
 	secret: Buffer
 	env?: NodeJS.ProcessEnv
 	now?: () => number
+	/** Release a decision slot whose record was dropped, when nothing else holds it. */
+	onDropped?: (sessionId: string) => void
 }
 
 export interface ScanResult {
@@ -285,6 +287,12 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			if (expired.length > 0) {
 				result.rejected++
 				bump(result.reasons, "expired")
+				// The same rule as the UID-space drop: free a slot only when nothing else is
+				// queued for that session, or a live record would lose its reservation.
+				const stillQueued = new Set(listPending(env).map((r) => r.sessionId))
+				for (const gone of expired) {
+					if (!stillQueued.has(gone.sessionId)) deps.onDropped?.(gone.sessionId)
+				}
 				const retry = addPending(env, record)
 				if (retry.ok) {
 					result.persisted++

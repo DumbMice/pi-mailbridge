@@ -108,6 +108,12 @@ A legitimate email can still contain text that reads like instructions
   displace a running daemon by racing the port, because the loser exits.
 - The token never appears in logs, error strings, or the notification email.
 
+### What the bearer token authorises
+
+Beyond sending, the token can `GET /pending` (reply bodies and attachments), `/claim` and `/ack`
+any record — which *discards* a queued reply without delivering it — flip the mode, and shut the
+daemon down. Treat `secret.key` as equivalent to the mailbox password.
+
 ## 5. Mailbox hygiene
 
 - Prefer a **dedicated account or a filtered folder**. Do not point this at a
@@ -152,7 +158,9 @@ A legitimate email can still contain text that reads like instructions
   does not scan and the extension does not claim or inject, so the mailbox is not a
   listening control channel in either direction. Replies that arrive meanwhile stay in the
   mailbox and are processed when you `/mailbridge on` again — which also means turning it back on can
-  deliver a burst. To stop entirely, stop the daemon (`systemctl --user stop pi-mailbridge`,
+  deliver a burst. To stop entirely, close pi and then stop the daemon (`systemctl --user stop
+  pi-mailbridge` — with a session still open, the poll tick respawns a daemon it finds missing,
+  throttled to once a minute, and the respawned one is not owned by the unit
   or let it exit: it quits ~120 s after the last pi session stops pinging).
 - **One mailbox for both roles** (`security.allowSelfReplies`). The loop guard is relaxed
   for self-addressed mail, so the sender allowlist alone no longer separates "me" from "not
@@ -183,8 +191,9 @@ A legitimate email can still contain text that reads like instructions
 
 ## 6a. Commands arriving by mail
 
-A reply whose entire body is one command line executes that command (`/mailbridge on`, `/mailbridge off`,
-`/mailbridge status|check|smoke|help`). It is **not** handed to pi's command parser, and the
+A reply whose entire body is one command line executes that command (`/mailbridge off`,
+`/mailbridge status|check|smoke|help`, and `/mailbridge on` only while the mode is already on -
+with it off nothing scans or drains, so such a reply is never read). It is **not** handed to pi's command parser, and the
 commands that change the machine are refused: `setup` (rewrites the config and the target
 address), `auth` (starts a credential flow), `restart` (replaces the daemon) and `prime` (skips
 unread mail) are delivered to the agent as text instead.

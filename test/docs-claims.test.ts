@@ -948,3 +948,19 @@ test("SECURITY's attachment allowlist is the code's allowlist", () => {
 		assert.ok(new RegExp(`\\b${ext}\\b`).test(section), `SECURITY §6b omits ${ext}`)
 	}
 })
+
+test("the docs do not claim a mail reply can reopen the mode", () => {
+	// With the mode off nothing scans and nothing drains, so `/mailbridge on` sent as a reply is
+	// never even persisted. Three files said it worked.
+	for (const { file, text } of allProse()) {
+		const flatText = text.replace(/\s+/g, " ")
+		for (const sentence of flatText.split(/(?<=[.!?])\s+/)) {
+			if (!/mailbridge on/.test(sentence)) continue
+			if (!/mail reply|by mail|as a reply/i.test(sentence)) continue
+			assert.ok(
+				/cannot|never|only while|nothing scans|terminal/i.test(sentence),
+				`${file}: claims /mailbridge on works by mail: ${sentence.trim()}`,
+			)
+		}
+	}
+})

@@ -730,3 +730,26 @@ test("a quiet session's queued reply is not expired by simply reconnecting", asy
 	assert.equal(expirePending(e, 30 * 24 * 3600_000).length, 0, "a 30-day horizon keeps it")
 	assert.equal(pendingSize(e), 1)
 })
+
+test("queue-pressure expiry frees the decision slot of a dead session", async () => {
+	// expirePending's doc says the caller releases the slots. The UID-space drop did; this path
+	// did not, so a session with an expired reply kept answering "a decision is already
+	// outstanding" for 24 h while its record no longer existed.
+	const released: string[] = []
+	const old = Date.now() - 8 * 24 * 3600_000
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "scan-expire-")) }
+	addPending(env, { uid: 1, sessionId: "dead", from: "you@example.com", subject: "a", body: "b", receivedAt: old })
+	for (let i = 0; i < 1_000; i += 1) {
+		addPending(env, { uid: 100 + i, sessionId: "live", from: "you@example.com", subject: "s", body: "b", receivedAt: Date.now() })
+	}
+
+	// A new record arrives with the queue full: expiry has to make room.
+	await scanAndProcess(config(), {
+		source: source([msg(5_000)]),
+		secret: SECRET,
+		env,
+		onDropped: (sessionId) => released.push(sessionId),
+	})
+	assert.ok(released.includes("dead"), `expected the dead session to be released, got ${JSON.stringify(released)}`)
+	assert.ok(!released.includes("live"), "a session with queued records keeps its slot")
+})
