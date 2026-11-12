@@ -236,3 +236,18 @@ test("a re-indexed mailbox does not let an old UID collide with a new one", asyn
 	assert.equal(pendingSize(e), 1)
 	assert.equal(getPending(e, 9)?.uidValidity, 2222)
 })
+
+test("uid cursor: a first observation resets when the cursor is outside the new UID space", async () => {
+	// Upgrading from a cursor file with no UIDVALIDITY normally keeps the cursor. But a cursor
+	// at or past the mailbox's next UID cannot belong to this numbering - the folder was
+	// renumbered while we were not watching, and keeping it would skip everything for ever.
+	const { syncUidValidity } = await import("../src/store/uid-cursor.ts")
+	const e = env()
+	advanceCursor(e, 500)
+	assert.equal(syncUidValidity(e, 1234, 800), false, "cursor inside the space: keep it")
+
+	const e2 = env()
+	advanceCursor(e2, 500)
+	assert.equal(syncUidValidity(e2, 1234, 120), true, "cursor past uidNext: reset")
+	assert.equal(readCursor(e2), 0)
+})

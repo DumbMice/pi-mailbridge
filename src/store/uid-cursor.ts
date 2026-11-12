@@ -62,13 +62,22 @@ function write(env: NodeJS.ProcessEnv, uid: number, uidValidity?: number): void 
  *
  * @returns true when the cursor was reset.
  */
-export function syncUidValidity(env: NodeJS.ProcessEnv, uidValidity: number | undefined): boolean {
+export function syncUidValidity(
+	env: NodeJS.ProcessEnv,
+	uidValidity: number | undefined,
+	uidNext?: number,
+): boolean {
 	if (uidValidity === undefined || !Number.isFinite(uidValidity)) return false
 	const current = readFile(env)
 	if (current.uidValidity === uidValidity) return false
-	// First observation on an existing cursor (upgrade from a version that stored none) just
-	// records the value; resetting would re-scan the whole mailbox for no reason.
-	const reset = current.uidValidity !== undefined && current.uidValidity !== uidValidity
+
+	// First observation on a cursor from a version that stored no validity: usually an
+	// upgrade over an unchanged mailbox, so keep the cursor. But if the cursor is at or past
+	// the mailbox's next UID, it cannot belong to this numbering - the folder was renumbered
+	// while we were not looking - and keeping it would skip everything for ever.
+	const observedFirst = current.uidValidity === undefined
+	const outside = observedFirst && uidNext !== undefined && current.lastUid >= uidNext
+	const reset = !observedFirst || outside
 	write(env, reset ? 0 : current.lastUid, uidValidity)
 	return reset
 }

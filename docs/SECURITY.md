@@ -125,8 +125,12 @@ A legitimate email can still contain text that reads like instructions
     before is still delivered on the next drain - and a legacy token still resolves until
     it expires or you rotate the key. If the session is compromised, this is the queue
     that matters.
-  - `journal.json` — only the ack dedupe. Clearing it re-opens replay of already-acked
-    mail, so prefer leaving it unless you also cleared the mailbox.
+  - `journal.json` — only the ack dedupe, tagged with the mailbox's UIDVALIDITY. Clearing it
+    re-opens replay of already-acked mail, so prefer leaving it unless you also cleared the
+    mailbox.
+  - `uid-cursor.json` — the last seen UID and the UIDVALIDITY it belongs to. A change of
+    UIDVALIDITY (a rebuilt or migrated folder) resets it and drops the queued records from the
+    old numbering, so recent mail can be delivered once more instead of being skipped.
   Secrets (`secret.key`, `oauth.json`) live beside them; rotating those is covered above.
 - Turn it off with `/back` when you will be at the desk: while mode is off the daemon
   does not scan and the extension does not claim or inject, so the mailbox is not a

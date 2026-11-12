@@ -157,6 +157,19 @@ text, not a device line.) It exists for two reasons:
    fetch every reply. The device claim lets the non-owner skip it at scan time
    (`other-device`), without persisting and without marking it seen.
 
+### UIDVALIDITY, and what a renumbered mailbox does
+
+UIDs are only meaningful within one `UIDVALIDITY`. If a provider recreates, migrates or
+"repairs" a folder, UIDs restart at 1 - and a persisted high-water cursor then skips every
+future message, with `examined 0` as the only symptom.
+
+The daemon records the mailbox's `UIDVALIDITY` beside the cursor and compares it on every
+connect. On a change it resets the cursor, ignores `journal.json` entries from the old
+numbering (they describe a space that no longer exists), and drops queued records from it.
+The cost is explicit: **a renumbering can re-deliver replies that were acked inside the
+route TTL**, because the only durable dedupe is UID-based. Nothing is lost; recent mail may
+arrive once more. The daemon logs the change, the reset and how many records it dropped.
+
 ## 5. Modes
 
 `/afk` → mode `on`: decisions mail the human and end the turn.

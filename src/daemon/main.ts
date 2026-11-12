@@ -424,7 +424,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 					// every future message, with "examined 0" as the only symptom.
 					// `currentWatcher` is assigned before start(), so it is this watcher here.
 					const validity = currentWatcher?.uidValidity()
-					if (syncUidValidity(process.env, validity) && validity !== undefined) {
+					if (syncUidValidity(process.env, validity, currentWatcher?.uidNext()) && validity !== undefined) {
 						// The renumbering also invalidates any queued record from the old space:
 						// a new UID could collide with it and replace it silently. Dropped mail is
 						// still unread in the mailbox and is re-read from the reset cursor.

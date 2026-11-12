@@ -676,3 +676,13 @@ test("no doc claims the token provider dies on one failure", () => {
 		}
 	}
 })
+
+test("the renumbering behaviour is documented, including its cost", () => {
+	const arch = flat(doc("docs/ARCHITECTURE.md"))
+	const at = arch.indexOf("UIDs are only meaningful within one")
+	assert.ok(at > -1, "ARCHITECTURE should explain UIDVALIDITY")
+	const section = arch.slice(at, at + 900)
+	assert.match(section, /reset/i, "says the cursor is reset")
+	assert.match(section, /re-deliver|delivered once more/i, "and admits the re-delivery cost")
+	assert.match(flat(doc("docs/SECURITY.md")), /uid-cursor\.json/, "SECURITY lists the cursor file")
+})

@@ -164,7 +164,7 @@ export interface ImapClientLike {
 	/** imapflow sets this false when the connection is gone. */
 	usable?: boolean
 	/** Populated once the mailbox is open; UID space identity. */
-	mailbox?: { uidValidity?: bigint | number }
+	mailbox?: { uidValidity?: bigint | number; uidNext?: bigint | number }
 }
 
 export interface ImapClientFactory {
@@ -210,12 +210,21 @@ interface FetchResultLike {
 // Watcher
 // ---------------------------------------------------------------------------
 
+/** imapflow reports these as bigint; normalise both to a safe number. */
+function normaliseUid(raw: bigint | number | undefined): number | undefined {
+	if (raw === undefined) return undefined
+	const value = typeof raw === "bigint" ? Number(raw) : raw
+	return Number.isFinite(value) ? value : undefined
+}
+
 export interface ImapWatcher extends MailSource {
 	start(): Promise<void>
 	stop(): Promise<void>
 	isHealthy(): boolean
 	/** The open mailbox's UIDVALIDITY, when the server exposes it. */
 	uidValidity(): number | undefined
+	/** The open mailbox's next UID, when the server exposes it. */
+	uidNext(): number | undefined
 }
 
 export function createImapWatcher(config: ResolvedConfig, options: WatcherOptions): ImapWatcher {
@@ -312,10 +321,12 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 
 		/** The open mailbox's UIDVALIDITY, when the client exposes one. */
 		uidValidity(): number | undefined {
-			const raw = client?.mailbox?.uidValidity
-			if (raw === undefined) return undefined
-			const value = typeof raw === "bigint" ? Number(raw) : raw
-			return Number.isFinite(value) ? value : undefined
+			return normaliseUid(client?.mailbox?.uidValidity)
+		},
+
+		/** The open mailbox's next UID, when the client exposes one. */
+		uidNext(): number | undefined {
+			return normaliseUid(client?.mailbox?.uidNext)
 		},
 
 		isHealthy() {
