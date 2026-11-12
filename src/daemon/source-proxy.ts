@@ -60,13 +60,15 @@ export function applyUidValidity(
 	const validity = watcher?.uidValidity()
 	if (validity === undefined) return { reset: false, validity, dropped: 0 }
 	const reset = syncUidValidity(env, validity, watcher?.uidNext())
-	if (!reset) return { reset: false, validity, dropped: 0 }
-	// Queued records from the old numbering could collide with new UIDs and be replaced
+	// Drop on EVERY connect, not only on a reset: a crash between the cursor write and the
+	// drop leaves records from another space that nothing can claim (the guard refuses them)
+	// and nothing would ever remove, because the cursor already carries the new validity.
+	// Queued records from the wrong numbering could also collide with new UIDs and be replaced
 	// silently. Dropping them is safe: they were never acked, so the mail is still unread and
-	// the reset cursor re-reads it. Their decision slots are freed, though, or that session
-	// would be told it still has an outstanding decision for up to a day.
+	// the cursor re-reads it. Their decision slots are freed, or that session would be told it
+	// still has an outstanding decision for up to a day.
 	const doomed = listPending(env).filter((r) => r.uidValidity !== undefined && r.uidValidity !== validity)
 	const dropped = dropPendingFromOtherSpaces(env, validity)
 	for (const record of doomed) onDropped?.(record.sessionId)
-	return { reset: true, validity, dropped }
+	return { reset, validity, dropped }
 }

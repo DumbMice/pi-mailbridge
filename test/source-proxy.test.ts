@@ -77,3 +77,24 @@ test("a watcher that cannot report UIDVALIDITY is left alone", () => {
 	assert.deepEqual(applyUidValidity(e, watcher({})), { reset: false, validity: undefined, dropped: 0 })
 	assert.equal(readCursor(e), 40)
 })
+
+test("stale records are dropped on every connect, not only when the cursor resets", async () => {
+	// A crash between the cursor write and the drop leaves a record nothing can claim and
+	// nothing would ever remove, because the next connect sees an unchanged validity.
+	const e = env()
+	syncUidValidity(e, 2222, 50) // cursor already carries the new space
+	addPending(e, {
+		uid: 4,
+		sessionId: "stale-sess",
+		from: "you@qq.com",
+		subject: "x",
+		body: "old",
+		receivedAt: 1,
+		uidValidity: 1111,
+	})
+	const released: string[] = []
+	const outcome = applyUidValidity(e, watcher({ validity: 2222, next: 50 }), (s) => released.push(s))
+	assert.equal(outcome.reset, false, "no reset needed")
+	assert.equal(outcome.dropped, 1, "but the stale record is still removed")
+	assert.deepEqual(released, ["stale-sess"])
+})

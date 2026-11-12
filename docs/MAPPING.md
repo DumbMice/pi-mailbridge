@@ -50,7 +50,7 @@ Everything else ports essentially as-is.
 | `store/paths.js` | 88 | `src/store/paths.ts` | Ported — XDG state dir |
 | `store/secret.js` | 116 | `src/store/secret.ts` | Ported — HMAC key file, first-writer-wins |
 | `store/pending-store.js` | 215 | `src/store/pending-store.ts` | Ported — durable pending replies |
-| `store/uid-cursor.js` | 123 | `src/store/uid-cursor.ts` | Ported — monotonic UID cursor |
+| `store/uid-cursor.js` | 123 | `src/store/uid-cursor.ts` | Ported, then extended — monotonic within a UID space; resets when the mailbox renumbers |
 | `store/mode-store.js` | 86 | `src/store/mode-store.ts` | Ported — global on/off `/afk` · `/back` |
 | `store/registry.js` | 106 | `src/store/registry.ts` | Ported — one-outstanding-decision guard |
 | `command/afk.md`, `command/back.md` | short | `pi.registerCommand` | Inline, no separate command files |

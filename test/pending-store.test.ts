@@ -276,3 +276,12 @@ test("journal: an ack in a new space adopts it (the file is not write-once)", as
 	assert.equal(isJournaled(e, 2, 2222), true, "the new space owns the journal now")
 	assert.equal(isJournaled(e, 2, 1111), false, "and the old one no longer matches")
 })
+
+test("a claim is refused when the record belongs to a space the mailbox has left", async () => {
+	// The caller and the record can agree with each other while both are stale against the
+	// mailbox itself.
+	const e = env()
+	addPending(e, { ...rec(7), uidValidity: 1111 })
+	assert.deepEqual(claimPending(e, 7, "A", Date.now(), 1111, 2222), { ok: false, reason: "stale-space" })
+	assert.equal(pendingSize(e), 1)
+})

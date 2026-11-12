@@ -810,3 +810,44 @@ test("/ack refuses a record from a space the mailbox has left", async () => {
 		await service.close()
 	}
 })
+
+test("/ack frees the record's decision slot", async () => {
+	// Wrong id here leaves the session told it has an outstanding decision for up to a day.
+	const { addPending, claimPending } = await import("../src/store/pending-store.ts")
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-acksess-")) }
+	addPending(env, {
+		uid: 3,
+		sessionId: "sess-owner",
+		from: "you@example.com",
+		subject: "re",
+		body: "yes",
+		receivedAt: 1,
+	})
+	claimPending(env, 3, "inst")
+	const released: string[] = []
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env,
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
+		send: async () => ({ messageId: "<x@qq.com>" }),
+		registry: {
+			list: () => [],
+			reserve: () => ({ ok: true }),
+			release: (sessionId: string) => {
+				released.push(sessionId)
+			},
+		} as never,
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	try {
+		await fetch(`http://127.0.0.1:${port}/ack`, {
+			method: "POST",
+			headers: { ...auth(), "content-type": "application/json" },
+			body: JSON.stringify({ uid: 3, instanceId: "inst" }),
+		})
+		assert.deepEqual(released, ["sess-owner"], "the record's session, not the body's")
+	} finally {
+		await service.close()
+	}
+})

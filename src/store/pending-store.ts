@@ -171,7 +171,7 @@ export function claimPending(
  */
 export type AckResult =
 	| { ok: true; sessionId: string; uidValidity?: number }
-	| { ok: false; reason: "not-found" | "not-claimed" }
+	| { ok: false; reason: "not-found" | "not-claimed" | "stale-space" }
 
 export function ackPending(
 	env: NodeJS.ProcessEnv,
@@ -186,10 +186,10 @@ export function ackPending(
 	// Same rule as claim: an ack from another UID space would journal a UID that now means
 	// something else.
 	if (record.uidValidity !== undefined && uidValidity !== undefined && record.uidValidity !== uidValidity) {
-		return { ok: false, reason: "not-claimed" }
+		return { ok: false, reason: "stale-space" }
 	}
 	if (record.uidValidity !== undefined && liveValidity !== undefined && record.uidValidity !== liveValidity) {
-		return { ok: false, reason: "not-claimed" }
+		return { ok: false, reason: "stale-space" }
 	}
 	if (record.claimedBy !== instanceId) return { ok: false, reason: "not-claimed" }
 	save(env, items.filter((r) => r.uid !== uid))
