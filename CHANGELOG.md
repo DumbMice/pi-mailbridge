@@ -81,6 +81,17 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### systemd unit: paths that actually exist
+
+Two things would have stopped the unit from starting on a real machine, both caught by
+`systemd-analyze verify`:
+
+- `/usr/bin/node` does not exist where pi ships its own Node. The unit now carries the
+  pi-managed bin directory first in `PATH` and runs `/usr/bin/env node`, because systemd
+  cannot expand a variable in the *executable* position - only in arguments.
+- the package path assumed `pi install npm:...`, which is wrong for a local checkout.
+  It is `Environment=PI_MAILBRIDGE_DIR`, with the local-path variant shown as a comment.
+
 ### Fixed: the catch-up scan never ran, and the daemon logged nothing
 
 Found in a live `daemon.log` after a restart:

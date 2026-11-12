@@ -125,10 +125,12 @@ test("the systemd unit does not hardcode paths that may not exist", () => {
 	const unit = read("../docs/systemd/pi-mailbridge.service")
 	// /usr/bin/node is absent on a machine where pi shipped its own Node, and the
 	// npm package path is wrong for a local checkout. Both must be configurable.
-	assert.doesNotMatch(unit, /^ExecStart=\/usr\/bin\/node/m, "node path must be an Environment variable")
-	assert.match(unit, /Environment=PI_MAILBRIDGE_NODE=/)
+	assert.doesNotMatch(unit, /^ExecStart=\/usr\/bin\/node/m, "node path must not be hardcoded")
+	assert.match(unit, /Environment=PATH=/, "PATH must carry the pi-managed node first")
 	assert.match(unit, /Environment=PI_MAILBRIDGE_DIR=/)
-	assert.match(unit, /ExecStart=\$\{PI_MAILBRIDGE_NODE\}.*\$\{PI_MAILBRIDGE_DIR\}/)
+	// systemd cannot expand a variable in the executable position, so the binary must
+	// be a literal path and the variables may only appear as arguments.
+	assert.match(unit, /^ExecStart=\/usr\/bin\/env node .*\$\{PI_MAILBRIDGE_DIR\}/m)
 	assert.match(unit, /local checkout|Work\/pi-mailbridge/, "a local-path variant should be shown")
 })
 
