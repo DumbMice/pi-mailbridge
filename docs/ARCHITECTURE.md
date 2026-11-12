@@ -95,8 +95,8 @@ Subject format:
 [pi:f913c9] <human subject>
 ```
 
-A six-hex-character **local route id**, resolved from `store/routes.ts`. It replaced a
-signed token (39 characters, in a subject well over 80) that made every subject unreadable in a notification
+A six- to eight-hex-character **local route id**, resolved from `store/routes.ts`. It replaced a
+signed token (39 characters, in an 87-character subject) that made every subject unreadable in a notification
 preview. Signed tokens still verify, so mail already in flight keeps working.
 
 The id is a lookup key, not a credential: an unknown id resolves to nothing, and
@@ -212,7 +212,7 @@ systemd-started daemon never exits just because pi happens to be closed.
 | Session exits before ack | mail stays unseen, pending durable → redelivered |
 | SMTP fails | decision is *not* reserved as outstanding; error surfaces to the tool |
 | Mailbox full of non-token mail | cursor advances, nothing is claimed, no state grows |
-| Clock skew | token expiry is a bound, not a gate; ±minutes is tolerated |
+| Clock skew | expiry is a hard gate against the local clock; a clock more than a TTL behind will refuse fresh ids |
 
 ## 8. Module layout
 

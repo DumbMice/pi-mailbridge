@@ -1,9 +1,10 @@
 // OAuth2 access-token supply for XOAUTH2 (Outlook).
 //
 // Microsoft retired SMTP basic auth for outlook.com/hotmail on 2024-09-16, so an
-// app password is not an option there. We do not implement an OAuth flow: token
-// acquisition is delegated to a **configurable command** (ortie, `az account
-// get-access-token`, a device-code script, …) whose stdout is the token.
+// app password is not an option there. Two flows are built in - device code
+// (oauth-device.ts) and OpenID Connect (oauth-openid.ts) - and token acquisition can also
+// be delegated to a configurable command whose stdout is the token. This module is the
+// caching/retry layer shared by all three.
 //
 // Two design rules:
 //   1. The command is executed with `execFile` and an argv array — never a shell

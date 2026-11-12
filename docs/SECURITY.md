@@ -27,7 +27,7 @@ Every control below exists to break one link in that chain.
 | Provenance | **DMARC pass** from the authenticated relay (`security.requireDmarcPass`, pinned to `trustedAuthservId` when set) | step 1 |
 | Routing | **short route id**, TTL-bounded (legacy HMAC-signed tokens still verify) | steps 2–3 |
 | Replay | **journal + expiry** (durable, survives restart) | step 2 |
-| Human | **`request_decision` blocks the agent** until a reply arrives | step 4 |
+| Human | **`request_decision` asks and ends the turn**; only a reply resumes it | step 4 |
 
 ### 2.1 DMARC — trust the delivering relay's header
 
@@ -80,9 +80,11 @@ A legitimate email can still contain text that reads like instructions
 - **Scope the session.** A session that only needs to read code should not have
   `bash`. `pi --tools read,grep,glob` for untrusted threads. This package does not enforce
   tool scoping — pi's own `--tools` does.
-- **Keep a human in the loop for destructive actions.** `request_decision` blocks the
-  agent until a reply arrives. There is no approve command and no phrase a message can
-  contain to satisfy it: the human's reply *is* the approval.
+- **Keep a human in the loop for destructive actions.** `request_decision` sends the
+  question and ends the turn; nothing resumes the session except a reply. There is no
+  approve command and no phrase a message can contain to satisfy it: the human's reply *is*
+  the approval. This is a convention the model follows, not an enforced gate - a model that
+  ignores the tool can keep working, which is why tool scoping matters.
 - **Do not paste mail verbatim into a prompt as trusted context.** Injected
   text is *user input*, and the system prompt should say so.
 

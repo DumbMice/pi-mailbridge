@@ -1,6 +1,6 @@
 // Outbound Message-ID registry — the reply-chain fallback.
 //
-// The signed subject token is the primary way a reply is identified, but a human
+// The short route id in the subject is the primary way a reply is identified, but a human
 // can edit a subject and some clients rewrite it. Mail clients, however, keep
 // `In-Reply-To` / `References` intact: that is how threading works, and it is what
 // "reply to this mail" actually does.

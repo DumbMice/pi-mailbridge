@@ -382,3 +382,45 @@ test("/health is documented without claiming it exposes mail content", () => {
 		}
 	}
 })
+
+test("no document claims request_decision blocks the agent", () => {
+	// It sends the question and ends the turn; the model can ignore it. Calling that a block
+	// overstates an enforced gate that does not exist.
+	for (const { file, text } of allProse()) {
+		assert.ok(
+			!/request_decision blocks the agent/i.test(text),
+			`${file} says request_decision blocks the agent`,
+		)
+	}
+})
+
+test("the troubleshooting section names the reasons the scanner produces", () => {
+	const readme = doc("README.md")
+	const section = /## A reply did not arrive[\s\S]*?(?=\n## )/.exec(readme)?.[0]
+	assert.ok(section, "README should have a troubleshooting section")
+	// Every reason process.ts can emit should be answerable from that section.
+	// Reasons are emitted from process.ts and from authorize() in authz.ts.
+	const emitted = new Set<string>()
+	for (const file of ["src/daemon/process.ts", "src/core/authz.ts"]) {
+		const text = readFileSync(join(root, file), "utf8")
+		for (const m of text.matchAll(/"(not-allowlisted|allowlist-empty|dmarc-[a-z]+|no-token|no-from|other-device|self-echo|empty-body|pending-full|auto-generated)"/g)) {
+			emitted.add(m[1]!)
+		}
+	}
+	assert.ok(emitted.size >= 6, `expected the reason set, got ${emitted.size}`)
+	for (const reason of emitted) {
+		assert.ok(section.includes(reason), `the troubleshooting table omits ${reason}`)
+	}
+	assert.match(section, /daemon\.log/, "and must say where the log is")
+})
+
+test("the live-mailbox status is stated the same way in README and CHANGELOG", () => {
+	// One file said "not yet battle-tested against a live mailbox" while the other recorded
+	// live QQ and Outlook testing. Pick one story.
+	for (const { file, text } of allProse()) {
+		assert.ok(
+			!/not yet (?:been )?(?:battle-tested|validated) against a live mailbox/i.test(text),
+			`${file} claims the package has never seen a live mailbox`,
+		)
+	}
+})

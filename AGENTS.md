@@ -29,12 +29,15 @@ Break one of these and the package loses mail or becomes a hole:
 
 ## Layout
 
+`docs/ARCHITECTURE.md` §8 is the authoritative module map (a test checks it against
+`src/` in both directions). Read it there rather than keeping a copy here that goes stale.
+
 ```
 src/extension.ts     pi entry: tools, commands, events, polling client
-src/core/            config, mailer, token, reply parsing, strings
-src/daemon/          main (HTTP+SSE), watcher (IDLE), process (scan pipeline)
-src/store/           paths, secret, pending, uid-cursor, mode, registry
-docs/                ARCHITECTURE, MAPPING, SECURITY
+src/core/            authz, config, mailer, token, reply parsing, oauth, rendering, settle
+src/daemon/          main (CLI+lifecycle), service (HTTP), watcher (IDLE), process (scan)
+src/store/           paths, secret, pending, journal, routes, threads, cursor, mode, registry
+docs/                ARCHITECTURE, SECURITY, OAUTH, MAPPING
 test/                unit tests — must never touch real IMAP or SMTP
 ```
 

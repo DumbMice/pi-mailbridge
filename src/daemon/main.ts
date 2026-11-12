@@ -12,6 +12,10 @@
 // Modes:
 //   (none)          run the daemon
 //   --check         validate config + secrets + token command, touch no mail
+//   --setup         write a config from an address (headless equivalent of /mailbridge setup)
+//   --auth          run the OAuth device-code flow
+//   --prime         move the UID cursor to the newest message
+//   --smoke         send one real mail, then open the folder and count
 //   --print-token   print the shared secret (for scripts and tests)
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"

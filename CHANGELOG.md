@@ -2,8 +2,8 @@
 
 ## 0.1.0 — unreleased
 
-Feature-complete for the single-user, one-mailbox case. Not yet validated against
-a live mailbox.
+Feature-complete for the single-user, one-mailbox case. Exercised by hand against a live
+Outlook.com and QQ mailbox; no automated live-mailbox test exists.
 
 ### Core
 
@@ -255,6 +255,8 @@ carries a top border so it reads as a divider rather than running into the answe
 
 
 
+### Multipart mail, so quoted history folds
+
 Reported from a live reply: the quoted original did not fold away, it showed as raw
 repeated text. Cause: every message was text/plain only, and clients collapse quoted
 history only when the original is HTML (they quote as a <blockquote> they can fold).
@@ -379,7 +381,7 @@ account is the only way to a tenant for a personal mailbox.
 ### Microsoft 365 work/school tenants
 
 A developer-sandbox or work mailbox has no ISPDB entry and an arbitrary subdomain.
- now recognises the  suffix and resolves it to the work
+Discovery now recognises the `*.onmicrosoft.com` suffix and resolves it to the work
 preset: imap outlook.office365.com:993, smtp smtp.office365.com:587 (note the
 different host from consumer mail), and the organizations authority rather than
 consumers. A dev tenant therefore offers two usable mailboxes with different

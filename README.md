@@ -17,7 +17,9 @@ can read the mailbox. That exact session continues.
   IMAP IDLE connection; every Pi session is a thin client. N sessions, one
   watcher, no polling race.
 - **Reply = resume.** The reply is injected into the session that sent the mail,
-  as a follow-up, so it queues correctly if a run is still in flight.
+  as a follow-up, so it queues correctly if a run is still in flight. Reply with a
+  screenshot or a log file instead of prose and it still counts: images and text
+  attachments (up to 4 files / 1 MB) arrive as content blocks, not as a broken path.
 - **Explicit, not inferred.** `/afk` turns email mode on; `/back` turns it off. Off means
   off in both directions: no notifications, and replies are not claimed or injected until
   you turn it back on (they wait in the mailbox).
@@ -142,11 +144,13 @@ mode is off, in which case nothing is scanned — `/afk`).
 
 | Reason | What it means | Fix |
 | --- | --- | --- |
-| `not-allowlisted` | `From:` is not an exact `addr-spec` in `security.allowFrom` | add the address you actually reply from |
+| `no-from` / `not-allowlisted` | the `From:` header is missing, or not an exact `addr-spec` in `security.allowFrom` | add the address you actually reply from |
+| `allowlist-empty` | `security.allowFrom` is empty, which denies everything | set it |
 | `dmarc-missing` / `dmarc-failed` | no `Authentication-Results` with `dmarc=pass` from a trusted relay | check `security.requireDmarcPass`; Microsoft consumer accounts need `trustedAuthservId` unset |
 | `no-token` | the subject lost its `[pi:…]` id **and** nothing in `In-Reply-To`/`References` matched | reply to the original mail, or keep the tag |
 | `other-device` | the id names a different `device.name` | reply from the machine that owns the session, or set `device.name` |
 | `self-echo` | it is our own notification coming back | nothing to do; this is the guard working |
+| `auto-generated` | a robot, a mailing list, or a bounce (`mailer-daemon`, `postmaster`, null sender) | nothing to do |
 | `empty-body` | no prose and no usable attachment | — |
 | `attachment-*` | an attachment was dropped (type, size, count) | see the reason suffix |
 | `pending-full` | the queue holds 1 000 undelivered replies | start a session so they drain |
@@ -170,8 +174,8 @@ replaces the process.
 This package makes your inbox a control channel for an agent that can run shell
 commands. **Read [docs/SECURITY.md](./docs/SECURITY.md) before installing.**
 
-Gate order, all fail-closed: **journal (already-seen UID) → sender allowlist → DMARC →
-routing → durable ack**. DMARC reads `Authentication-Results`; it is required by
+Gate order, all fail-closed: **journal (already-seen UID) → loop guard (our own address) →
+auto-generated/bounce → sender allowlist → DMARC → routing → durable ack**. DMARC reads `Authentication-Results`; it is required by
 `security.requireDmarcPass` (on by default) and pinned to an `authserv-id` only when
 `security.trustedAuthservId` is set. Routing is a short `[pi:f913c9]` id, a legacy
 HMAC-signed token, or the reply chain. Routing identifiers never authorize anything:
@@ -320,7 +324,8 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 ## Configuration
 
 `~/.config/pi-mailbridge/config.json`, merged over built-in defaults, then
-`PI_MAILBRIDGE_*` environment variables. Full example:
+`PI_MAILBRIDGE_*` environment variables. Working example (password auth; OAuth is shown in
+[docs/OAUTH.md](./docs/OAUTH.md)):
 [`config.example.json`](./config.example.json).
 
 | Key | Default | Meaning |
@@ -475,8 +480,10 @@ map and the port from `opencode-afk`: [docs/MAPPING.md](./docs/MAPPING.md).
 
 ## Status
 
-`0.1.0` — feature-complete for the single-user, one-mailbox case, not yet
-battle-tested against a live mailbox. The hermetic suite (`npm test`) covers the token,
+`0.1.0` — feature-complete for the single-user, one-mailbox case. Exercised by hand
+against a live Outlook.com and QQ mailbox during development; there is no automated
+live-mailbox test, so treat provider behaviour as observed rather than guaranteed. The
+hermetic suite (`npm test`) covers the token,
 authz, scan pipeline, stores, daemon HTTP surface, lifecycle, extension surface, tools,
 attachments and the full end-to-end loop; it needs no network, no mailbox and no socket.
 

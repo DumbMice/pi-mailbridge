@@ -571,3 +571,18 @@ test("a full pending store does not advance the cursor past the undelivered mail
 	assert.equal(r.persisted, 0)
 	assert.equal(readCursor(e), beforeCursor, "cursor must not move past a record we could not store")
 })
+
+test("a bounce or postmaster sender is never treated as a reply", async () => {
+	// SECURITY.md lists this under "what this package will never do"; it was not checked.
+	// A bounce quoting our notification carries the route id, so without this it routes.
+	for (const from of ["MAILER-DAEMON@example.com", "postmaster@example.com"]) {
+		const e = env()
+		const r = await scanAndProcess(config(), {
+			source: source([msg(1, { from, subject: "[pi:abcdef] pi: x" })]),
+			secret: SECRET,
+			env: e,
+		})
+		assert.equal(r.reasons["auto-generated"], 1, `${from} must be refused`)
+		assert.equal(r.persisted, 0)
+	}
+})

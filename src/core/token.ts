@@ -1,7 +1,7 @@
 // HMAC-signed routing tokens.
 //
-// A token is minted into the Subject of every outbound mail and lifted back out of
-// replies. It answers exactly one question: "which session did this mail come from?"
+// A signed token is the fallback routing form: it is minted when no local route id is
+// available (see store/routes.ts), and lifted back out of replies. It answers exactly one question: "which session did this mail come from?"
 // It is ROUTING, not AUTHORIZATION — see docs/SECURITY.md §2.2.
 //
 // Two wire formats, because subjects are user-visible and the first one was ugly:

@@ -4,9 +4,9 @@
 // freshly booted machine. `ensureDaemon` probes /health and, if nothing answers,
 // spawns the daemon detached so it outlives this pi session.
 //
-// Detached + stdio:ignore is deliberate. The daemon owns the mailbox and should
-// keep working when you close the terminal — that is the entire point of being
-// able to reply from your phone.
+// Detached + stdio:ignore is deliberate. The daemon owns the mailbox and must outlive the
+// process that started it so another session (or the phone) can still be served. It is not
+// immortal: it exits once every session has stopped pinging - see `daemon.exitWhenIdle`.
 
 import { spawn as nodeSpawn, type SpawnOptions } from "node:child_process"
 import { closeSync, mkdirSync, openSync } from "node:fs"

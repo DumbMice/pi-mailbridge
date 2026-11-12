@@ -83,7 +83,7 @@ export async function buildTransportOptions(config: ResolvedConfig, deps: SendDe
 		const getToken = deps.getAccessToken ?? (deps.provider ? () => deps.provider!.getToken() : undefined)
 		if (!getToken) {
 			throw new Error(
-				"pi-mailbridge: smtp.authType is XOAUTH2 but no token provider is configured — set mail.smtp.tokenCommand (see docs/SECURITY.md)",
+				"pi-mailbridge: smtp.authType is XOAUTH2 but no token provider is configured — set mail.smtp.tokenCommand (see docs/OAUTH.md)",
 			)
 		}
 		const accessToken = await getToken()
