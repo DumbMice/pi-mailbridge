@@ -210,6 +210,29 @@ per user per month"**, decline it. It is a premium add-on for enterprise identit
 features; nothing in this package uses them. If you already activated a P2 trial,
 just let it lapse — the app registration keeps working on Free.
 
+### There is no card-free route to a tenant
+
+Stated once, plainly, because it saves a lot of wasted effort:
+
+- **The Azure free account requires a card.** Microsoft's supported-payment-methods
+  page excludes **prepaid** and virtual cards; a non-prepaid Visa/Mastercard — and in
+  some regions a non-prepaid **UnionPay** debit or credit card — is required, with a
+  billing address matching the card.
+- **A free or trial tenant cannot create another tenant.** Microsoft: *"Only paid
+  customers can create a new Workforce tenant … Customers using a free tenant, or a
+  trial subscription won't be able to create additional tenants."* So there is no
+  back door from inside the portal.
+- **The Developer Program sandbox is gated** to paying program members (see above).
+
+No card, no tenant. No tenant, no app registration. No app registration, no OAuth2,
+and personal `outlook.com`/`hotmail.com` has no password fallback. That is the whole
+chain, and it breaks at the first link.
+
+**Consequence:** if you cannot or will not attach a card, a personal Microsoft
+mailbox cannot be used by this package. Use QQ Mail, Foxmail, 163 or 126 with a 授权码
+instead — no card, no tenant, no OAuth — and keep the Microsoft address as the one
+you *read* mail on (`mail.to`).
+
 ### What happens when the Azure free trial ends
 
 The free account gives 30 days and a credit. If you do **not** upgrade to
