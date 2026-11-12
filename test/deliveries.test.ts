@@ -48,7 +48,16 @@ function fakeClient(opts: { claimOk?: boolean; claimCode?: string; ackOk?: boole
 	}
 }
 
-function runner(client: DeliveryClient, injectImpl: (body: string) => Promise<void>, sessionId: () => string | undefined = () => SESSION) {
+// Each runner gets its own instance id, as each pi process does: the injected-UID set is
+// shared per instance (deliberately - see createDeliveryRunner), so a fixed id across tests
+// would make one test's injections visible to the next.
+let instanceSeq = 0
+function runner(
+	client: DeliveryClient,
+	injectImpl: (body: string) => Promise<void>,
+	sessionId: () => string | undefined = () => SESSION,
+	instanceId = `instance-${++instanceSeq}`,
+) {
 	const injected: string[] = []
 	const errors: Error[] = []
 	return {
@@ -56,7 +65,7 @@ function runner(client: DeliveryClient, injectImpl: (body: string) => Promise<vo
 		errors,
 		r: createDeliveryRunner({
 			client,
-			instanceId: "instance-A",
+			instanceId,
 			sessionId,
 			inject: async (body) => {
 				injected.push(body)
@@ -74,7 +83,7 @@ test("injects and acks a delivery for this session", async () => {
 	assert.deepEqual(injected, ["yes, ship it"])
 	assert.deepEqual(client.acked, [1])
 	assert.deepEqual(client.calls, ["claim:1", "ack:1"], "claim precedes ack")
-	assert.equal(client.claimed[0]!.instanceId, "instance-A")
+	assert.match(client.claimed[0]!.instanceId, /^instance-\d+$/, "claimed as this runner's instance")
 })
 
 test("a delivery for another session is never claimed or injected", async () => {
@@ -209,4 +218,20 @@ test("a claim that could not be confirmed is not reported as 'not-found'", async
 	const gone = fakeClient({ claimOk: false, claimCode: "not-found" })
 	const { r } = runner(gone, async () => {})
 	assert.equal(await r.handle(record()), "not-found", "a 404 really is gone")
+})
+
+test("a rebuilt runner with the same instance does not re-inject after a failed ack", async () => {
+	// A respawn (or a new session in the same pi process) builds a new runner while the
+	// claim key - the pid - stays the same, so claimPending re-grants the record. The
+	// injected-UID set must therefore be per instance, not per runner object.
+	const instance = "instance-shared"
+	const client = fakeClient({ ackOk: false })
+	const first = runner(client, async () => {}, () => SESSION, instance)
+	assert.equal(await first.r.handle(record()), "injected")
+	assert.equal(client.acked.length, 1, "the ack was attempted and failed")
+
+	const second = runner(client, async () => {}, () => SESSION, instance)
+	assert.equal(await second.r.handle(record()), "already-injected")
+	assert.deepEqual(second.injected, [], "the rebuilt runner must not inject it again")
+	assert.equal(client.acked.length, 1)
 })

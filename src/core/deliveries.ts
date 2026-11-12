@@ -56,12 +56,36 @@ export interface DeliveryRunner {
 /** In-flight drains, shared across runner instances in this process. */
 const inFlightByInstance = new Map<string, Promise<DeliveryOutcome[]>>()
 
+/**
+ * UIDs already injected, per instance.
+ *
+ * Per instance, not per runner object: a rebuilt runtime (a respawn, or a new session in
+ * the same pi process after session_shutdown) constructs a new runner while the claim key -
+ * the pid - stays the same. A per-runner set let the rebuilt runner re-inject a reply whose
+ * ack had failed, which is the one failure this design cannot undo.
+ */
+const injectedByInstance = new Map<string, Set<number>>()
+/** A process has one instanceId; this only guards against a pathological caller. */
+const MAX_INSTANCE_SETS = 8
+
+function injectedFor(instanceId: string): Set<number> {
+	let set = injectedByInstance.get(instanceId)
+	if (!set) {
+		set = new Set()
+		injectedByInstance.set(instanceId, set)
+		if (injectedByInstance.size > MAX_INSTANCE_SETS) {
+			const oldest = injectedByInstance.keys().next().value
+			if (oldest !== undefined && oldest !== instanceId) injectedByInstance.delete(oldest)
+		}
+	}
+	return set
+}
+
 export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
-	/** UIDs already injected in this process lifetime. */
-	const injected = new Set<number>()
+	const injected = (): Set<number> => injectedFor(deps.instanceId)
 
 	async function handle(record: PendingRecord): Promise<DeliveryOutcome> {
-		if (injected.has(record.uid)) return "already-injected"
+		if (injected().has(record.uid)) return "already-injected"
 
 		const mine = deps.sessionId()
 		if (!mine || record.sessionId !== mine) return "foreign-session"
@@ -87,7 +111,7 @@ export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 		}
 
 		// Record before acking: if the ack fails we still refuse to inject twice.
-		injected.add(record.uid)
+		injected().add(record.uid)
 
 		try {
 			const ackResult = await deps.client.ack(record.uid, deps.instanceId, record.sessionId)
@@ -107,7 +131,7 @@ export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 
 	return {
 		handle,
-		injectedUids: () => [...injected],
+		injectedUids: () => [...injected()],
 
 		async drain() {
 			// One drain at a time. The claim registry is keyed per pid, so two overlapping
