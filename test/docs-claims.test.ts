@@ -666,3 +666,13 @@ test("the DMARC-off explanation says what it costs", () => {
 	assert.match(paragraph, /route id|routing/i, "and what still keeps a stranger out")
 	assert.ok(!/DMARC was never what separated/i.test(readme), "the old claim must not return")
 })
+
+test("no doc claims the token provider dies on one failure", () => {
+	for (const { file, text } of allProse()) {
+		const flatText = flat(text)
+		for (const sentence of flatText.split(/(?<=[.!?])\s+/)) {
+			if (!/failing token command|disabled after a failing/i.test(sentence)) continue
+			assert.match(sentence, /three|3|consecutive/, `${file}: ${sentence}`)
+		}
+	}
+})

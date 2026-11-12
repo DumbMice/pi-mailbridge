@@ -48,6 +48,7 @@ async function boot(): Promise<Harness> {
 		token: TOKEN,
 		env,
 		source: {
+			uidValidity: () => undefined,
 			searchAfter: async () => [],
 			fetch: async () => undefined,
 			markSeen: async (uid) => {
@@ -263,7 +264,7 @@ test("a send failure surfaces as 502 rather than 200", async () => {
 		config: config(),
 		token: TOKEN,
 		env,
-		source: { searchAfter: async () => [], fetch: async () => undefined },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => {
 			throw new Error("535 auth failed")
 		},
@@ -323,7 +324,7 @@ test("/send reports the Message-ID to the caller so it can be recorded", async (
 		config: config(),
 		token: TOKEN,
 		env,
-		source: { searchAfter: async () => [], fetch: async () => undefined },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<m1@pi.local>" }),
 		onSent: (info) => seen.push(info),
 	})
@@ -348,7 +349,7 @@ test("POST /reload restarts the watcher and requires auth", async () => {
 		config: config(),
 		token: TOKEN,
 		env,
-		source: { searchAfter: async () => [], fetch: async () => undefined },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => {},
 		reload: async () => {
 			reloads++
@@ -375,7 +376,7 @@ test("a failed reload surfaces as 500 with the reason", async () => {
 		config: config(),
 		token: TOKEN,
 		env,
-		source: { searchAfter: async () => [], fetch: async () => undefined },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => {},
 		reload: async () => ({ ok: false, error: "bad config" }),
 	})
@@ -396,7 +397,7 @@ test("POST /shutdown acknowledges before exiting, and needs auth", async () => {
 		config: config(),
 		token: TOKEN,
 		env,
-		source: { searchAfter: async () => [], fetch: async () => undefined },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => {},
 		shutdown: () => {
 			stopped++
@@ -426,7 +427,7 @@ function idleRig(over: { exitWhenIdle?: () => boolean; idleTimeoutMs?: number } 
 		config: { ...config(), daemon: { host: "127.0.0.1", port: 0 } },
 		token: TOKEN,
 		env,
-		source: { searchAfter: async () => [], fetch: async () => undefined },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => {},
 		shutdown: () => {
 			state.stops++
@@ -526,7 +527,7 @@ test("/send records the Message-ID before handing the mail over, and threads it"
 		config: config(),
 		token: TOKEN,
 		env,
-		source: { searchAfter: async () => [], fetch: async () => undefined },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async (message) => {
 			// The ordering claim: the store must already know this id when the send starts,
 			// because the mail can bounce back into INBOX before it returns.
@@ -574,7 +575,7 @@ test("/send without a sessionId sets no threading headers", async () => {
 		config: config(),
 		token: TOKEN,
 		env,
-		source: { searchAfter: async () => [], fetch: async () => undefined },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async (message) => {
 			seen = { inReplyTo: message.inReplyTo }
 			return { messageId: "<x@qq.com>" }
@@ -611,7 +612,7 @@ test("/ack refuses a record nobody claimed, so another session's reply survives"
 		config: config(),
 		token: TOKEN,
 		env,
-		source: { searchAfter: async () => [], fetch: async () => undefined },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<x@qq.com>" }),
 	})
 	const { port } = await service.listen(0, "127.0.0.1")
@@ -634,7 +635,7 @@ test("/health reports the last scan's rejection reasons", async () => {
 		config: config(),
 		token: TOKEN,
 		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-scan-")) },
-		source: { searchAfter: async () => [], fetch: async () => undefined },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<x@qq.com>" }),
 		scanSummary: () => ({
 			at: 1,
@@ -663,7 +664,7 @@ test("POST /mode notifies the daemon so turning it on can rescan", async () => {
 		config: config(),
 		token: TOKEN,
 		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-mode-")) },
-		source: { searchAfter: async () => [], fetch: async () => undefined },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<x@qq.com>" }),
 		onModeChange: (mode) => seen.push(mode),
 	})
@@ -695,7 +696,7 @@ test("/send uses the CURRENT config after a reload, not the snapshot it started 
 		getConfig: () => current,
 		token: TOKEN,
 		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-livecfg-")) },
-		source: { searchAfter: async () => [], fetch: async () => undefined },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async (message) => {
 			sent.push({ to: message.to })
 			return { messageId: "<x@qq.com>" }
@@ -726,7 +727,7 @@ test("/health reports when the daemon read its config", async () => {
 		config: config(),
 		token: TOKEN,
 		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-cfgstamp-")) },
-		source: { searchAfter: async () => [], fetch: async () => undefined },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<x@qq.com>" }),
 		configLoadedAt: () => 1234,
 	})
@@ -737,4 +738,37 @@ test("/health reports when the daemon read its config", async () => {
 	} finally {
 		await service.close()
 	}
+})
+
+test("the scan uses the source's UIDVALIDITY, so a renumbered mailbox is not skipped", async () => {
+	// The journal is keyed by UID space. If the scan does not pass the source's uidValidity,
+	// old entries suppress new mail - and the guard is silently inert. MailSource makes the
+	// member required so an omission is a type error; this proves the scan actually uses it.
+	const { journal } = await import("../src/store/journal.ts")
+	const { recordOutbound } = await import("../src/store/threads.ts")
+	const { scanAndProcess } = await import("../src/daemon/process.ts")
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-uidv-")) }
+	// Acked under the OLD numbering.
+	journal(env, 1, 1111)
+	// A route for the reply, so the scan reaches persistence rather than no-token.
+	recordOutbound(env, { messageId: "<root@example.com>", sessionId: "sess-1", device: "test-device", subject: "x" })
+
+	const r = await scanAndProcess(config(), {
+		secret: Buffer.alloc(32, 3),
+		env,
+		source: {
+			uidValidity: () => 2222,
+			searchAfter: async () => [1],
+			fetch: async () => ({
+				uid: 1,
+				from: "you@example.com",
+				subject: "Re: pi: x",
+				text: "yes",
+				headers: { authResults: ["mx.example.com; dmarc=pass"], inReplyTo: "<root@example.com>" },
+				receivedAt: 1,
+			}),
+		},
+	})
+	assert.equal(r.reasons["journaled"], undefined, "a UID from another space must not be skipped")
+	assert.equal(r.persisted, 1)
 })

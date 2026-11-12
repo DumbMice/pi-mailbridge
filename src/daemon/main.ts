@@ -303,6 +303,10 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		markSeen: async (uid) => {
 			await currentWatcher?.markSeen?.(uid)
 		},
+		// Required, not optional: the scan and /ack key the journal on this, so an omission
+		// here silently disables UIDVALIDITY handling (it has now happened twice - once in
+		// adapt(), once here - which is why the member is not optional).
+		uidValidity: () => currentWatcher?.uidValidity(),
 	}
 
 	let reportedModeOff = false

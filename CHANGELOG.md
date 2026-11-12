@@ -20,7 +20,7 @@ Outlook.com and QQ mailbox; no automated live-mailbox test exists.
   drop; images become `ImageContent`, text is inlined.
 - `core/mailer.ts` — SMTP send, `LOGIN` and `XOAUTH2`, injectable transport.
 - `core/oauth.ts` — token from an argv command (argc-safe, `shell:false`), cached
-  until TTL, one refresh on 401, disabled after a failing command.
+  until TTL, one refresh on 401, disabled after three consecutive failing commands.
 - `core/settle.ts` — `agent_settled`-only notifier, debounced, abort-aware,
   id-stamped subject naming the **device and session** (`pi: fix-login @ dev-box-7
   is waiting for you`), body with device/session id/project/turns/last text.
@@ -46,7 +46,9 @@ now explicit and tested:
 **Upgrading a single-mailbox config:** if `security.allowSelfReplies` is already `true` and
 every reply reports `dmarc-missing`, set `security.requireDmarcPass: false`. Setup writes that
 for new configs; it never rewrites an existing one. `/mailbridge check` and
-`pi-mailbridge --check` both warn when the two are combined.
+`pi-mailbridge --check` both report it — and because the shipped systemd unit runs `--check`
+as `ExecStartPre`, that combination stops the unit from starting rather than starting a
+daemon that rejects every reply.
 
 ### Daemon
 

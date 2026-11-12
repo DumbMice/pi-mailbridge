@@ -73,6 +73,7 @@ async function boot(): Promise<Rig> {
 	const source = (messages: RawMessage[]): MailSource => {
 		current = messages
 		return {
+			uidValidity: () => undefined,
 			async searchAfter(afterUid) {
 				return current.filter((m) => m.uid > afterUid).map((m) => m.uid)
 			},

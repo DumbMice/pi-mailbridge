@@ -63,6 +63,7 @@ function source(messages: RawMessage[], opts: { failFetchAt?: number } = {}): Ma
 	const seen: number[] = []
 	return {
 		seen,
+		uidValidity: () => undefined,
 		async searchAfter(afterUid: number) {
 			return messages.filter((m) => m.uid > afterUid).map((m) => m.uid)
 		},
@@ -211,7 +212,7 @@ test("an acked uid is skipped, not delivered twice", async () => {
 
 test("a vanished message does not block the cursor", async () => {
 	const e = env()
-	const src: MailSource = { searchAfter: async () => [3], fetch: async () => undefined }
+	const src: MailSource = { uidValidity: () => undefined, searchAfter: async () => [3], fetch: async () => undefined }
 	const r = await scanAndProcess(config(), { source: src, secret: SECRET, env: e })
 	assert.equal(r.reasons["vanished"], 1)
 	assert.equal(readCursor(e), 3)

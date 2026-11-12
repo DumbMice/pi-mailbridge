@@ -68,12 +68,16 @@ export function journal(env: NodeJS.ProcessEnv, uid: number, uidValidity?: numbe
 	// A new numbering starts a new journal: keeping old entries would suppress new mail.
 	const sameSpace = uidValidity === undefined || file.uidValidity === undefined || file.uidValidity === uidValidity
 	const uids = sameSpace ? file.uids : []
+	// Never erase a validity we already know: an ack from a caller that could not report one
+	// must not blind the next comparison.
+	const known = uidValidity ?? file.uidValidity
+	const next = { uids, ...(known === undefined ? {} : { uidValidity: known }) }
 	if (uids.includes(uid)) {
-		save(env, { uids, ...(uidValidity === undefined ? {} : { uidValidity }) })
+		save(env, next)
 		return false
 	}
 	uids.push(uid)
-	save(env, { uids, ...(uidValidity === undefined ? {} : { uidValidity }) })
+	save(env, next)
 	return true
 }
 

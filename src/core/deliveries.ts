@@ -64,16 +64,21 @@ const inFlightByInstance = new Map<string, Promise<DeliveryOutcome[]>>()
  * the pid - stays the same. A per-runner set let the rebuilt runner re-inject a reply whose
  * ack had failed, which is the one failure this design cannot undo.
  */
-const injectedByInstance = new Map<string, Set<number>>()
+const injectedByInstance = new Map<string, Set<string>>()
 /** A process has one instanceId; this only guards against a pathological caller. */
 const MAX_INSTANCE_SETS = 8
-/** Cap per instance, like the journal: one number per injected UID, oldest dropped. */
+/** Cap per instance, like the journal: one key per injected message, oldest dropped. */
 const MAX_INJECTED_PER_INSTANCE = 5_000
 
-function injectedFor(instanceId: string): Set<number> {
+/** UIDs are only unique within a UIDVALIDITY, so the key must carry it. */
+function injectionKey(record: { uid: number; uidValidity?: number }): string {
+	return `${record.uidValidity ?? ""}:${record.uid}`
+}
+
+function injectedFor(instanceId: string): Set<string> {
 	let set = injectedByInstance.get(instanceId)
 	if (!set) {
-		set = new Set()
+		set = new Set<string>()
 		injectedByInstance.set(instanceId, set)
 		if (injectedByInstance.size > MAX_INSTANCE_SETS) {
 			const oldest = injectedByInstance.keys().next().value
@@ -85,18 +90,23 @@ function injectedFor(instanceId: string): Set<number> {
 }
 
 export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
-	const injected = (): Set<number> => injectedFor(deps.instanceId)
+	const injected = (): Set<string> => injectedFor(deps.instanceId)
 
 	async function handle(record: PendingRecord): Promise<DeliveryOutcome> {
-		if (injected().has(record.uid)) {
+		if (injected().has(injectionKey(record))) {
 			// Injected earlier but possibly not acked: a single failed /ack used to pin the
 			// record for the process lifetime, leaking a queue slot, leaving \Seen unset and
 			// the journal unwritten - and after a restart (new pid, new instance) the same
 			// instruction would be injected again. The ack is idempotent, so retry it.
 			try {
-				await deps.client.ack(record.uid, deps.instanceId, record.sessionId)
-			} catch {
-				/* the next drain tries again */
+				const retried = await deps.client.ack(record.uid, deps.instanceId, record.sessionId)
+				// A retry that keeps failing is the same silent leak as a first ack that
+				// failed: surface it rather than looping quietly.
+				if (!retried.ok && retried.status !== 404) {
+					deps.onError?.(new Error(`ack retry failed (${retried.code ?? retried.status})`), record)
+				}
+			} catch (error) {
+				deps.onError?.(error instanceof Error ? error : new Error(String(error)), record)
 			}
 			return "already-injected"
 		}
@@ -126,8 +136,9 @@ export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 
 		// Record before acking: if the ack fails we still refuse to inject twice.
 		const set = injected()
-		set.add(record.uid)
-		// Bounded like the journal; dropping the oldest entries only risks a redundant ack.
+		set.add(injectionKey(record))
+		// Bounded like the journal. Evicting an entry whose ack never landed would let it be
+		// injected again, so this is a last resort, not a free trade.
 		while (set.size > MAX_INJECTED_PER_INSTANCE) {
 			const oldest = set.values().next().value
 			if (oldest === undefined) break
@@ -152,7 +163,7 @@ export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 
 	return {
 		handle,
-		injectedUids: () => [...injected()],
+		injectedUids: () => [...injected()].map((key) => Number(key.split(":")[1])),
 
 		async drain() {
 			// One drain at a time. The claim registry is keyed per pid, so two overlapping

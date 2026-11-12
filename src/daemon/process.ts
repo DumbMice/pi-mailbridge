@@ -48,8 +48,8 @@ export interface RawMessage {
  * implement it over an in-memory fixture, so the pipeline never needs a socket.
  */
 export interface MailSource {
-	/** The mailbox's UIDVALIDITY, when the source knows it. */
-	uidValidity?(): number | undefined
+	/** The mailbox's UIDVALIDITY, or undefined when the source cannot report one. */
+	uidValidity(): number | undefined
 	/** UIDs strictly greater than `afterUid`, ascending. */
 	searchAfter(afterUid: number): Promise<number[]>
 	/** The message, or undefined when it vanished between search and fetch. */

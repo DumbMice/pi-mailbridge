@@ -433,7 +433,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | `oauth.scope` | — | must include `offline_access` for a refresh token |
 | `device.name` | first label of `os.hostname()` | machine name shown in every settle notification, and stored on the routing record |
 | `security.allowFrom` | `[]` | senders allowed to command the agent; empty denies all |
-| `security.requireDmarcPass` | `true` | require a DMARC pass (pinned to `trustedAuthservId` when that is set). Must be `false` for a single-mailbox setup — see One mailbox or two? |
+| `security.requireDmarcPass` | `true` | require a DMARC pass (pinned to `trustedAuthservId` when that is set). Must be `false` for a single-mailbox setup — see One mailbox or two? Under the shipped unit, `--check` fails rather than starting with this combination |
 | `security.trustedAuthservId` | unset | pin the trusted `Authentication-Results` host. Leave unset for Microsoft consumer accounts — their relay emits no authserv-id |
 | `security.allowHeaderThreading` | `true` | accept a reply whose subject id was lost, by matching `In-Reply-To` / `References` against Message-IDs we minted |
 | `security.allowSelfReplies` | `false` | one address for both roles (personal Hotmail/Gmail): accept a self-addressed message, but only a real reply |
@@ -543,8 +543,9 @@ over `tokenCommand`, so remove the `oauth` block to use this:
 "tokenCommand": ["ortie", "token", "show", "-a", "outlook"]
 ```
 
-A failing token command disables OAuth2 for the session rather than spawning a
-failing process on every scan.
+Three consecutive failures from a token command disable OAuth2 for the session rather than
+spawning a failing process on every scan. A single transient failure is retried — one DNS
+blip should not stop your notifications until a restart.
 
 ## How it works
 

@@ -260,3 +260,28 @@ test("a failed ack is retried on the next drain instead of pinning the record", 
 	assert.equal(acks, 2, "the ack was retried")
 	assert.equal(injected.length, 1, "and it was not injected twice")
 })
+
+test("a renumbered mailbox does not confuse the injected set", async () => {
+	// The set is keyed by uidValidity + uid: after a folder rebuild, UID 7 is a different
+	// message, and treating it as already injected would pin it behind a failing ack.
+	const instance = "instance-space"
+	const client = fakeClient({ pending: [] })
+	const first = runner(client, async () => {}, () => SESSION, instance)
+
+	// Old space: inject uid 7, ack fails.
+	const oldRecord = record({ uid: 7, uidValidity: 1111 })
+	client.pending = async () => ({ ok: true, data: { pending: [oldRecord] } })
+	let acks = 0
+	client.ack = async () => {
+		acks++
+		return acks === 1 ? { ok: false as const, status: 502, code: "boom" } : { ok: true as const, data: { ok: true } }
+	}
+	await first.r.drain()
+
+	// New space: uid 7 is a different message and must be injected.
+	const newRecord = record({ uid: 7, uidValidity: 2222, body: "second message" })
+	client.pending = async () => ({ ok: true, data: { pending: [newRecord] } })
+	const second = runner(client, async () => {}, () => SESSION, instance)
+	assert.deepEqual(await second.r.drain(), ["injected"])
+	assert.deepEqual(second.injected, ["second message"])
+})
