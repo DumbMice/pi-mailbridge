@@ -308,6 +308,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 	// The mtime of the file this config came from, taken BEFORE it was read, so a write in
 	// the gap is still detected as newer.
 	let configLoadedAt = initialStamp
+	let lastCheckedAt: number | undefined
 	let lastScan: { at: number; examined: number; persisted: number; rejected: number; reasons: Record<string, number> } | undefined
 	const scanOnce = createScanQueue((why) => scanNow(why))
 
@@ -334,13 +335,19 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		const before = new Set(listPending().map((r) => r.uid))
 		try {
 			const result = await scanAndProcess(currentConfig, { source: sourceProxy, secret: ensureSecret() })
-			lastScan = {
-				at: Date.now(),
-				examined: result.examined,
-				persisted: result.persisted,
-				rejected: result.rejected,
-				reasons: result.reasons,
+			// Keep the last scan that actually saw mail. Overwriting it with every empty
+			// catch-up scan made the "why did my reply not arrive" panel a few seconds old on a
+			// mailbox that receives anything else.
+			if (result.examined > 0) {
+				lastScan = {
+					at: Date.now(),
+					examined: result.examined,
+					persisted: result.persisted,
+					rejected: result.rejected,
+					reasons: result.reasons,
+				}
 			}
+			lastCheckedAt = Date.now()
 			if (result.persisted > 0) {
 				// Name the reasons even on a partial success: "rejected 1" alone leaves the user
 				// unable to tell which reply was dropped and why.
@@ -500,7 +507,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		// Stop when the last pi session goes away. `daemon.exitWhenIdle: false` keeps it
 		// resident instead, which is what a systemd unit wants.
 		exitWhenIdle: () => currentConfig.daemon.exitWhenIdle !== false,
-		scanSummary: () => lastScan,
+		scanSummary: () => (lastScan ? { ...lastScan, checkedAt: lastCheckedAt } : undefined),
 		// The file's mtime, not a clock reading: comparing mtime to mtime has no clock coupling.
 		configLoadedAt: () => configLoadedAt,
 		imapHealthy: () => currentWatcher?.isHealthy() ?? false,

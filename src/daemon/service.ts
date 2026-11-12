@@ -422,7 +422,10 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 		} catch (error) {
 			const message = (error as Error).message
 			if (message === "request body too large") return fail(413, "body_too_large")
-			return fail(400, "bad_request", { message })
+			// A JSON body we cannot parse is the client's fault; anything else (a store write
+			// failure, an internal throw) is ours and must not be reported as a bad request.
+			if (/JSON|Unexpected token|Unexpected end/i.test(message)) return fail(400, "bad_request", { message })
+			return fail(500, "internal", { message })
 		}
 	}
 

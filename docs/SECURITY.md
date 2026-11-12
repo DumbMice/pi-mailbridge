@@ -91,6 +91,10 @@ A legitimate email can still contain text that reads like instructions
 
 ## 4. Daemon hardening
 
+- The bearer token authorises **sending mail as you to any address**, not just `mail.to`:
+  `POST /send` takes an optional `to`. Anything that can read `secret.key` (same uid) can
+  therefore exfiltrate over SMTP. That is inside the trust boundary - the same process can read
+  your mail - but worth knowing when deciding what runs as you.
 - Defaults to binding `127.0.0.1`; `daemon.host` can change that, but there is no TLS and
   no user model beyond the bearer token, so do not. Nothing else about the daemon is
   reachable without the token, apart from the `/health` liveness probe. That returns mode,

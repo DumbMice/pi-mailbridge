@@ -784,3 +784,13 @@ test("the daemon's mode gate is present in the code that runs it", () => {
 	const source = readFileSync(join(root, "src/core/status.ts"), "utf8")
 	assert.ok(source.includes("HANDLED"), "sanity: unrelated file read")
 })
+
+test("the sentFolder caveat is stated where the reply chain is explained", () => {
+	// The chain cannot match a provider that rewrites Message-ID, and that is the section a
+	// reader consults when a reply "did not arrive".
+	const readme = flat(doc("README.md"))
+	const at = readme.indexOf("Editing the subject is safe")
+	assert.ok(at > -1, "the chain advice should exist")
+	const paragraph = readme.slice(at, at + 400)
+	assert.match(paragraph, /sentFolder/, "it must name the option that makes it work")
+})

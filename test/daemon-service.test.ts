@@ -951,3 +951,53 @@ test("/health reports whether IMAP is connected", async () => {
 		await service.close()
 	}
 })
+
+test("an internal failure is a 500, not a 400", async () => {
+	// Reporting a store write failure as "bad request" sends incident triage the wrong way.
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-500-")) },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
+		send: async () => ({ messageId: "<x@qq.com>" }),
+		registry: {
+			list: () => {
+				throw new Error("disk on fire")
+			},
+			reserve: () => ({ ok: true }),
+			release: () => {},
+		} as never,
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	try {
+		const res = await fetch(`http://127.0.0.1:${port}/register`, {
+			method: "POST",
+			headers: { ...auth(), "content-type": "application/json" },
+			body: JSON.stringify({ sessionId: "s" }),
+		})
+		assert.equal(res.status, 500)
+	} finally {
+		await service.close()
+	}
+})
+
+test("a malformed body is still a 400", async () => {
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-400-")) },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
+		send: async () => ({ messageId: "<x@qq.com>" }),
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	try {
+		const res = await fetch(`http://127.0.0.1:${port}/send`, {
+			method: "POST",
+			headers: { ...auth(), "content-type": "application/json" },
+			body: "{ not json",
+		})
+		assert.equal(res.status, 400)
+	} finally {
+		await service.close()
+	}
+})
