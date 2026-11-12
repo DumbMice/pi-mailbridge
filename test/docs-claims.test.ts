@@ -789,7 +789,7 @@ test("the daemon's mode gate is present in the code that runs it", () => {
 	const main = readFileSync(join(root, "src/daemon/main.ts"), "utf8")
 	assert.match(main, /if \(!scanningEnabled\(readMode\(process\.env\)\)\)/, "scanNow must check the mode")
 	const source = readFileSync(join(root, "src/core/status.ts"), "utf8")
-	assert.ok(source.includes("HANDLED"), "sanity: unrelated file read")
+	assert.ok(source.includes("HANDLED"), "the file under test was actually read")
 })
 
 test("the sentFolder caveat is stated where the reply chain is explained", () => {
@@ -833,8 +833,14 @@ test("the periodic scan is pinned where no test can drive it", () => {
 	// The timer lives in main()'s closure: no test can execute it, and deleting it (or its
 	// shutdown cleanup) left the suite green. Pin the three properties that matter.
 	const main = readFileSync(join(root, "src/daemon/main.ts"), "utf8")
+	// Match whole statements, in the region that matters: a bare /clearTimeout\(pollHandle\)/
+	// matched inside armPoll itself, so deleting the shutdown cleanup stayed green.
 	assert.match(main, /pollHandle\.unref\?\.\(\)/, "the timer must not hold the process open")
-	assert.match(main, /clearTimeout\(pollHandle\)/, "shutdown must clear it")
-	assert.match(main, /scanningEnabled\(readMode\(process\.env\)\)/, "and it must respect the mode gate")
-	assert.match(main, /scanOnce\("poll"\)/, "naming the trigger so the log says where a scan came from")
+	assert.match(main, /const shutdown = async[\s\S]{0,400}clearTimeout\(pollHandle\)/, "shutdown must clear it")
+	assert.match(
+		main,
+		/if \(scanningEnabled\(readMode\(process\.env\)\) && currentWatcher\?\.isHealthy\(\)\) void scanOnce\("poll"\)/,
+		"the timer must respect the mode gate and the watcher's health",
+	)
+	assert.match(main, /const armPoll = \(\): void => \{[\s\S]{0,700}currentConfig\.daemon\.scanIntervalSecs/, "re-read per tick")
 })

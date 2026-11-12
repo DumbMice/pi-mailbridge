@@ -114,8 +114,11 @@ the reply-evidence gate adds little, because anyone can set `In-Reply-To`. What 
 keeps a stranger out is **routing**: they would need a live `[pi:…]` route id (six hex,
 local, 30-day TTL) or a recorded Message-ID from one of our notifications. Neither is
 guessable. So the shape is safe against opportunists, not against someone who has read one of
-your notifications. If you know your provider stamps `Authentication-Results` on self-mail,
-set this back to `true`.
+your notifications. If you know your provider stamps `Authentication-Results` on self-mail you
+can set this back to `true` — but be aware that `/mailbridge check` and `--check` then report the
+combination and exit non-zero, and the shipped systemd unit stops at `ExecStartPre`. To keep
+both, prefix that line with `-` (systemd ignores the failure) once you have confirmed a self-sent
+mail really carries the header.
 
 Point layout B at a mailbox you would not mind an agent reading, or prime it before your
 first `/afk` (below). The isolation of layout A is real, and this layout gives it up.
@@ -344,6 +347,13 @@ output into an issue or a log. Same code path, not a second workflow.
 # Installed as `pi install npm:pi-mailbridge` (or a checkout: point at its src/).
 node --experimental-strip-types \
   "${PI_MAILBRIDGE_DIR:-$HOME/.pi/agent/npm/node_modules/pi-mailbridge}/src/daemon/main.ts"
+```
+
+On a system whose `env` does not support `-S` (busybox/Alpine containers), the `bin` shim
+fails with `env: invalid option -- 'S'`. Use the explicit form instead — it is the same program:
+
+```bash
+node --experimental-strip-types "$(npm root -g)/pi-mailbridge/src/daemon/main.ts" --check
 ```
 
 `pi-mailbridge --check` / `--prime` / `--smoke` / `--print-token` are the same entry point

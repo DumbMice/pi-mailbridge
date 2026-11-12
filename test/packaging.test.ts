@@ -270,3 +270,12 @@ test("the documented CLI actually exists and ships", () => {
 	assert.match(shim, /from "\.\.\/src\/daemon\/main\.ts"/)
 	assert.match(shim, /main\(\)/, "and actually invokes the CLI")
 })
+
+test("the daemon entry guard does not compare a URL to a path", () => {
+	// The extension's copy of this bug was fixed with fileURLToPath; main.ts kept
+	// `import.meta.url === \`file://${process.argv[1]}\``, which is false for any install
+	// path with a space or non-ASCII character - the unit then runs nothing and exits 0.
+	const main = readFileSync(fileURLToPath(new URL("../src/daemon/main.ts", import.meta.url)), "utf8")
+	assert.doesNotMatch(main, /`file:\/\/\$\{process\.argv\[1\]\}`/, "compare paths, not a URL and a path")
+	assert.match(main, /realpathSync\(fileURLToPath\(import\.meta\.url\)\)/, "and resolve both sides")
+})

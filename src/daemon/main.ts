@@ -18,8 +18,9 @@
 //   --smoke         send one real mail, then open the folder and count
 //   --print-token   print the shared secret (for scripts and tests)
 
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { loadConfig, hasUsableMailConfig, shortHostname, type ResolvedConfig } from "../core/config.ts"
 import { configPath } from "../store/paths.ts"
@@ -655,7 +656,20 @@ export async function main(): Promise<void> {
 	await run(config, startupStamp)
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// `import.meta.url` is a URL and `process.argv[1]` is a path: comparing them as strings fails
+// for any install directory with a space or non-ASCII character (and for a symlinked package),
+// where this file would then run nothing and exit 0 - the unit looks started and is dead.
+function isEntryPoint(): boolean {
+	const invoked = process.argv[1]
+	if (!invoked) return false
+	try {
+		return realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url))
+	} catch {
+		return false
+	}
+}
+
+if (isEntryPoint()) {
 	main().catch((error: unknown) => {
 		log(`fatal: ${error instanceof Error ? error.message : String(error)}`)
 		process.exit(1)

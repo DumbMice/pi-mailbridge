@@ -474,7 +474,9 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 			return streams.size
 		},
 		broadcast,
-		listen(port = deps.config.daemon.port, host = deps.config.daemon.host) {
+		// Never fall back to the unspecified address: `undefined` binds 0.0.0.0, and the port is
+		// what keeps one daemon per machine. loadConfig repairs this, so this is a belt.
+		listen(port = deps.config.daemon.port, host = deps.config.daemon.host || "127.0.0.1") {
 			return new Promise((resolve, reject) => {
 				server.once("error", reject)
 				server.listen(port, host, () => {

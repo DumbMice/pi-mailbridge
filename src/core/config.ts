@@ -195,6 +195,36 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 	cfg = merge(cfg, envOverrides(env))
 	const resolved: ResolvedConfig = { ...cfg, warnings }
 
+	// Every check below dereferences these sections, and loadConfig's contract is that it never
+	// throws. A JSON `null` is not a record, and the env merge runs after the file merge - so a
+	// null section can come back as a *partial* record (e.g. `{"daemon": null}` plus
+	// PI_MAILBRIDGE_EXIT_WHEN_IDLE leaves a daemon with no host and no port, which would bind an
+	// ephemeral port and drop the "port is the lock" invariant). Repair by filling the defaults
+	// underneath whatever survived, rather than replacing it.
+	const sections = resolved as unknown as Record<string, unknown>
+	for (const key of Object.keys(DEFAULTS) as (keyof typeof DEFAULTS)[]) {
+		const section = sections[key]
+		const defaults = DEFAULTS[key] as Record<string, unknown>
+		if (!isRecord(section)) {
+			warnings.push(`${key} must be an object — using the defaults`)
+			sections[key] = structuredClone(defaults)
+			continue
+		}
+		const repaired: Record<string, unknown> = { ...defaults, ...section }
+		// The schema nests exactly one level (mail.imap, mail.smtp).
+		for (const [sub, subDefaults] of Object.entries(defaults)) {
+			if (!isRecord(subDefaults)) continue
+			const value = section[sub]
+			if (!isRecord(value)) {
+				warnings.push(`${key}.${sub} must be an object — using the defaults`)
+				repaired[sub] = structuredClone(subDefaults)
+			} else {
+				repaired[sub] = { ...subDefaults, ...value }
+			}
+		}
+		sections[key] = repaired
+	}
+
 	// Device identity: a short, stable name so a notification says which machine
 	// the session is on. Hostname is the sensible default; it can be overridden
 	// when hostnames are opaque (e.g. `dev-box-7`).
@@ -220,13 +250,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 		resolved.notify = { ...resolved.notify, debounceMs: 10_000 }
 	}
 
-	// A null section reaches here as `null` (JSON null is not a record), and every check below
-	// dereferences it. loadConfig's contract is that it never throws, so repair first.
-	if (!isRecord(resolved.daemon)) {
-		warnings.push("daemon must be an object — using the defaults")
-		resolved.daemon = { ...DEFAULTS.daemon }
-	}
-
 	// A negative, null or non-numeric interval would silently disable the safety net.
 	// `Number(null)` is 0, which would read as "the user disabled the sweep" — only a real
 	// number counts.
@@ -239,15 +262,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 		} else {
 			resolved.daemon = { ...resolved.daemon, scanIntervalSecs: n }
 		}
-	}
-
-	if (!isRecord(resolved.mail)) {
-		warnings.push("mail must be an object — using the defaults")
-		resolved.mail = { ...DEFAULTS.mail }
-	}
-	if (!isRecord(resolved.mail.imap)) {
-		warnings.push("mail.imap must be an object — using the defaults")
-		resolved.mail = { ...resolved.mail, imap: { ...DEFAULTS.mail.imap } }
 	}
 
 	const imap = resolved.mail.imap

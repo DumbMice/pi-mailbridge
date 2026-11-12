@@ -54,6 +54,46 @@ test("a null section warns instead of throwing, as loadConfig promises", () => {
 	assert.ok(config.warnings.some((w) => /mail\.imap must be an object/.test(w)))
 })
 
+test("every section survives a null, not just the ones that were patched", () => {
+	// The first fix guarded three sections and claimed the class was gone; a reviewer found
+	// mail.smtp throwing, tuning killing the daemon at boot, and security/notify silently
+	// losing their defaults (DMARC off, settle notifications off) with no warning.
+	const dir = mkdtempSync(join(tmpdir(), "cfg-all-null-"))
+	const env = { XDG_CONFIG_HOME: dir }
+	mkdirSync(join(dir, "pi-mailbridge"), { recursive: true })
+
+	const cases: Array<[string, Record<string, unknown>, (c: ReturnType<typeof loadConfig>) => void]> = [
+		["mail.smtp", { mail: { smtp: null } }, (c) => assert.equal(c.mail.smtp.authType, "LOGIN")],
+		["tuning", { tuning: null }, (c) => assert.equal(c.tuning.idleRenewMs, 25 * 60 * 1000)],
+		["notify", { notify: null }, (c) => assert.equal(c.notify.onSettled, true)],
+		["security", { security: null }, (c) => assert.equal(c.security.requireDmarcPass, true)],
+		["device", { device: null }, (c) => assert.ok(c.device.name.length > 0)],
+		["mail", { mail: null }, (c) => assert.ok(c.mail.imap && c.mail.smtp)],
+	]
+	for (const [name, config, check] of cases) {
+		writeFileSync(configPath(env), JSON.stringify(config))
+		const loaded = loadConfig(env)
+		check(loaded)
+		assert.ok(
+			loaded.warnings.some((w) => w.startsWith(name.replace("mail.smtp", "mail.smtp"))),
+			`${name} must warn, got: ${loaded.warnings.join(" | ")}`,
+		)
+	}
+})
+
+test("a partial section from the env merge still gets its defaults", () => {
+	// `{"daemon": null}` plus PI_MAILBRIDGE_EXIT_WHEN_IDLE leaves a daemon record with no host
+	// and no port, which would bind an ephemeral port and drop the "port is the lock" invariant.
+	const dir = mkdtempSync(join(tmpdir(), "cfg-null-env-"))
+	mkdirSync(join(dir, "pi-mailbridge"), { recursive: true })
+	writeFileSync(configPath({ XDG_CONFIG_HOME: dir }), JSON.stringify({ daemon: null }))
+
+	const config = loadConfig({ XDG_CONFIG_HOME: dir, PI_MAILBRIDGE_EXIT_WHEN_IDLE: "false" })
+	assert.equal(config.daemon.host, "127.0.0.1")
+	assert.equal(config.daemon.port, 4177)
+	assert.equal(config.daemon.exitWhenIdle, false, "the env value still wins")
+})
+
 test("scanIntervalSecs: null is refused, because Number(null) is 0", () => {
 	// 0 is the documented "disable the sweep". A null must not be read as that choice.
 	const dir = mkdtempSync(join(tmpdir(), "cfg-null-int-"))

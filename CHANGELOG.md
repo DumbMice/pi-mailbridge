@@ -81,20 +81,28 @@ existed) on a detected renumbering — live, one of those was claimed in a new s
 delivered a different message's body. On an ordinary connect untagged records are kept, so an
 upgrade does not discard a reply that was still waiting.
 
-Daemon log lines carry a full UTC timestamp (`2026-11-12T16:56:56Z`), because a live review had
-to read TCP counters to prove the periodic sweep was running: empty scans are silent, so the log
-had no evidence either way. `/health` also reports `registry` (the same number as `sessions`,
-which means "sessions that were told about a notification", not "connected clients" — the raw
-payload read wrong next to `clients: 2`). `/mailbridge status` keeps showing *last checked* after
-the first message, so a poll loop that died at 10:05 is visible behind a scan at 10:00.
+Daemon log lines carry a full UTC timestamp (`2026-11-12T16:56:56Z`), so lines from different
+runs can be told apart — a live review had to read TCP counters to establish timing because the
+log carried no dates. Note that an empty sweep still logs nothing, so the log cannot prove the
+poll cadence; `/health`'s `lastScan.checkedAt` is the instrument for that. `/health` also
+reports `registry` (the same number as `sessions`, which counts sessions with an **outstanding
+decision request** — the `POST /register` registry — not connected clients; the raw payload read
+wrong next to `clients: 2`). `/mailbridge status` shows *last checked* whenever the daemon has
+checked more than a minute after the last scan that saw mail, so a poll loop that died at 10:05
+is visible behind a scan at 10:00.
 
 `/mailbridge status` distinguishes "no mail yet — last checked …" from a daemon that has never
 scanned, and reports when the last scan that saw mail happened. `daemon.scanIntervalSecs` is
 validated (`null`/negative/strings are refused rather than read as "0", which means off), and
 `/reload` can now turn the sweep back on after it has been disabled.
 
-`loadConfig` no longer throws on a null config section (`{"daemon": null}`): it warns and uses
-the defaults, keeping its promise never to take a session down mid-run.
+`loadConfig` no longer throws or silently loses defaults on a null config section. Every
+section (`daemon`, `mail`, `mail.imap`, `mail.smtp`, `security`, `notify`, `tuning`, `device`)
+is repaired by filling the defaults underneath whatever survived, with a warning naming it, so
+`{"mail": {"smtp": null}}` cannot throw and `{"notify": null}` cannot quietly disable settle
+notifications. A *partial* section produced by the env merge is repaired the same way, which
+matters because `{"daemon": null}` plus any daemon env var used to yield a daemon with no host
+and no port.
 
 ### Daemon
 
