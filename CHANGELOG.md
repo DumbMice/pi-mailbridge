@@ -104,6 +104,16 @@ notifications. A *partial* section produced by the env merge is repaired the sam
 matters because `{"daemon": null}` plus any daemon env var used to yield a daemon with no host
 and no port.
 
+### `prime` runs once, and refuses after that
+
+Priming moves the UID cursor past everything already in the mailbox. That is a first-run
+decision: the cursor is what makes mail visible, so moving it after the bridge has been watching
+silently skips any reply that arrived unscanned (mode off, daemon down) — no ack, no `\Seen`, no
+error, just a mail nobody answers. Both surfaces (`--prime` and `/mailbridge prime`) now refuse
+when a cursor exists, say which uid they are watching from, and point at `uid-cursor.json` for a
+deliberate re-prime; `--prime` exits 2. The rule lives in `core/prime.ts` so the two cannot
+disagree.
+
 ### `/afk` and `/back` are now `/mailbridge on` and `/mailbridge off`
 
 Mode was two top-level commands in pi's global command namespace. `back` is generic enough to be

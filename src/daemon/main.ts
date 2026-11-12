@@ -50,7 +50,8 @@ import type { MailSource } from "./process.ts"
 import { runSmoke } from "../core/smoke.ts"
 import { runSetup } from "../core/setup.ts"
 import { listPending } from "../store/pending-store.ts"
-import { advanceCursor } from "../store/uid-cursor.ts"
+import { advanceCursor, readCursor } from "../store/uid-cursor.ts"
+import { alreadyPrimedMessage, runPrime } from "../core/prime.ts"
 import { recordOutbound } from "../store/threads.ts"
 import { tokenFromSubject } from "../core/token.ts"
 
@@ -139,6 +140,9 @@ async function smoke(config: ResolvedConfig): Promise<number> {
  * is marked seen, but on a mailbox that also carries personal mail that is both
  * slow and more exposure than a notification bridge needs. Priming says "watch
  * from now on".
+ *
+ * First run only: after that the cursor is the thing that makes mail visible, and
+ * moving it forward would silently skip replies that arrived while nothing scanned.
  */
 async function prime(config: ResolvedConfig): Promise<number> {
 	const tokenProvider = await buildTokenProvider(config)
@@ -148,12 +152,25 @@ async function prime(config: ResolvedConfig): Promise<number> {
 		{ idleRenewMs: config.tuning.idleRenewMs },
 	)
 	try {
-		await client.connect()
-		await client.mailboxOpen(config.mail.imap.folder || "INBOX")
-		const uids = await client.search({ uid: "1:*" }, { uid: true })
-		const highest = uids.length > 0 ? Math.max(...uids) : 0
-		advanceCursor(process.env, highest)
-		log(`primed: cursor set to uid ${highest} (${uids.length} existing message(s) will not be read)`)
+		const plan = await runPrime(config, {
+			openMailbox: async (cfg: ResolvedConfig) => {
+				await client.connect()
+				await client.mailboxOpen(cfg.mail.imap.folder || "INBOX")
+				return {
+					search: () => client.search({ uid: "1:*" }, { uid: true }),
+					close: async () => client.logout(),
+				}
+			},
+			readCursor: () => readCursor(process.env),
+			advanceCursor: (uid: number) => {
+				advanceCursor(process.env, uid)
+			},
+		})
+		if (!plan.ok) {
+			log(alreadyPrimedMessage(plan.currentUid))
+			return EXIT_CONFIG
+		}
+		log(`primed: cursor set to uid ${plan.highest} (${plan.count} existing message(s) will not be read)`)
 		return 0
 	} catch (error) {
 		log(`prime failed: ${(error as Error).message}`)
@@ -167,7 +184,6 @@ async function prime(config: ResolvedConfig): Promise<number> {
 	}
 }
 
-/** Value of `--flag <value>`, or undefined. */
 function argValue(argv: string[], flag: string): string | undefined {
 	const index = argv.indexOf(flag)
 	if (index < 0) return undefined

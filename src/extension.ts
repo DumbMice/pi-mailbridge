@@ -668,23 +668,37 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				}
 
 				case "prime": {
-					// Skip the mailbox's existing mail: set the cursor to the newest uid.
+					// First run only: the cursor is what makes mail visible, so moving it after
+					// the bridge has been watching would skip replies that arrived unscanned.
 					try {
 						const provider = await buildTokenProvider(config, env)
 						const { createImapflowFactory } = await import("./daemon/imapflow.ts")
-						const { advanceCursor } = await import("./store/uid-cursor.ts")
+						const { advanceCursor, readCursor } = await import("./store/uid-cursor.ts")
+						const { alreadyPrimedMessage, runPrime } = await import("./core/prime.ts")
 						const imap = await createImapflowFactory({
 							...(provider ? { getAccessToken: () => provider.getToken() } : {}),
 						})(config, { idleRenewMs: config.tuning.idleRenewMs })
-						await imap.connect()
-						await imap.mailboxOpen(config.mail.imap.folder || "INBOX")
-						const uids = await imap.search({ uid: "1:*" }, { uid: true })
-						const highest = uids.length ? Math.max(...uids) : 0
-						advanceCursor(env, highest)
-						await imap.logout().catch(() => {})
+						const plan = await runPrime(config, {
+							openMailbox: async (cfg) => {
+								await imap.connect()
+								await imap.mailboxOpen(cfg.mail.imap.folder || "INBOX")
+								return {
+									search: () => imap.search({ uid: "1:*" }, { uid: true }),
+									close: async () => imap.logout(),
+								}
+							},
+							readCursor: () => readCursor(env),
+							advanceCursor: (uid) => {
+								advanceCursor(env, uid)
+							},
+						})
+						if (!plan.ok) {
+							c.ui.notify(alreadyPrimedMessage(plan.currentUid), "warning")
+							return
+						}
 						const reloaded = client ? await client.reload() : undefined
 						c.ui.notify(
-							`primed: cursor at uid ${highest}; ${uids.length} existing message(s) will not be read${reloaded?.ok ? ", daemon reloaded" : ""}`,
+							`primed: cursor at uid ${plan.highest}; ${plan.count} existing message(s) will not be read${reloaded?.ok ? ", daemon reloaded" : ""}`,
 							"info",
 						)
 					} catch (error) {
