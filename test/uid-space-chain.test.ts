@@ -116,3 +116,39 @@ test("the real chain refuses a claim or ack from another UID space", async () =>
 		await service.close()
 	}
 })
+
+test("a fresh install is primable; a reset renumbering is not; a prior prime is not", async () => {
+	// The daemon writes uid-cursor.json on its first connect, before reading anything, so the
+	// file's existence cannot mean "already watching". That mistake made prime unusable on a
+	// fresh install - the one moment it exists for.
+	const { isPrimed, markPrimed, resetCursor, readCursor, syncUidValidity } = await import("../src/store/uid-cursor.ts")
+	const dir = mkdtempSync(join(tmpdir(), "cursor-prime-"))
+	const env = { XDG_STATE_HOME: dir }
+
+	// Fresh: no file yet.
+	assert.equal(isPrimed(env), false, "nothing has happened")
+
+	// First connect: the daemon writes the file with lastUid 0 and the mailbox's validity.
+	syncUidValidity(env, 1234, 7)
+	assert.equal(readCursor(env), 0)
+	assert.equal(isPrimed(env), false, "a fresh install must still be primable")
+
+	// After prime, a second run refuses.
+	markPrimed(env)
+	assert.equal(isPrimed(env), true)
+	assert.equal(readCursor(env), 0, "markPrimed must not move the cursor")
+
+	// A renumbering resets the uid but the mailbox is still being watched.
+	markPrimed(env)
+	resetCursor(env, 0)
+	assert.equal(isPrimed(env), true, "the flag survives a reset")
+
+	// A cursor advanced past mail is primed by definition, even without the flag.
+	const env2 = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "cursor-prime2-")) }
+	syncUidValidity(env2, 99, 5)
+	const { advanceCursor } = await import("../src/store/uid-cursor.ts")
+	advanceCursor(env2, 4)
+	assert.equal(isPrimed(env2), true)
+	assert.equal(advanceCursor(env2, 9), 9)
+	assert.equal(isPrimed(env2), true, "advancing preserves the flag")
+})

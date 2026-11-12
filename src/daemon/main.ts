@@ -50,7 +50,7 @@ import type { MailSource } from "./process.ts"
 import { runSmoke } from "../core/smoke.ts"
 import { runSetup } from "../core/setup.ts"
 import { listPending } from "../store/pending-store.ts"
-import { advanceCursor, hasCursor, readCursor } from "../store/uid-cursor.ts"
+import { advanceCursor, isPrimed, markPrimed, readCursor } from "../store/uid-cursor.ts"
 import { alreadyPrimedMessage, runPrime } from "../core/prime.ts"
 import { recordOutbound } from "../store/threads.ts"
 import { tokenFromSubject } from "../core/token.ts"
@@ -162,7 +162,8 @@ async function prime(config: ResolvedConfig): Promise<number> {
 				}
 			},
 			readCursor: () => readCursor(process.env),
-			hasCursor: () => hasCursor(process.env),
+			isPrimed: () => isPrimed(process.env),
+			markPrimed: () => markPrimed(process.env),
 			advanceCursor: (uid: number) => {
 				advanceCursor(process.env, uid)
 			},

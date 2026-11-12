@@ -693,7 +693,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					try {
 						const provider = await buildTokenProvider(config, env)
 						const { createImapflowFactory } = await import("./daemon/imapflow.ts")
-						const { advanceCursor, hasCursor, readCursor } = await import("./store/uid-cursor.ts")
+						const { advanceCursor, isPrimed, markPrimed, readCursor } = await import("./store/uid-cursor.ts")
 						const { alreadyPrimedMessage, runPrime } = await import("./core/prime.ts")
 						const imapClient = await createImapflowFactory({
 							...(provider ? { getAccessToken: () => provider.getToken() } : {}),
@@ -709,7 +709,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 								}
 							},
 							readCursor: () => readCursor(env),
-							hasCursor: () => hasCursor(env),
+							isPrimed: () => isPrimed(env),
+							markPrimed: () => markPrimed(env),
 							advanceCursor: (uid) => {
 								advanceCursor(env, uid)
 							},

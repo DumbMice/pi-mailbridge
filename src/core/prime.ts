@@ -21,9 +21,10 @@ export type PrimePlan =
  * Pure: the callers do the IMAP work, so the rule is testable without a server.
  */
 export function planPrime(currentUid: number, uids: readonly number[], alreadyWatching: boolean): PrimePlan {
-	// Existence, not `uid > 0`: a renumbering resets the cursor to 0, and so does a first connect
-	// on an empty mailbox - both are "already watching", and priming there would skip exactly the
-	// mail the reset was meant to re-read.
+	// Neither "the file exists" nor "uid > 0" answers this on its own. The daemon writes the file
+	// on its first connect, before reading anything (a fresh install wants prime); a renumbering
+	// resets the uid to 0 while the mailbox is already being watched (prime would skip exactly
+	// the mail the reset was meant to re-read). The caller passes a flag set by prime itself.
 	if (alreadyWatching) return { ok: false, currentUid }
 	const highest = uids.length > 0 ? Math.max(...uids) : 0
 	return { ok: true, highest, count: uids.length, currentUid }
@@ -45,8 +46,10 @@ export interface PrimeDeps {
 		close: () => Promise<void>
 	}>
 	readCursor: () => number
-	/** Whether a cursor exists at all; see planPrime. */
-	hasCursor: () => boolean
+	/** Whether this mailbox is already being watched; see isPrimed. */
+	isPrimed: () => boolean
+	/** Record that prime ran, so the next attempt refuses. */
+	markPrimed: () => void
 	advanceCursor: (uid: number) => void
 }
 
@@ -59,8 +62,11 @@ export interface PrimeDeps {
 export async function runPrime(config: ResolvedConfig, deps: PrimeDeps): Promise<PrimePlan> {
 	const mailbox = await deps.openMailbox(config)
 	try {
-		const plan = planPrime(deps.readCursor(), await mailbox.search(), deps.hasCursor())
-		if (plan.ok) deps.advanceCursor(plan.highest)
+		const plan = planPrime(deps.readCursor(), await mailbox.search(), deps.isPrimed())
+		if (plan.ok) {
+			deps.advanceCursor(plan.highest)
+			deps.markPrimed()
+		}
 		return plan
 	} finally {
 		await mailbox.close().catch(() => undefined)

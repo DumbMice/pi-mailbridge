@@ -17,6 +17,12 @@ interface CursorFile {
 	lastUid: number
 	/** The mailbox's UIDVALIDITY when this cursor was written. */
 	uidValidity?: number
+	/**
+	 * `prime` has run. Existence of this file proves nothing: the daemon writes it on its first
+	 * connect, before it has read any mail, so "has a file" cannot distinguish a fresh install
+	 * (prime is wanted) from a mailbox already being watched (prime would skip mail).
+	 */
+	primed?: boolean
 }
 
 function path(env: NodeJS.ProcessEnv): string {
@@ -24,14 +30,21 @@ function path(env: NodeJS.ProcessEnv): string {
 }
 
 /**
- * Has the bridge ever established a cursor?
+ * Is the bridge already watching this mailbox, so that priming would skip mail?
  *
- * `lastUid` alone cannot answer this: the first connect on an empty mailbox and a UIDVALIDITY
- * reset both write `{lastUid: 0}`, and treating those as "never primed" would let `prime` skip
- * a mailbox that is already being watched.
+ * True when `prime` ran before (the flag survives a renumbering reset), or when the cursor has
+ * actually been advanced past something. A file with `lastUid: 0` and no flag is a fresh install:
+ * the daemon writes it on connect before reading anything, and priming there is the whole point.
  */
-export function hasCursor(env: NodeJS.ProcessEnv = process.env): boolean {
-	return existsSync(path(env))
+export function isPrimed(env: NodeJS.ProcessEnv = process.env): boolean {
+	const file = readFile(env)
+	return file.primed === true || file.lastUid > 0
+}
+
+/** Record that `prime` ran, so a later run refuses. Preserves the cursor itself. */
+export function markPrimed(env: NodeJS.ProcessEnv = process.env): void {
+	const file = readFile(env)
+	write(env, file.lastUid, file.uidValidity, true)
 }
 
 export function readCursor(env: NodeJS.ProcessEnv = process.env): number {
@@ -48,17 +61,23 @@ function readFile(env: NodeJS.ProcessEnv): CursorFile {
 		return {
 			lastUid: typeof uid === "number" && Number.isFinite(uid) && uid >= 0 ? uid : 0,
 			...(typeof validity === "number" && Number.isFinite(validity) ? { uidValidity: validity } : {}),
+			...(parsed?.primed === true ? { primed: true } : {}),
 		}
 	} catch {
 		return { lastUid: 0 }
 	}
 }
 
-function write(env: NodeJS.ProcessEnv, uid: number, uidValidity?: number): void {
+function write(env: NodeJS.ProcessEnv, uid: number, uidValidity?: number, primed?: boolean): void {
 	const p = path(env)
 	mkdirSync(dirname(p), { recursive: true, mode: 0o700 })
 	const tmp = `${p}.${process.pid}.tmp`
-	const body: CursorFile = { lastUid: uid, ...(uidValidity === undefined ? {} : { uidValidity }) }
+	const keepPrimed = primed ?? readFile(env).primed === true
+	const body: CursorFile = {
+		lastUid: uid,
+		...(uidValidity === undefined ? {} : { uidValidity }),
+		...(keepPrimed ? { primed: true } : {}),
+	}
 	writeFileSync(tmp, JSON.stringify(body), { mode: 0o600 })
 	renameSync(tmp, p)
 }

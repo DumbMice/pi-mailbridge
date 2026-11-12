@@ -32,7 +32,8 @@ test("a refused prime does not touch the cursor", async () => {
 			},
 		}),
 		readCursor: () => 4747,
-		hasCursor: () => true,
+		isPrimed: () => true,
+		markPrimed: () => {},
 		advanceCursor: (uid) => advanced.push(uid),
 	})
 	assert.equal(plan.ok, false)

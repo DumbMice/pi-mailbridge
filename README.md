@@ -409,7 +409,7 @@ another extension) and appear in the usage text.
 | `/mailbridge check` | Validate the config and that credentials are present (in pi: no network; `--check` runs your `tokenCommand` if XOAUTH2 is configured) |
 | `/mailbridge auth` | Start the OAuth2 device login; prints the URL, polls in the background |
 | `/mailbridge smoke` | Reload the daemon, send one real mail, then open the folder and count |
-| `/mailbridge prime` | **First run only.** Set the cursor to now, so the mailbox's existing mail is never read. Refuses once the bridge has a cursor |
+| `/mailbridge prime` | **First run only.** Set the cursor to now, so the mailbox's existing mail is never read. Refuses once it has run, or the cursor has moved past mail |
 | `/mailbridge restart` | Replace the daemon process (needed after an update; the daemon re-reads the config on `setup`/`smoke` and when a session finds a newer file, but this session's own copy refreshes when a `/mailbridge` command runs or pi restarts; the poll's automatic respawn of a dead daemon is throttled to one a minute) |
 | `/mailbridge help` | The same list, from inside the session |
 
@@ -453,7 +453,7 @@ Same work without pi, for a systemd unit, a container or a first run on a remote
 | `--check` | Validate the config and that credentials are *present* (no network call: a wrong password still reports `config ok` — `--smoke` is what proves the login). Exits non-zero on a problem, and runs your `tokenCommand` when XOAUTH2 is configured, which the in-pi `/mailbridge check` does not |
 | `--smoke` | Send one real mail, then read the folder back and count |
 | `--auth` | OAuth2 device login |
-| `--prime` | **First run only.** Set the cursor to now so existing mail is never read; exits 2 if a cursor already exists |
+| `--prime` | **First run only.** Set the cursor to now so existing mail is never read; exits 2 if it has already run or the cursor has moved |
 | `--print-token` | Print the bearer/HMAC secret to stdout — never paste it into an issue or a log |
 
 ## Turning it off for good
