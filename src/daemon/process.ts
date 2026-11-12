@@ -215,17 +215,21 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		}
 
 		const body = stripQuoted(message.text)
-		if (!body) {
-			result.rejected++
-			bump(result.reasons, "empty-body")
-			result.cursor = advanceCursor(env, uid)
-			continue
-		}
 
 		// Attachments are filtered BEFORE persisting; a dropped one is recorded with
 		// a reason so `/mailbridge` can explain why the agent did not see it.
 		const { accepted, dropped } = selectAttachments(message.attachments ?? [])
 		for (const item of dropped) bump(result.reasons, `attachment-${item.reason}`)
+
+		// A reply is empty only if it has neither prose nor a surviving attachment. Judging
+		// the body first discarded the screenshot-from-a-phone case: nothing persisted, the
+		// attachment left unread, and the cursor moved past it.
+		if (!body && accepted.length === 0) {
+			result.rejected++
+			bump(result.reasons, "empty-body")
+			result.cursor = advanceCursor(env, uid)
+			continue
+		}
 
 		const record: PendingRecord = {
 			uid,

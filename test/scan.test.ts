@@ -516,3 +516,35 @@ test("a message carrying our own marker header is never ingested", async () => {
 	assert.equal(r.reasons["self-echo"], 1)
 	assert.equal(r.persisted, 0)
 })
+
+test("a reply that is only an attachment is kept", async () => {
+	// The headline case: reply from a phone with a screenshot and no text. The body check
+	// used to run first, so the mail was rejected as empty-body, the attachment stayed
+	// unread on the server, and the cursor moved past it.
+	const e = env()
+	// Minimal PNG signature + a byte, which is what the sniffer accepts.
+	const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
+	const r = await scanAndProcess(config(), {
+		source: source([
+			msg(1, { text: "", attachments: [{ filename: "shot.png", contentType: "image/png", content: png }] }),
+		]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.persisted, 1, "attachment-only reply is accepted")
+	const record = listPending(e)[0]!
+	assert.equal(record.body, "", "no prose")
+	assert.equal(record.attachments?.length, 1)
+	assert.equal(record.attachments?.[0]?.name, "shot.png")
+})
+
+test("an empty reply with no usable attachment is still rejected", async () => {
+	const e = env()
+	const r = await scanAndProcess(config(), {
+		source: source([msg(1, { text: "   ", attachments: [] })]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.reasons["empty-body"], 1)
+	assert.equal(r.persisted, 0)
+})
