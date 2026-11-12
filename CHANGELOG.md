@@ -75,7 +75,7 @@ fallback means editing the subject no longer loses a reply;
 ### In-pi commands
 
 `/mailbridge` now takes subcommands, so the whole user-facing flow is inside pi:
-`setup`, `check`, `auth`, `smoke`, `restart`, plus the existing status. Only the
+`setup`, `check`, `auth`, `smoke`, `prime`, `restart`, plus the existing status. Only the
 daemon itself stays a process (it must outlive pi); its CLI entry is documented as
 the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 `core/token-source.ts` with the commands so behaviour cannot drift.

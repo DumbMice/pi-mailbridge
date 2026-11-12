@@ -683,3 +683,38 @@ test("POST /mode notifies the daemon so turning it on can rescan", async () => {
 		await service.close()
 	}
 })
+
+test("/send uses the CURRENT config after a reload, not the snapshot it started with", async () => {
+	// A documented re-setup changes the human's address. The service used to hold the
+	// config it was built with, so notifications kept going to the old mailbox - agent
+	// output delivered to an address the user had just replaced.
+	let current = config()
+	const sent: { to: string }[] = []
+	const service = createDaemonService({
+		config: config(),
+		getConfig: () => current,
+		token: TOKEN,
+		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-livecfg-")) },
+		source: { searchAfter: async () => [], fetch: async () => undefined },
+		send: async (message) => {
+			sent.push({ to: message.to })
+			return { messageId: "<x@qq.com>" }
+		},
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	try {
+		const post = (body: Record<string, unknown>) =>
+			fetch(`http://127.0.0.1:${port}/send`, {
+				method: "POST",
+				headers: { ...auth(), "content-type": "application/json" },
+				body: JSON.stringify(body),
+			})
+		await post({ subject: "pi: one", text: "a" })
+		current = config()
+		current.mail.to = "new-address@example.com"
+		await post({ subject: "pi: two", text: "b" })
+		assert.deepEqual(sent.map((s) => s.to), ["you@example.com", "new-address@example.com"])
+	} finally {
+		await service.close()
+	}
+})

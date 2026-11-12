@@ -55,7 +55,7 @@ export interface DaemonDeps {
 	 * Re-read config and restart the watcher. Called after `/mailbridge setup` or
 	 * `auth` so a fresh config or token takes effect without killing the daemon.
 	 */
-	reload?: () => Promise<{ ok: boolean; error?: string }>
+	reload?: () => Promise<{ ok: boolean; error?: string; warning?: string }>
 	/**
 	 * Ask the daemon to exit so a supervisor can start a fresh process.
 	 * `/reload` re-reads config but cannot replace running code, so an updated
@@ -74,6 +74,12 @@ export interface DaemonDeps {
 	 */
 	onModeChange?: (mode: Mode) => void
 	/** Outcome of the most recent scan, for diagnostics. */
+	/**
+	 * Live config accessor. /reload swaps the config, so anything that reads it per
+	 * request (recipient, Message-ID domain, device name, listen address) must ask here
+	 * rather than capture the object this service was built with.
+	 */
+	getConfig?: () => ResolvedConfig
 	scanSummary?: () => { at: number; examined: number; persisted: number; rejected: number; reasons: Record<string, number> } | undefined
 	/** How long after the last ping to exit. Default 120s. */
 	idleTimeoutMs?: number
@@ -296,10 +302,10 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					try {
 						const result = await deps.reload()
 						if (!result.ok) return fail(500, "reload_failed", { message: result.error ?? "unknown" })
+						return send(200, { ok: true, ...(result.warning ? { warning: result.warning } : {}) })
 					} catch (error) {
 						return fail(500, "reload_failed", { message: (error as Error).message })
 					}
-					return send(200, { ok: true })
 				}
 
 				case "POST /mode": {
@@ -315,7 +321,8 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					const body = asRecord(JSON.parse(await readBody(req)))
 					const subject = typeof body?.subject === "string" ? body.subject : ""
 					const text = typeof body?.text === "string" ? body.text : ""
-					const to = typeof body?.to === "string" && body.to ? body.to : deps.config.mail.to
+					const config = deps.getConfig?.() ?? deps.config
+					const to = typeof body?.to === "string" && body.to ? body.to : config.mail.to
 					// cwd lets the mailer resolve relative image paths from the agent's project.
 					const cwd = typeof body?.cwd === "string" ? body.cwd : undefined
 					// sessionId lets the sender thread this mail into the session's conversation.
@@ -331,12 +338,12 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					// Read the thread BEFORE recording: recording moves lastMessageId to the new
 					// id, and a message must answer its predecessor, not itself.
 					const thread = sessionId ? sessionThread(env, sessionId) : {}
-					const messageId = generateMessageId(deps.config.mail.smtp.user ?? "")
+					const messageId = generateMessageId(config.mail.smtp.user ?? "")
 					if (sessionId) {
 						recordOutbound(env, {
 							messageId,
 							sessionId,
-							device: deps.config.device.name,
+							device: config.device.name,
 							subject,
 						})
 					}

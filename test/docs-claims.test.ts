@@ -446,10 +446,10 @@ test("the README's status example matches the formatter's shape", () => {
 	const readme = doc("README.md")
 	const sample = /last scan: [^\n]*examined \d+, kept \d+, rejected \d+/.exec(readme)
 	assert.ok(sample, "the example should show the fields status prints")
-	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
-	assert.match(extension, /last scan: .*examined .*kept .*rejected/s, "and the formatter should print them")
+	const status = readFileSync(join(root, "src/core/status.ts"), "utf8")
+	assert.match(status, /last scan: .*examined .*kept .*rejected/s, "and the formatter should print them")
 	// Accepted-path counters must not be labelled as rejections (they were).
-	assert.match(extension, /accepted\.has|accepted = new Set/, "status must separate accepted counters from refusals")
+	assert.match(status, /HANDLED/, "status must separate accepted counters from refusals")
 })
 
 test("no doc claims /mailbridge check verifies credentials work", () => {
@@ -474,8 +474,27 @@ test("the README states the Node floor", () => {
 
 test("route-miss and attachment drops are not classified as rejections", () => {
 	// They were printed under "rejections:" while `rejected` said 0, contradicting itself.
-	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
-	const accepted = /const accepted = new Set\(\[([^\]]*)\]\)/.exec(extension)?.[1] ?? ""
-	assert.ok(accepted.includes("route-miss"), "route-miss still routes, so it is not a rejection")
-	assert.match(extension, /attachment-/, "attachment drops are reported as notes")
+	const status = readFileSync(join(root, "src/core/status.ts"), "utf8")
+	const handled = /HANDLED = new Set\(\[([^\]]*)\]\)/.exec(status)?.[1] ?? ""
+	assert.ok(handled.includes("route-miss"), "route-miss still routes, so it is not a rejection")
+	assert.match(status, /attachment-/, "attachment drops are reported as notes")
+})
+
+test("the device-and-session claim is scoped to settle mails", () => {
+	// The two agent tools build their own subject from the routing id only; "every
+	// notification" was false for the decision mail, which is the one that matters.
+	for (const { file, text } of allProse()) {
+		assert.ok(
+			!/every notification[^.]*device and (?:the )?session/i.test(text),
+			`${file} claims every notification names the device and session`,
+		)
+	}
+})
+
+test("the reload promise matches what setup can do when no daemon is running", () => {
+	const readme = doc("README.md")
+	// setup/reload only touch a daemon that exists; the docs must not promise otherwise.
+	const row = readme.split("\n").find((l) => /\/mailbridge setup/.test(l) && /reload the daemon/.test(l))
+	assert.ok(row, "the setup row should describe what it does to the daemon")
+	assert.match(row!, /start or reload the daemon/, "and must say it can start one")
 })

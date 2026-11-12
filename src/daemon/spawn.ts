@@ -200,7 +200,7 @@ export function createDaemonClient(options: DaemonClientOptions) {
 			call<{ ok: boolean }>("POST", "/send", message, SEND_TIMEOUT_MS),
 		/** Re-read config and restart the watcher (after setup or auth). */
 		// Includes an IMAP logout, an XOAUTH2 token fetch and a fresh dial.
-		reload: () => call<{ ok: boolean }>("POST", "/reload", undefined, RELOAD_TIMEOUT_MS),
+		reload: () => call<{ ok: boolean; warning?: string }>("POST", "/reload", undefined, RELOAD_TIMEOUT_MS),
 		/** Ask the daemon to exit, so a fresh process can load updated code. */
 		shutdown: () => call<{ ok: boolean }>("POST", "/shutdown"),
 		/** Liveness heartbeat; the daemon exits when every client stops pinging. */

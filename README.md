@@ -9,8 +9,9 @@ can read the mailbox. That exact session continues.
 - **Any device with email works.** No app, no account, no relay, no push service.
   If it can read mail — a second laptop, a work desktop, a tablet, a phone, a
   browser — it can drive the session.
-- **Every notification names the device *and* the session**, so with several
-  machines running pi you can tell at a glance which one is asking. The agent's answer
+- **Settle mails name the device *and* the session**, so with several machines running pi
+  you can tell at a glance which one is asking. (The two agent tools — `request_decision`,
+  `notify_user` — carry the routing id and the question, not the device line.) The agent's answer
   is rendered from Markdown, so headings, lists, tables, code and links look like a real
   email instead of raw syntax.
 - **One mailbox connection per machine.** A small local daemon owns a single
@@ -141,7 +142,7 @@ rejections: not-allowlisted 1
 
 A non-zero `rejected` count means mail was seen and dropped; the reasons below it say why.
 `handled:` lines are the accepted paths (`route-miss` means the route id had expired or came
-from another machine and the reply still routed by the chain), `attachments dropped:` is a
+from another machine; if the reply still reached a session it routed by the token or chain), `attachments dropped:` is a
 partial loss, and a full queue defers rather than discards. `examined 0` means nothing
 arrived. If mode is off nothing is scanned at all, so this panel keeps showing the
 *previous* scan — that is why `/mailbridge status` is not proof the channel is open; the
@@ -166,23 +167,25 @@ Where to look:
 
 | Path | What it holds |
 | --- | --- |
-| `$XDG_STATE_HOME/pi-mailbridge/daemon.log` | scan summaries, connect errors, rejected reasons |
+| `$XDG_STATE_HOME/pi-mailbridge/daemon.log` (default `~/.local/state/…`); under systemd, `journalctl --user -u pi-mailbridge` | scan summaries, connect errors, rejected reasons |
 | `…/pending.json` | accepted replies waiting for a session |
 | `…/routes.json` | short routing ids (`security.tokenTtlHours`) |
 | `…/threads.json` | outbound Message-IDs used for threading and the reply chain |
 | `…/journal.json` | acked UIDs (replay protection) |
 
 `/mailbridge check` validates config and that credentials are present; `/mailbridge smoke`
-is what proves they work. If `/mailbridge status` says the daemon is unreachable, `/mailbridge restart`
-replaces the process.
+is what proves they work. If `/mailbridge status` says the daemon is unreachable, that means *this session has no
+client* — possibly because it started before a config existed. `/mailbridge restart` now
+starts the daemon and wires the session, so run it and check again.
 
 ## Security first
 
 This package makes your inbox a control channel for an agent that can run shell
 commands. **Read [docs/SECURITY.md](./docs/SECURITY.md) before installing.**
 
-Gate order, all fail-closed: **journal (already-seen UID) → loop guard (our own address) →
-auto-generated/bounce → sender allowlist → DMARC → routing → durable ack**. DMARC reads `Authentication-Results`; it is required by
+Gate order, all fail-closed: **journal (already-seen UID) → our own marker header → loop
+guard (our own address) → auto-generated/bounce → sender allowlist → DMARC → our own
+Message-ID → routing → durable ack**. DMARC reads `Authentication-Results`; it is required by
 `security.requireDmarcPass` (on by default) and pinned to an `authserv-id` only when
 `security.trustedAuthservId` is set. Routing is a short `[pi:f913c9]` id, a legacy
 HMAC-signed token, or the reply chain. Routing identifiers never authorize anything:
@@ -225,7 +228,8 @@ accounts are the exception — they need OAuth, which means registering an app *
 
 `/mailbridge check` validates the config's shape and that credentials are *present* —
 without connecting to anything, so it cannot tell a wrong password from a right one.
-`/mailbridge smoke` reloads the daemon (so it picks up the password you just added), sends
+`/mailbridge smoke` reloads the daemon if it is running (so it picks up the password you just
+added), sends
 one real mail and then opens the folder and counts. That proves SMTP accepts and IMAP reads
 (it does not correlate the message it sent), and it leaves the daemon using the new
 credentials.
@@ -261,7 +265,7 @@ written is the cursor itself.
 
 There is a CLI: for running the daemon where pi cannot (a systemd unit, a container, a
 remote box), and for the same first-run and diagnostic steps without pi
-(`--check`, `--smoke`, `--auth`, `--prime`). Same code path, not a second workflow.
+(`--setup`, `--check`, `--smoke`, `--auth`, `--prime`). Same code path, not a second workflow.
 
 ```bash
 # Installed as `pi install npm:pi-mailbridge` (or a checkout: point at its src/).
@@ -304,7 +308,7 @@ systemctl --user enable --now pi-mailbridge
 | `/afk` | Email mode on: decisions mail you and end the turn |
 | `/back` | Email mode off: decisions ask in the terminal |
 | `/mailbridge` | Status: daemon health, mode, session, secret, mailbox, allowlist, pending replies |
-| `/mailbridge setup <addr> [to <addr>] [force]` | Discover servers + auth, write the config, reload the daemon |
+| `/mailbridge setup <addr> [to <addr>] [force]` | Discover servers + auth, write the config, and start or reload the daemon |
 | `/mailbridge check` | Validate the config and that credentials are present (no network) |
 | `/mailbridge auth` | Start the OAuth2 device login; prints the URL, polls in the background |
 | `/mailbridge smoke` | Reload the daemon, send one real mail, then open the folder and count |

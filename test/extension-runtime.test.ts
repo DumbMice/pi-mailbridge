@@ -646,3 +646,44 @@ test("a machine with no secret yet still starts the daemon and the poll loop", a
 	// And the poll loop is armed, which is what proves startRuntime ran.
 	assert.ok(t.queue.some((q) => q.ms === 60_000), "the poll loop is running")
 })
+
+test("a session that started before the config existed can recover via /mailbridge restart", async () => {
+	// Fresh install: session_start runs with no usable config and returns early, so no
+	// client, notifier or poll loop is ever built. Every later command used `client ? ... : skip`,
+	// so the session stayed dead and the first notification never happened. Restart must wire it.
+	const captured = new Map<string, (args: string, ctx: ExtensionCtxLike) => Promise<void>>()
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon()
+	let spawned = 0
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-recover-")) },
+		// No usable mailbox at session start.
+		loadConfig: () => ({ ...config(), mail: { ...config().mail, to: "", imap: { ...config().mail.imap, host: "", user: "" } } }),
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => {
+			spawned++
+			return true
+		},
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	assert.equal(spawned, 0, `nothing is started without a config (spawned=${spawned})`)
+	assert.ok(!t.queue.some((q) => q.ms === 60_000), "and no poll loop is armed")
+
+	// The user runs the command that starts the daemon.
+	await captured.get("mailbridge")!("restart", ctx(notes))
+
+	assert.ok(
+		t.queue.some((q) => q.ms === 60_000),
+		`restart must wire the poll loop (spawned=${spawned}, notes=${JSON.stringify(notes)})`,
+	)
+	// Called at least once by restart and again by the runtime bootstrap.
+	assert.ok(spawned >= 1, `the injected ensureDaemon must be used (spawned=${spawned})`)
+})

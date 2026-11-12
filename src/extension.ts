@@ -11,6 +11,7 @@ import { Type } from "@sinclair/typebox"
 
 import { loadConfig, hasUsableMailConfig, type ResolvedConfig } from "./core/config.ts"
 import { ensureSecret, readSecret } from "./store/secret.ts"
+import { formatScan, type ScanSummary } from "./core/status.ts"
 import { createSettleNotifier, type SettleContext, type SettleNotifier } from "./core/settle.ts"
 import { createDeliveryRunner, type DeliveryRunner } from "./core/deliveries.ts"
 import { toUserContent, type UserContent } from "./core/attachments.ts"
@@ -376,37 +377,32 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			config = load()
 			const parsed = parseMailbridgeCommand(args)
 
-			/** "why did my reply not arrive?" - the scan already knows, so show it. */
-			const scanLines = (
-				health: { ok: boolean; data?: Record<string, unknown> } | undefined,
-			): string[] => {
-				const summary = health?.ok
-					? (health.data?.lastScan as
-							| { at: number; examined: number; persisted: number; rejected: number; reasons: Record<string, number> }
-							| null)
-					: null
-				if (!summary) return ["last scan: (none yet)"]
-				// The counter map mixes accepted paths (routed, threaded, journaled) with actual
-				// refusals. Showing "rejections: routed 1" after a successful reply read as a
-				// failure and had no row in the troubleshooting table.
-				// Accepted paths and partial notes are not rejections: `route-miss` still routes
-				// by chain, `attachment-*` drops one file but keeps the reply, and
-				// `pending-full` defers rather than discards.
-				const accepted = new Set(["routed", "threaded", "journaled", "vanished", "route-miss"])
-				const notes = new Set(["pending-full"])
-				const entries = Object.entries(summary.reasons ?? {}).filter(([, n]) => Number(n) > 0)
-				const fmt = (list: [string, number][]): string => list.map(([reason, n]) => `${reason} ${n}`).join(", ")
-				const refusals = fmt(entries.filter(([r]) => !accepted.has(r) && !notes.has(r) && !r.startsWith("attachment-")))
-				const handled = fmt(entries.filter(([r]) => accepted.has(r)))
-				const attachmentNotes = fmt(entries.filter(([r]) => r.startsWith("attachment-")))
-				const when = summary.at ? new Date(summary.at).toLocaleTimeString() : "unknown"
-				return [
-					`last scan: ${when} — examined ${summary.examined}, kept ${summary.persisted}, rejected ${summary.rejected}`,
-					`rejections: ${refusals || "none"}`,
-					...(handled ? [`handled: ${handled}`] : []),
-					...(attachmentNotes ? [`attachments dropped: ${attachmentNotes}`] : []),
-					...(notes.has("pending-full") ? ["queue full: replies are deferred, not dropped"] : []),
-				]
+			/**
+			 * Build client/notifier/runner and start polling if this session has no runtime.
+			 *
+			 * `session_start` returns early when there is no usable config - which is exactly
+			 * the state on a fresh install. Every command that can make the config usable
+			 * (`setup`, `restart`) must therefore be able to wire the runtime afterwards, or
+			 * the documented first run ends in a session that reports "on" and never mails.
+			 */
+			type UiLevel = "error" | "info" | "warning"
+			const ensureRuntime = async (ui: { notify: (m: string, level?: UiLevel) => void }): Promise<boolean> => {
+				if (client) return true
+				if (!secretFn()) {
+					try {
+						ensureSecret(env)
+					} catch (error) {
+						ui.notify(`mailbridge: could not create the shared secret (${(error as Error).message})`, "error")
+						return false
+					}
+				}
+				if (!(await ensureDaemonSafe())) {
+					ui.notify("mailbridge: daemon not reachable; replies will not arrive", "warning")
+					return false
+				}
+				if (!(await startRuntime())) return false
+				startPolling()
+				return true
 			}
 
 			const statusReport = async () => {
@@ -423,7 +419,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						`mailbox: ${config.mail.to || "(unset)"}`,
 						`allowlist: ${config.security.allowFrom.join(", ") || "(empty — denies all)"}`,
 						`pending replies: ${pending?.ok ? pending.data.pending.length : "?"}`,
-						...scanLines(health),
+						...formatScan(
+							health?.ok
+								? ((health.data as { lastScan?: ScanSummary | null }).lastScan ?? null)
+								: null,
+						),
 					].join("\n"),
 					"info",
 				)
@@ -456,13 +456,32 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 							.join("\n"),
 						result.ok ? "info" : "error",
 					)
+					// A session that started before the config existed has no runtime yet.
+					if (result.ok && !client) {
+						const started = await ensureRuntime(c.ui)
+						c.ui.notify(
+							started
+								? "daemon started — /mailbridge smoke, then /afk"
+								: "config written, but the daemon did not start — /mailbridge restart",
+							started ? "info" : "warning",
+						)
+					}
 					return
 				}
 
 				case "check": {
-					const secret = secretFn()
+					// Mint rather than advise: "start the daemon once" is unfollowable in the only
+					// state where this is missing.
+					let secret = secretFn()
+					if (!secret) {
+						try {
+							secret = ensureSecret(env)
+						} catch {
+							/* reported below */
+						}
+					}
 					const problems = [...config.warnings]
-					if (!secret) problems.push("shared secret missing — start the daemon once")
+					if (!secret) problems.push("shared secret missing and could not be created")
 					const usesOAuth = config.mail.imap.authType === "XOAUTH2" || config.mail.smtp.authType === "XOAUTH2"
 					if (config.oauth && !usesOAuth) {
 						problems.push("oauth is configured but neither account uses XOAUTH2 — it would be ignored")
@@ -533,8 +552,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						// the password, and the daemon holds the config it started with. Without
 						// this, smoke passes (it reads the file) while /send keeps using the old
 						// empty password and the first notification fails.
-						if (client && (await client.reload())?.ok !== true) {
+						const reloaded = client ? await client.reload() : undefined
+						if (client && reloaded?.ok !== true) {
 							c.ui.notify("daemon did not reload; run /mailbridge restart", "warning")
+						} else if (reloaded?.ok && reloaded.data.warning) {
+							c.ui.notify(`mailbridge: ${reloaded.data.warning}`, "warning")
 						}
 						config = load()
 						const provider = await buildTokenProvider(config, env)
@@ -591,6 +613,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						await new Promise((resolve) => setTimeout(resolve, 400))
 					}
 					const healthy = await ensure(baseUrl, fileURLToPath(new URL("./daemon/main.ts", import.meta.url)))
+					if (healthy && !client) {
+						// This session never had a runtime (started before the config existed).
+						await ensureRuntime(c.ui)
+					}
 					c.ui.notify(
 						healthy ? "daemon restarted with the current code" : "daemon did not come back — run /mailbridge restart again",
 						healthy ? "info" : "error",

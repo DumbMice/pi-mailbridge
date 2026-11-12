@@ -98,8 +98,9 @@ export async function buildTransportOptions(config: ResolvedConfig, deps: SendDe
  * Send one plain-text message.
  * Throws on any transport failure — there is no partial-success path.
  *
- * Returns the Message-ID the server assigned when available, so the daemon can
- * record it and route replies that lost their subject token.
+ * Returns the Message-ID WE stamped (minted here if the caller did not pass one), so the
+ * caller can record the id it actually sent - threading and the self-echo guard both
+ * depend on that value matching the header.
  */
 export async function sendMail(
 	config: ResolvedConfig,
@@ -153,10 +154,12 @@ export async function sendMail(
 	// A revoked or expired grant surfaces as an auth error on the first attempt. With a
 	// provider, drop the cached token, mint a new one and retry once (OAUTH.md promises
 	// this); without one, the failure propagates as before.
-	const info =
-		deps.provider && config.mail.smtp.authType === "XOAUTH2"
-			? await withFreshToken(deps.provider, dispatch)
-			: await dispatch()
+	// The transport's own result is deliberately ignored: the id we care about is ours.
+	if (deps.provider && config.mail.smtp.authType === "XOAUTH2") {
+		await withFreshToken(deps.provider, dispatch)
+	} else {
+		await dispatch()
+	}
 
 	// Ours, not the transport's: it is what was recorded and what threading references.
 	return { messageId: stampedId }

@@ -234,6 +234,7 @@ src/
     oauth*.ts           device-code + OpenID flows, one-retry token provider
     reply-parse.ts      quote stripping, address + AR-header pinning
     settle.ts           idle debounce, turn-settled notification
+    status.ts           scan summary → the lines /mailbridge status prints
     setup.ts            first-run scaffolding
     smoke.ts            end-to-end send-and-read-back check
     token.ts            HMAC sign/verify, subjects
@@ -242,6 +243,7 @@ src/
     imapflow.ts         imapflow adapter
     main.ts             CLI + lifecycle
     process.ts          UID-cursor scan → authorize → route → parse → persist
+    scan-queue.ts       one scan at a time; bursts coalesce into a follow-up
     service.ts          the HTTP surface: /health /pending /claim /ack /send /events …
     spawn.ts            ensureDaemon, single-instance
     watcher.ts          imapflow IDLE, renew, backoff

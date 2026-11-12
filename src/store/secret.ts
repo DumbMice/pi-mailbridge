@@ -34,6 +34,11 @@ export function readSecret(env: NodeJS.ProcessEnv = process.env): Buffer | undef
  * Read the key, creating it if absent. Atomic: `wx` create means exactly one
  * process wins and the others read the winner's key.
  */
+/** Small synchronous pause; no timer is available on this path. */
+function sleepMs(ms: number): void {
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
 export function ensureSecret(env: NodeJS.ProcessEnv = process.env): Buffer {
 	const existing = readSecret(env)
 	if (existing) return existing
@@ -52,7 +57,13 @@ export function ensureSecret(env: NodeJS.ProcessEnv = process.env): Buffer {
 		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
 		// Lost the race: the winner's key is the truth.
 	}
-	const winner = readSecret(env)
-	if (!winner) throw new Error(`pi-mailbridge: ${path} exists but is not a valid 32-byte key`)
-	return winner
+	// Another process may have won the create race a microsecond ago and not finished
+	// writing: `openSync(...,"wx")` makes the file visible before writeSync lands. Retry
+	// briefly before declaring the key corrupt.
+	for (let attempt = 0; attempt < 50; attempt++) {
+		const winner = readSecret(env)
+		if (winner) return winner
+		sleepMs(2)
+	}
+	throw new Error(`pi-mailbridge: ${path} exists but is not a valid 32-byte key`)
 }

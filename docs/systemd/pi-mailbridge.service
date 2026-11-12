@@ -19,6 +19,11 @@ Environment=PATH=%h/.local/share/pi-node/current/bin:/usr/local/bin:/usr/bin:/bi
 Environment=PI_MAILBRIDGE_DIR=%h/.pi/agent/npm/node_modules/pi-mailbridge
 # Environment=PI_MAILBRIDGE_DIR=%h/Work/pi-mailbridge
 
+# ProtectHome=read-only means the daemon cannot create its own state directory, and the
+# '-' below only tolerates a missing path. Create it once before enabling:
+#   mkdir -p ~/.local/state/pi-mailbridge
+# (running pi once also creates it, since the extension mints the secret).
+
 # systemd owns this process, so it must not exit when the last pi session stops
 # pinging - Restart=always would turn that into a restart loop. Setting this beats
 # editing the config file; the config key still works if you prefer it.

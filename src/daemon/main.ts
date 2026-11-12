@@ -26,6 +26,7 @@ import { configPath } from "../store/paths.ts"
 import { buildSetupConfig, discoverDomain, domainOf } from "../core/discover.ts"
 import { ensureSecret } from "../store/secret.ts"
 import { readMode, scanningEnabled } from "../store/mode-store.ts"
+import { createScanQueue } from "./scan-queue.ts"
 import { sendMail } from "../core/mailer.ts"
 import { createCommandTokenProvider } from "../core/oauth.ts"
 import { createOpenidClient } from "../core/oauth-openid.ts"
@@ -275,25 +276,14 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 	// Last scan outcome, surfaced on /health so `/mailbridge status` can answer "why did my
 	// reply not arrive?" - the reasons were already computed, just never shown.
 	let lastScan: { at: number; examined: number; persisted: number; rejected: number; reasons: Record<string, number> } | undefined
+	const scanOnce = createScanQueue((why) => scanNow(why))
+
 	function formatReasons(reasons: Record<string, number>): string {
 		const parts = Object.entries(reasons)
 			.filter(([, n]) => n > 0)
 			.sort((a, b) => b[1] - a[1])
 			.map(([reason, n]) => `${reason}=${n}`)
 		return parts.length ? parts.join(" ") : "no reasons"
-	}
-
-	// Serialized: an IDLE event, a mode-on change and a reconnect can all ask for a scan at
-	// once, and two scans that both pass the journal check before either persists would
-	// deliver the same reply twice.
-	let scanQueue: Promise<void> = Promise.resolve()
-
-	function scanOnce(why: string): Promise<void> {
-		scanQueue = scanQueue.then(
-			() => scanNow(why),
-			() => scanNow(why),
-		)
-		return scanQueue
 	}
 
 	async function scanNow(why: string): Promise<void> {
@@ -364,6 +354,9 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 	tokenProvider = await buildTokenProvider(initialConfig)
 
 	service = createDaemonService({
+		// The service must see the CURRENT config: /reload swaps it, and a stale recipient
+		// would keep mailing the previous address after a documented re-setup.
+		getConfig: () => currentConfig,
 		config: initialConfig,
 		token,
 		source: sourceProxy,
@@ -414,7 +407,15 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 				await currentWatcher?.stop()
 				currentConfig = loadConfig()
 				tokenProvider = await buildTokenProvider(currentConfig)
-				await startWatcher(currentConfig)
+				const watcher = await startWatcher(currentConfig)
+				// start() does not throw on a refused connect - it arms a reconnect - so ask the
+				// watcher whether it is actually connected before calling the reload a success.
+				if (!watcher.isHealthy()) {
+					// The config was re-read; the connection is the thing that failed, and the
+					// watcher is retrying. Report it rather than calling the reload clean.
+					log("reloaded config, but IMAP did not connect (check the password/host)")
+					return { ok: true, warning: "config reloaded, but IMAP did not connect" }
+				}
 				log("reloaded config and restarted the watcher")
 				return { ok: true }
 			} catch (error) {
