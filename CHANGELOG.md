@@ -81,6 +81,22 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### Lifetime: singleton, and it exits with the last session
+
+The daemon was already a singleton (the port is the lock) and already started by pi
+(`ensureDaemon` from `session_start`). What it did not do was stop.
+
+It now exits once no pi session has pinged for `daemon.idleTimeoutSecs` (default 120).
+Sessions ping on their poll tick and send `/bye` on shutdown. Motivated by a real
+failure: a daemon started at 15:09 kept serving old code through several package
+changes because nothing could replace a running process. Stopping also means no session
+means no watcher - nothing fetches and parses every incoming message for a session that
+cannot claim it. Mail that arrives meanwhile is covered by the catch-up scan.
+
+`daemon.exitWhenIdle: false` keeps it resident for a supervisor; the idle rule is
+disabled until the first client has ever pinged, so a systemd-started daemon never
+exits merely because pi is closed.
+
 ### systemd unit: paths that actually exist
 
 Two things would have stopped the unit from starting on a real machine, both caught by

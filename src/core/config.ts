@@ -59,7 +59,14 @@ export interface ResolvedConfig {
 		allowSelfReplies?: boolean
 		tokenTtlHours: number
 	}
-	daemon: { host: string; port: number }
+	daemon: {
+		host: string
+		port: number
+		/** Exit once no pi session is pinging. Default true; set false for systemd. */
+		exitWhenIdle?: boolean
+		/** Grace period after the last ping before exiting. Default 120. */
+		idleTimeoutSecs?: number
+	}
 	notify: { onSettled: boolean; debounceMs: number; notifyOnAborted: boolean; subject: string }
 	tuning: { idleRenewMs: number; autoIdleDelayMs: number; backoffInitialMs: number; backoffMaxMs: number }
 	/** Human-readable problems found while loading; surfaced by `/mailbridge`. */
@@ -80,7 +87,7 @@ const DEFAULTS: Omit<ResolvedConfig, "warnings"> = {
 		allowSelfReplies: false,
 		tokenTtlHours: 30 * 24,
 	},
-	daemon: { host: "127.0.0.1", port: 4177 },
+	daemon: { host: "127.0.0.1", port: 4177, exitWhenIdle: true, idleTimeoutSecs: 120 },
 	notify: { onSettled: true, debounceMs: 10_000, notifyOnAborted: false, subject: "pi: finished" },
 	tuning: {
 		idleRenewMs: 25 * 60 * 1000,

@@ -334,6 +334,10 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 		shutdown: () => {
 			void shutdown("shutdown requested")
 		},
+		// Stop when the last pi session goes away. `daemon.exitWhenIdle: false` keeps it
+		// resident instead, which is what a systemd unit wants.
+		exitWhenIdle: () => currentConfig.daemon.exitWhenIdle !== false,
+		idleTimeoutMs: (currentConfig.daemon.idleTimeoutSecs ?? 120) * 1000,
 		// `/mailbridge setup` / `auth` write new config or tokens; pick them up here.
 		reload: async () => {
 			try {

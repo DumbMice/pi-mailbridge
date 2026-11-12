@@ -412,3 +412,99 @@ test("POST /shutdown acknowledges before exiting, and needs auth", async () => {
 		await service.close()
 	}
 })
+
+// --- lifetime: exit when no session is left --------------------------------
+
+function idleRig(over: { exitWhenIdle?: () => boolean; idleTimeoutMs?: number } = {}) {
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-idle-")) }
+	const state = { stops: 0 }
+	const service = createDaemonService({
+		config: { ...config(), daemon: { host: "127.0.0.1", port: 0 } },
+		token: TOKEN,
+		env,
+		source: { searchAfter: async () => [], fetch: async () => undefined },
+		send: async () => {},
+		shutdown: () => {
+			state.stops++
+		},
+		exitWhenIdle: over.exitWhenIdle ?? (() => true),
+		idleTimeoutMs: over.idleTimeoutMs ?? 300,
+	})
+	return { service, state }
+}
+
+test("a daemon that no session has ever pinged keeps running", async () => {
+	const { service, state } = idleRig({ idleTimeoutMs: 200 })
+	const { port } = await service.listen(0, "127.0.0.1")
+	try {
+		await new Promise((r) => setTimeout(r, 900))
+		assert.equal(state.stops, 0, "a systemd-started daemon must not exit just because pi is absent")
+	} finally {
+		await service.close()
+	}
+})
+
+test("the daemon exits once every session stops pinging", async () => {
+	const { service, state } = idleRig({ idleTimeoutMs: 300 })
+	const { port } = await service.listen(0, "127.0.0.1")
+	const base = `http://127.0.0.1:${port}`
+	try {
+		await fetch(`${base}/ping`, {
+			method: "POST",
+			headers: { ...auth(), "content-type": "application/json" },
+			body: JSON.stringify({ instanceId: "pi-1" }),
+		})
+		await new Promise((r) => setTimeout(r, 1200))
+		assert.equal(state.stops, 1, "no ping for longer than the timeout means exit")
+	} finally {
+		await service.close()
+	}
+})
+
+test("a session saying goodbye lets the daemon stop early", async () => {
+	const { service, state } = idleRig({ idleTimeoutMs: 60_000 })
+	const { port } = await service.listen(0, "127.0.0.1")
+	const base = `http://127.0.0.1:${port}`
+	const post = (path: string, body: unknown) =>
+		fetch(`${base}${path}`, { method: "POST", headers: { ...auth(), "content-type": "application/json" }, body: JSON.stringify(body) })
+	try {
+		await post("/ping", { instanceId: "pi-1" })
+		await post("/ping", { instanceId: "pi-2" })
+		const afterBye = await (await post("/bye", { instanceId: "pi-2" })).json()
+		assert.equal((afterBye as { clients: number }).clients, 1, "the other session is still live")
+		assert.equal(state.stops, 0)
+	} finally {
+		await service.close()
+	}
+})
+
+test("exitWhenIdle false keeps a resident daemon resident", async () => {
+	const { service, state } = idleRig({ exitWhenIdle: () => false, idleTimeoutMs: 200 })
+	const { port } = await service.listen(0, "127.0.0.1")
+	try {
+		await fetch(`http://127.0.0.1:${port}/ping`, {
+			method: "POST",
+			headers: { ...auth(), "content-type": "application/json" },
+			body: JSON.stringify({ instanceId: "pi-1" }),
+		})
+		await new Promise((r) => setTimeout(r, 900))
+		assert.equal(state.stops, 0, "systemd mode ignores idleness")
+	} finally {
+		await service.close()
+	}
+})
+
+test("ping requires auth", async () => {
+	const { service } = idleRig()
+	const { port } = await service.listen(0, "127.0.0.1")
+	try {
+		const res = await fetch(`http://127.0.0.1:${port}/ping`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ instanceId: "x" }),
+		})
+		assert.equal(res.status, 401)
+	} finally {
+		await service.close()
+	}
+})

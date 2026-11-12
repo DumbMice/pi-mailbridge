@@ -49,6 +49,13 @@ export interface DaemonDeps {
 	 * package would otherwise keep executing the previous version until reboot.
 	 */
 	shutdown?: () => void
+	/**
+	 * Exit once every client has stopped pinging. Only enforced after at least one
+	 * client has pinged, so a daemon started by systemd (no pi sessions) never exits.
+	 */
+	exitWhenIdle?: () => boolean
+	/** How long after the last ping to exit. Default 120s. */
+	idleTimeoutMs?: number
 	env?: NodeJS.ProcessEnv
 	now?: () => number
 	registry?: Registry
@@ -98,6 +105,23 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 
 	/** live SSE response objects */
 	const streams = new Set<http.ServerResponse>()
+
+	// Liveness of pi sessions. A session pings on its poll tick; when every session has
+	// gone quiet the daemon stops, so an updated package cannot leave an orphan running
+	// old code, and nothing reads a mailbox no session will consume.
+	const pings = new Map<string, number>()
+	let sawClient = false
+	const idleTimeout = deps.idleTimeoutMs ?? 120_000
+
+	const idleCheck = setInterval(() => {
+		if (!sawClient) return
+		if (deps.exitWhenIdle && !deps.exitWhenIdle()) return
+		const newest = Math.max(0, ...pings.values())
+		if (Date.now() - newest <= idleTimeout) return
+		deps.shutdown?.()
+	}, Math.min(15_000, Math.max(1_000, Math.floor(idleTimeout / 4))))
+	// Never hold the process open just for this timer.
+	if (typeof idleCheck.unref === "function") idleCheck.unref()
 
 	function broadcast(event: DaemonEvent): void {
 		const payload = `data: ${JSON.stringify(event)}\n\n`
@@ -208,6 +232,23 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					return send(200, { ok: true })
 				}
 
+				case "POST /ping": {
+					const body = asRecord(JSON.parse(await readBody(req)))
+					const instanceId = typeof body?.instanceId === "string" ? body.instanceId : ""
+					if (!instanceId) return fail(400, "bad_request")
+					pings.set(instanceId, now())
+					sawClient = true
+					return send(200, { ok: true, clients: pings.size })
+				}
+
+				case "POST /bye": {
+					const body = asRecord(JSON.parse(await readBody(req)))
+					const instanceId = typeof body?.instanceId === "string" ? body.instanceId : ""
+					if (!instanceId) return fail(400, "bad_request")
+					pings.delete(instanceId)
+					return send(200, { ok: true, clients: pings.size })
+				}
+
 				case "POST /shutdown": {
 					if (!deps.shutdown) return fail(501, "not_supported")
 					// Answer first, then exit: a client that got no response would report
@@ -280,6 +321,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 			})
 		},
 		close() {
+			clearInterval(idleCheck)
 			return new Promise((resolve) => {
 				for (const res of streams) {
 					try {

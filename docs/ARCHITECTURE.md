@@ -153,6 +153,36 @@ pi-mailbridge does not create or switch sessions. It notifies about, and
 resumes, sessions the human already started. Anything else needs a different
 process topology (an RPC supervisor owning `pi --mode rpc` children).
 
+## 6a. Lifetime: singleton, and it stops when you do
+
+**Who starts it.** The extension, from `session_start`, via `ensureDaemon()`. It is
+spawned *detached* so closing the terminal does not kill the mailbox watcher, and so a
+second pi session does not have to adopt a child process.
+
+**Singleton.** The listening port is the lock. A second daemon fails to bind, logs the
+fact, and exits 0 - so N pi sessions share one watcher with no lock file or PID file to
+go stale. `ensureDaemon()` then probes `/health` and reuses the winner.
+
+**It stops when the last session does.** Every session pings `/ping` on its poll tick
+(10s) and sends `/bye` on `session_shutdown`. Once no ping has arrived for
+`daemon.idleTimeoutSecs` (default 120), the daemon exits. This is deliberate:
+
+- an updated package cannot leave an orphaned process running old code - the exact trap
+  that cost an evening, where a daemon started at 15:09 kept serving after several code
+  changes because nothing could replace it;
+- no session means no consumer: settle notifications are sent *by* a session, and no
+  session can claim a pending reply;
+- a daemon with no sessions still fetches and parses every incoming message looking for
+  a routing tag. Stopping it stops reading a mailbox nothing will use.
+
+Mail that arrives while it is down is not lost: the **catch-up scan** runs on the next
+start, from the stored UID cursor.
+
+Set `daemon.exitWhenIdle: false` when a supervisor owns the process instead - a systemd
+unit wants a resident daemon, and the unit in `docs/systemd/` does exactly that. The
+idle rule is also disabled until the first client has ever pinged, so a
+systemd-started daemon never exits just because pi happens to be closed.
+
 ## 7. Failure modes
 
 | Failure | Behaviour |

@@ -237,6 +237,8 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | `security.allowSelfReplies` | `false` | one address for both roles (personal Hotmail/Gmail): accept a self-addressed message, but only a real reply |
 | `security.tokenTtlHours` | `720` | routing-token lifetime; stale replies are refused |
 | `daemon.host` / `.port` | `127.0.0.1` / `4177` | loopback HTTP for the extension; the port is the instance lock |
+| `daemon.exitWhenIdle` | `true` | exit once no pi session is pinging; set `false` for a systemd-owned daemon |
+| `daemon.idleTimeoutSecs` | `120` | grace period after the last ping |
 | `notify.onSettled` | `true` | email when an agent settles |
 | `notify.debounceMs` | `10000` | quiet period before the settle mail |
 | `notify.notifyOnAborted` | `false` | also mail when you hit Escape |

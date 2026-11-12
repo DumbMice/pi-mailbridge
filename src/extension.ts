@@ -100,6 +100,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	let notifier: SettleNotifier | undefined
 	/** Mirror of the daemon's global mode. Default off: never mail unprompted. */
 	let emailMode: "on" | "off" = "off"
+	/** Stable id for this pi process, used for claims and for liveness pings. */
+	const instanceId = `pi-${process.pid}`
 
 	const baseUrl = daemonBaseUrl(config.daemon.port, config.daemon.host)
 
@@ -172,6 +174,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			try {
 				// Refresh the mode first: /afk may have been toggled from another
 				// session, and the settle gate depends on this mirror.
+				// Heartbeat first: the daemon exits when every session stops pinging, so a
+				// quiet daemon is a stopping daemon.
+				await client?.ping(instanceId)
 				const mode = await client?.mode()
 				if (mode?.ok) emailMode = mode.data.mode === "on" ? "on" : "off"
 				await runner?.drain()
@@ -255,7 +260,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				ack: (uid, instanceId, sessionId) => client!.ack(uid, instanceId, sessionId),
 				pending: () => client!.pending(),
 			},
-			instanceId: `${process.pid}`,
+			instanceId,
 			sessionId: () => ctx?.sessionManager.getSessionId(),
 			inject: async (body, record) => {
 				// Attachments become image/text content blocks; the text-only case stays a
@@ -277,6 +282,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	})
 
 	pi.on("session_shutdown", () => {
+		// Release our liveness slot so an idle daemon can exit promptly rather than
+		// waiting out the grace period.
+		void client?.bye(instanceId)
 		notifier?.cancel()
 		stopPolling()
 		client = undefined

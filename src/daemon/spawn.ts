@@ -173,6 +173,10 @@ export function createDaemonClient(options: DaemonClientOptions) {
 		reload: () => call<{ ok: boolean }>("POST", "/reload"),
 		/** Ask the daemon to exit, so a fresh process can load updated code. */
 		shutdown: () => call<{ ok: boolean }>("POST", "/shutdown"),
+		/** Liveness heartbeat; the daemon exits when every client stops pinging. */
+		ping: (instanceId: string) => call<{ ok: boolean; clients: number }>("POST", "/ping", { instanceId }),
+		/** Tell the daemon this session is gone. */
+		bye: (instanceId: string) => call<{ ok: boolean; clients: number }>("POST", "/bye", { instanceId }),
 	}
 }
 
