@@ -30,7 +30,7 @@ Break one of these and the package loses mail or becomes a hole:
 ## Layout
 
 ```
-src/extension.ts     pi entry: tools, commands, events, SSE client
+src/extension.ts     pi entry: tools, commands, events, polling client
 src/core/            config, mailer, token, reply parsing, strings
 src/daemon/          main (HTTP+SSE), watcher (IDLE), process (scan pipeline)
 src/store/           paths, secret, pending, uid-cursor, mode, registry

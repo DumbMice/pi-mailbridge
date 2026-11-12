@@ -22,7 +22,7 @@
   },
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.6"
   },
   "bin": {
     "pi-mailbridge": "./bin/pi-mailbridge.mjs"

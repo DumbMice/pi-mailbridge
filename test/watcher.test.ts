@@ -407,5 +407,13 @@ test("stop() during a dial logs out the connection that just opened", async () =
 	release()
 	await started
 
-	assert.ok(log.includes("logout"), `the opened connection must be logged out (saw ${JSON.stringify(log)})`)
+	// stop()'s own teardown already logs out the in-flight client, so `log.includes("logout")`
+	// passed even with the fix reverted. The connection that matters is the one whose dial
+	// completed after the stop, so require a logout *after* connect-done.
+	const done = log.indexOf("connect-done")
+	assert.ok(done > -1, `the dial should have completed (saw ${JSON.stringify(log)})`)
+	assert.ok(
+		log.lastIndexOf("logout") > done,
+		`the connection opened after stop() must be logged out (saw ${JSON.stringify(log)})`,
+	)
 })

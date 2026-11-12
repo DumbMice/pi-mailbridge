@@ -24,7 +24,7 @@ Every control below exists to break one link in that chain.
 | Layer | Control | Breaks |
 | --- | --- | --- |
 | Envelope | **Sender allowlist**, exact `addr-spec` match after RFC 5322 parsing | step 1 |
-| Provenance | **DMARC pass, from a pinned relay** | step 1 |
+| Provenance | **DMARC pass** from the authenticated relay (`security.requireDmarcPass`, pinned to `trustedAuthservId` when set) | step 1 |
 | Routing | **short route id**, TTL-bounded (legacy HMAC-signed tokens still verify) | steps 2–3 |
 | Replay | **journal + expiry** (durable, survives restart) | step 2 |
 | Human | **`request_decision` blocks the agent** until a reply arrives | step 4 |
@@ -68,8 +68,9 @@ DMARC come first, and the token only routes.
 ### 2.3 Replay protection must be durable
 
 An in-memory "seen UIDs" set dies with the daemon. The journal is a file,
-appended after a successful ack, and consulted before claiming. Tokens also
-carry an expiry so a very old reply is refused even with a valid MAC.
+appended after a successful ack and consulted at scan time, so an acked mail is never
+offered again. Routing ids, signed tokens and the reply chain all carry an expiry, so a
+very old reply is not routed even with a valid id or MAC.
 
 ## 3. Prompt injection is not solved, only bounded
 
@@ -110,9 +111,18 @@ A legitimate email can still contain text that reads like instructions
   makes every poll 401 until you do. Rotating the key
   kills every outstanding **signed token**, but *not* the short route ids: those are
   entries in `routes.json` and resolve with no secret at all, so they keep working until
-  `security.tokenTtlHours` expires. To revoke routing immediately, stop the daemon and
-  delete all three stores: `routes.json` (short ids), `threads.json` (the reply chain, which
-  resolves against recorded Message-IDs with no secret either) and the journal.
+  `security.tokenTtlHours` expires. Rotating the key does not stop delivery on its own.
+  To revoke, stop the daemon and clear the state directory
+  (`${XDG_STATE_HOME:-~/.local/state}/pi-mailbridge`):
+  - `routes.json` — short ids. Resolve with no secret.
+  - `threads.json` — the reply chain. Resolves recorded Message-IDs with no secret.
+  - `pending.json` — **already-accepted replies waiting for a session.** Deleting `routes`
+    and `threads` stops new mail being routed, but anything persisted before is still
+    delivered on the next drain; if the session is compromised, this is the queue that
+    matters.
+  - `journal.json` — only the ack dedupe. Clearing it re-opens replay of already-acked
+    mail, so prefer leaving it unless you also cleared the mailbox.
+  Secrets (`secret.key`, `oauth.json`) live beside them; rotating those is covered above.
 - Turn it off with `/back` when you will be at the desk. An idle mailbox should
   not be a listening control channel.
 - **One mailbox for both roles** (`security.allowSelfReplies`). The loop guard is
@@ -123,11 +133,11 @@ A legitimate email can still contain text that reads like instructions
   the tie-breaker on its own, because threaded notifications carry that header as well.
   Either signal is trivially forgeable by anyone who can already send from your address.
   Prefer a dedicated mailbox.
-- **Multiple machines, one mailbox.** Each daemon only claims replies whose route id or
-  token names its own device, so they cannot steal each other's work. They do share one
-  allowlist and one secret — if one machine is compromised, rotate the key (which kills
-  outstanding signed tokens) and delete each machine's `routes.json` (which kills the
-  short ids).
+- **Multiple machines, one mailbox.** Each daemon only claims replies whose route id, token
+  or chain entry names its own device, so they cannot steal each other's work. They do share
+  one allowlist and one secret — if one machine is compromised, rotate the key and clear that
+  machine's state directory as described above (`routes.json`, `threads.json`, and
+  `pending.json`).
 
 ## 6. What this package will never do
 

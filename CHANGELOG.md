@@ -268,7 +268,7 @@ history only when the original is HTML (they quote as a <blockquote> they can fo
 
 ### Shorter subject: a local route id instead of a signed blob
 
-The subject carried a signed token of ~88 characters, so a notification preview showed
+The subject carried a signed token whose length dominated the line, so a notification preview showed
 almost nothing but base64. New mail now carries a six-hex local route id:
 
     before  [pi:AgGhxFPy_HFpjIlpyT-hoVJRP2HY.e2uUO7fw] pi: fix-login @ ybc-linux is waiting for you   (87)

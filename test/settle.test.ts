@@ -208,3 +208,24 @@ test("a very long answer is truncated rather than mailed whole", () => {
 	assert.ok(body.length < long.length + 400, "body must be bounded")
 	assert.match(body, /truncated \(500 more characters\)/)
 })
+
+test("a refused send is reported, not silently dropped", async () => {
+	// The idle notification is the one mail this product exists to deliver. The extension
+	// used to discard the client's {ok:false}, so a refusal or timeout vanished silently.
+	const errors: Error[] = []
+	const notifier = createSettleNotifier({
+		mode: () => "on",
+		context: () => ({ sessionId: "s1", cwd: "/tmp", sessionName: "x", device: "d" }),
+		send: async () => {
+			throw new Error("send failed (timeout)")
+		},
+		secret: () => Buffer.alloc(32, 1),
+		config: { onSettled: true, debounceMs: 0, notifyOnAborted: false },
+		timers: { setTimeout: (fn: () => void) => setTimeout(fn, 0), clearTimeout },
+		onError: (error) => errors.push(error),
+	})
+	notifier.settled({})
+	await new Promise((r) => setTimeout(r, 20))
+	assert.equal(errors.length, 1)
+	assert.match(errors[0]!.message, /send failed/)
+})

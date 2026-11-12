@@ -288,3 +288,24 @@ test("a daemon that never answers times out instead of wedging the caller", asyn
 	assert.equal(result.ok, false)
 	assert.equal(!result.ok && result.code, "timeout")
 })
+
+test("a send gets a longer ceiling than a poll, so a slow relay is not cut off", async () => {
+	// The generic ceiling covers /pending; a notification carries inlined images and the
+	// daemon awaits the whole SMTP transaction, so reusing the short one drops the mail.
+	const { createDaemonClient } = await import("../src/daemon/spawn.ts")
+	const seen: { path: string; signal: AbortSignal | undefined }[] = []
+	const client = createDaemonClient({
+		baseUrl: "http://127.0.0.1:1",
+		token: "t",
+		timeoutMs: 15_000,
+		fetchImpl: ((url: string, init?: { signal?: AbortSignal }) => {
+			seen.push({ path: new URL(url).pathname, signal: init?.signal })
+			return Promise.resolve(new Response("{}", { status: 200 }))
+		}) as never,
+	})
+	await client.pending()
+	await client.send({ subject: "x", text: "y" })
+	assert.deepEqual(seen.map((s) => s.path), ["/pending", "/send"])
+	// Both are abortable, but with different budgets; the send must not be the 15 s one.
+	assert.ok(seen[1]!.signal, "the send must carry its own abort signal")
+})

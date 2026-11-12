@@ -45,6 +45,17 @@ test("the documented HTTP surface exists in the handler, with the right method",
 		.filter((line) => /^\| (GET|POST|DELETE|GET\/POST) \| `\//.test(line))
 	assert.ok(rows.length > 8, "expected the request table to be present")
 
+	// Every row in the request table must use a method the handler understands; otherwise a
+	// fabricated `| PUT | /admin |` row is silently skipped by the filter above.
+	for (const row of doc("docs/ARCHITECTURE.md").split("\n")) {
+		if (!/^\| [A-Z]+\s*\| `\//.test(row)) continue
+		const method = /^\| ([A-Z]+)\s*\|/.exec(row)?.[1]!
+		assert.ok(
+			["GET", "POST", "DELETE", "GET/POST"].includes(method),
+			`ARCHITECTURE documents an unsupported method ${method} in its request table`,
+		)
+	}
+
 	for (const row of rows) {
 		const method = /^\| (GET|POST|DELETE|GET\/POST) \|/.exec(row)?.[1]!
 		const path = /`(\/[a-z]+)`/.exec(row)?.[1]!
@@ -63,32 +74,42 @@ test("the documented HTTP surface exists in the handler, with the right method",
 	}
 })
 
-test("the module layout lists real files", () => {
+test("the module layout lists exactly the modules that exist", () => {
+	// Checked in both directions and by full path: comparing basenames let a new
+	// src/store/config.ts hide behind a documented src/core/config.ts.
 	const arch = doc("docs/ARCHITECTURE.md")
 	const block = /## 8\. Module layout\n\n```\n([\s\S]*?)```/.exec(arch)?.[1]
 	assert.ok(block, "the layout block should exist")
-	const listed = [...block.matchAll(/^\s{2,4}([a-z0-9*-]+\.ts)\s/gm)].map((m) => m[1]!)
-	assert.ok(listed.length > 20, `expected a full listing, got ${listed.length}`)
-	const covered = (file: string): boolean => {
-		const base = file.split("/").pop()!
-		return listed.some((l) => (l.includes("*") ? base.startsWith(l.split("*")[0]!) : l === base))
+
+	const listed: string[] = []
+	let dir = ""
+	for (const line of block.split("\n")) {
+		const header = /^\s{2}([a-z]+)\/\s*$/.exec(line)
+		if (header) {
+			dir = header[1]!
+			continue
+		}
+		const entry = /^\s{2,4}([a-z0-9*-]+\.ts)\s/gm.exec(line)
+		if (!entry) continue
+		listed.push(dir ? `${dir}/${entry[1]}` : entry[1]!)
 	}
-	for (const name of listed) {
-		if (name.includes("*")) continue
+	assert.ok(listed.length > 20, `expected a full listing, got ${listed.length}`)
+
+	const onDisk = allTs("src").filter((f) => !f.endsWith(".d.ts"))
+	const glob = (entry: string): RegExp =>
+		new RegExp(`^${entry.split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`)
+
+	for (const entry of listed) {
+		const pattern = glob(entry)
 		assert.ok(
-			existsIn("src", name),
-			`ARCHITECTURE lists ${name}, which is not in src/ (renamed or never written)`,
+			onDisk.some((f) => pattern.test(f)),
+			`ARCHITECTURE lists ${entry}, which is not in src/ (renamed or never written)`,
 		)
 	}
-
-	// And the other direction: a new module must be added to the map, or the map quietly
-	// stops describing the code.
-	const onDisk = allTs("src").filter((f) => !f.endsWith(".d.ts"))
-	const missing = onDisk.filter((f) => !covered(f))
+	const missing = onDisk.filter((f) => !listed.some((entry) => glob(entry).test(f)))
 	assert.deepEqual(missing, [], `src/ modules missing from the ARCHITECTURE layout: ${missing.join(", ")}`)
 })
 
-/** Every .ts basename under `dir`, recursively. */
 function allTs(dir: string, prefix = ""): string[] {
 	const out: string[] = []
 	for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
@@ -129,7 +150,8 @@ test("the README's test count is not a hardcoded number that can drift", () => {
 	// worse than no number at all.
 	const readme = doc("README.md")
 	assert.ok(
-		!/\b\d{2,3} hermetic tests\b/.test(readme),
+		// Catches "376 tests", "376 hermetic unit tests", "376 passing tests", "the 376 tests".
+		!/\b\d{2,4}\s+(?:[a-z]+\s+){0,3}tests?\b/i.test(readme),
 		"README states a literal test count; describe the suite instead",
 	)
 })
@@ -175,22 +197,32 @@ test("the documented routing order is the implemented one, in every file that st
 		})
 	}
 
-	// The changelog states it as prose, in order.
+	// The changelog states it as prose. Check within the paragraph that names all three:
+	// searching the whole section was defeatable by prefixing a sentence that mentions them
+	// in another order.
 	const changelog = doc("CHANGELOG.md")
 	const section = /### Reply identification[\s\S]*?(?=\n### )/.exec(changelog)?.[0]
 	assert.ok(section, "CHANGELOG should have a Reply identification section")
-	const positions = expected.map((p) => section.search(p))
-	positions.forEach((pos, i) => assert.ok(pos > -1, `CHANGELOG omits rule ${i + 1}`))
-	assert.deepEqual([...positions].sort((a, b) => a - b), positions, "CHANGELOG lists the rules out of order")
+	const paragraphs = section.split(/\n\s*\n/).filter((p) => expected.every((e) => e.test(p)))
+	assert.ok(paragraphs.length > 0, "CHANGELOG should state the three rules in one paragraph")
+	for (const paragraph of paragraphs) {
+		const positions = expected.map((p) => paragraph.search(p))
+		assert.deepEqual([...positions].sort((a, b) => a - b), positions, "CHANGELOG lists the rules out of order")
+	}
 })
 
 test("every environment override is documented", () => {
-	const config = readFileSync(join(root, "src/core/config.ts"), "utf8")
-	const names = [...config.matchAll(/env\.(PI_MAILBRIDGE_[A-Z_]+)/g)].map((m) => m[1]!)
-	assert.ok(names.length >= 8, `expected the override list, got ${names.length}`)
+	// Scans all of src/, not just config.ts: a PI_MAILBRIDGE_ read in main.ts was invisible.
+	const names = new Set<string>()
+	for (const file of allTs("src")) {
+		const text = readFileSync(join(root, "src", file), "utf8")
+		for (const m of text.matchAll(/env\.(PI_MAILBRIDGE_[A-Z_]+)/g)) names.add(m[1]!)
+	}
+	assert.ok(names.size >= 8, `expected the override list, got ${names.size}`)
 	const readme = doc("README.md")
-	for (const name of new Set(names)) {
-		assert.ok(readme.includes(name), `${name} is read by config.ts but not documented`)
+	for (const name of names) {
+		if (name === "PI_MAILBRIDGE_DIR") continue // unit-local, documented in the unit
+		assert.ok(readme.includes(name), `${name} is read by src/ but not documented`)
 	}
 })
 
@@ -201,4 +233,38 @@ test("the systemd unit cannot restart-loop and keeps its state dir", () => {
 	assert.ok(/PI_MAILBRIDGE_EXIT_WHEN_IDLE=false/.test(unit), "a supervised daemon must not exit when idle")
 	// A ReadWritePaths that may not exist yet fails namespace setup unless '-'-prefixed.
 	assert.ok(/^ReadWritePaths=-/m.test(unit), "ReadWritePaths must tolerate a missing directory")
+})
+
+test("the documented /mailbridge subcommands are exactly the implemented ones", () => {
+	// The first version of this file only grepped for `!approve`; an invented
+	// `/mailbridge doctor` would have shipped.
+	const commands = readFileSync(join(root, "src/core/commands.ts"), "utf8")
+	const block = /const SUBCOMMANDS[^=]*=\s*\[([\s\S]*?)\]/.exec(commands)?.[1]
+	assert.ok(block, "SUBCOMMANDS should be a literal array")
+	const implemented = new Set([...block.matchAll(/"([a-z]+)"/g)].map((m) => m[1]!))
+	assert.ok(implemented.size >= 6, `expected the subcommand list, got ${implemented.size}`)
+
+	const documented = new Set(
+		[...doc("README.md").matchAll(/`\/mailbridge ([a-z]+)/g)].map((m) => m[1]!),
+	)
+	for (const name of documented) {
+		if (name === "mailbridge") continue
+		assert.ok(implemented.has(name), `README documents /mailbridge ${name}, which has no handler`)
+	}
+	// `status` is what bare `/mailbridge` does, and `help` is offered by the usage text.
+	const bareStatus = /\/mailbridge\s{2,}#/.test(doc("README.md"))
+	for (const name of implemented) {
+		if (name === "status" && bareStatus) continue
+		if (name === "help") continue
+		assert.ok(documented.has(name), `/mailbridge ${name} exists but is undocumented`)
+	}
+})
+
+test("no document claims the extension uses SSE", () => {
+	// The extension polls /pending every 10s and never opens /events; the daemon does
+	// offer SSE, which is a different statement and is allowed.
+	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
+	assert.ok(!extension.includes("/events"), "the extension must not claim to use /events")
+	assert.ok(!/"SSE client"|SSE client|over loopback SSE/i.test(doc("AGENTS.md")), "AGENTS.md claims an SSE client")
+	assert.ok(!/sessions are thin clients that connect over loopback SSE/i.test(doc("docs/ARCHITECTURE.md")))
 })

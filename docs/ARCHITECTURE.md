@@ -20,7 +20,9 @@
 ```
 
 **One watcher, many sessions.** The daemon owns the single IMAP connection; pi
-sessions are thin clients that connect over loopback SSE. This is the same
+sessions are thin clients over loopback HTTP: they poll `/pending` and replay it, which
+needs no reconnect logic because replay is idempotent. (`/events` also offers SSE for a
+push client; nothing uses it today.) This is the same
 topology as `opencode-afk` and it is the reason multi-session works: there is no
 N-way race for mailbox state, because only one process reads the mailbox.
 
@@ -58,7 +60,7 @@ Invariants:
 
 ## 3. Daemon HTTP surface
 
-Loopback only by default (`daemon.host`). Every request carries
+Loopback only by default (`daemon.host`). Every request except `/health` carries
 `Authorization: Bearer <token>` from
 `$XDG_STATE_HOME/pi-mailbridge/secret.key`; comparison is constant-time.
 
@@ -91,7 +93,7 @@ Subject format:
 ```
 
 A six-hex-character **local route id**, resolved from `store/routes.ts`. It replaced a
-signed token (~88 characters) that made every subject unreadable in a notification
+signed token (a ~37-character token, in a subject well over 80) that made every subject unreadable in a notification
 preview. Signed tokens still verify, so mail already in flight keeps working.
 
 The id is a lookup key, not a credential: an unknown id resolves to nothing, and
@@ -261,4 +263,3 @@ reconnect logic.
 `MailSource` (in `daemon/process.ts`) is the seam: `watcher.ts` implements it over
 imapflow, tests implement it over an in-memory fixture. That is why the whole
 pipeline is testable without a mailbox.
-```

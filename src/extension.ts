@@ -242,11 +242,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			mode: () => emailMode,
 			context: sessionContext,
 			send: async (message) => {
-				await client?.send({
+				const sent = await client?.send({
 					subject: message.subject,
 					text: message.text,
 					...(ctx ? { cwd: ctx.cwd, sessionId: ctx.sessionManager.getSessionId() } : {}),
 				})
+				// A non-ok result used to be discarded here, so a refused or timed-out send
+				// vanished: no toast, no log, no retry. Throwing routes it to onError.
+				if (sent && !sent.ok) throw new Error(`send failed (${sent.code ?? sent.status})`)
 			},
 			secret: () => secret,
 			config: { ...config.notify, tokenTtlHours: config.security.tokenTtlHours },

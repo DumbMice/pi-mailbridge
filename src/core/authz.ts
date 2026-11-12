@@ -4,7 +4,7 @@
 //   1. loop guard      — never act on our own outbound address
 //   2. auto-generated  — no replies to robots (that is how loops start)
 //   3. allowlist       — exact addr-spec after RFC 5322-ish normalization
-//   4. DMARC           — pinned authserv-id, must be dmarc=pass
+//   4. DMARC           — dmarc=pass; authserv-id pinned only when configured
 //
 // The routing token is NOT consulted here. It routes; it does not authorize.
 // See docs/SECURITY.md §2.2.

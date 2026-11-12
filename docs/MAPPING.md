@@ -154,7 +154,8 @@ pi.registerCommand("mailbridge", { description: "Mailbridge status", handler: (_
 4. **A routing id in the subject — but no longer a signature.** Shipped as a 6-hex
    local route id (`[pi:f913c9]`), looked up in `store/routes.ts`. This is the one
    deliberate reversal from the baseline: a signed token made every subject preview
-   unreadable (~88 characters). HMAC tokens still verify for mail already in flight, and
+   unreadable (a ~37-character token, in a subject over 80 characters). HMAC tokens still
+   verify for mail already in flight, and
    authorization never depended on the token either way.
 5. **Global mode store.** `/afk` and `/back` are explicit, persisted, and
    independent of focus heuristics.
@@ -173,7 +174,7 @@ pi.registerCommand("mailbridge", { description: "Mailbridge status", handler: (_
 | Service | opencode/qq mail tuned | provider-neutral | `config.mail.*`; no hard-coded host |
 | Transport | SMTP password | SMTP password **or** OAuth2/XOAUTH2 | Outlook requires OAuth2 since 2024-09-16 |
 | Reply parsing | hand-rolled | hand-rolled, quote-stripping covered by tests | no `inreply` dependency: the stripping rules are ours and tested |
-| Auth check | allowlist | allowlist **+ pinned DMARC header** | see SECURITY.md §2 |
+| Auth check | allowlist | allowlist + DMARC header (pinned when `trustedAuthservId` is set) | see SECURITY.md §2 |
 | Port | 4100 | 4177 | avoid colliding with a running afk |
 
 ---

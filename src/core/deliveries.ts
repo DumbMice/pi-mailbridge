@@ -31,6 +31,7 @@ export type DeliveryOutcome =
 	| "foreign-session"
 	| "claimed-by-other"
 	| "inject-failed"
+	| "claim-unconfirmed"
 	| "not-found"
 
 export interface DeliveryRunnerDeps {
@@ -69,6 +70,10 @@ export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 		if (!claim.ok) {
 			// Expected when another instance won the race; the daemon answers 409.
 			if (claim.code === "claimed-by-other") return "claimed-by-other"
+			// A timeout means the outcome is unknown: the daemon may have granted the claim,
+			// so this is not "the record vanished". It self-heals (the claim TTL expires and
+			// the next drain re-claims), but the diagnostic must not lie.
+			if (claim.code === "timeout" || claim.code === "network") return "claim-unconfirmed"
 			return "not-found"
 		}
 

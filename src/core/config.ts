@@ -168,7 +168,8 @@ function envOverrides(env: NodeJS.ProcessEnv): Record<string, unknown> {
 	set(["mail", "to"], env.PI_MAILBRIDGE_TO)
 	set(["daemon", "port"], env.PI_MAILBRIDGE_PORT)
 	// For a supervisor-owned daemon: the shipped systemd unit sets this to false, because
-	// an exiting process under Restart=always is a restart loop.
+	// a supervised daemon must not exit on its own: the shipped unit uses Restart=on-failure
+	// but a clean exit would still end the service.
 	if (env.PI_MAILBRIDGE_EXIT_WHEN_IDLE !== undefined) {
 		set(["daemon", "exitWhenIdle"], !/^(0|false|no|off)$/i.test(String(env.PI_MAILBRIDGE_EXIT_WHEN_IDLE).trim()))
 	}

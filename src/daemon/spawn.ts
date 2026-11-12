@@ -122,6 +122,11 @@ export function daemonBaseUrl(port: number, host = "127.0.0.1"): string {
 	return `http://${host}:${port}`
 }
 
+/** SMTP transactions with inlined images are slow; be generous rather than lose the mail. */
+const SEND_TIMEOUT_MS = 120_000
+/** Reload tears down and re-dials IMAP, which can involve a token fetch. */
+const RELOAD_TIMEOUT_MS = 120_000
+
 export interface DaemonClientOptions {
 	baseUrl: string
 	token: string
@@ -141,9 +146,14 @@ export function createDaemonClient(options: DaemonClientOptions) {
 	const doFetch = options.fetchImpl ?? fetch
 	const headers = { authorization: `Bearer ${options.token}`, "content-type": "application/json" }
 
-	async function call<T>(method: string, path: string, body?: unknown): Promise<DaemonResult<T>> {
+	async function call<T>(
+		method: string,
+		path: string,
+		body?: unknown,
+		timeoutMs: number = options.timeoutMs ?? 15_000,
+	): Promise<DaemonResult<T>> {
 		const controller = new AbortController()
-		const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 15_000)
+		const timer = setTimeout(() => controller.abort(), timeoutMs)
 		try {
 			const response = await doFetch(`${options.baseUrl}${path}`, {
 				method,
@@ -182,10 +192,14 @@ export function createDaemonClient(options: DaemonClientOptions) {
 			call<{ ok: boolean }>("POST", "/ack", { uid, instanceId, sessionId }),
 		register: (sessionId: string) => call<{ alreadyPending: boolean; full: boolean }>("POST", "/register", { sessionId }),
 		release: (sessionId: string) => call<{ ok: boolean }>("DELETE", "/register", { sessionId }),
+		// A notification can carry a few hundred KB of inlined images and the daemon awaits
+		// the whole SMTP transaction, so a slow-but-healthy relay must not be cut off: the
+		// generic 15 s ceiling would drop the one mail this product exists to deliver.
 		send: (message: { to?: string; subject: string; text: string; cwd?: string; sessionId?: string }) =>
-			call<{ ok: boolean }>("POST", "/send", message),
+			call<{ ok: boolean }>("POST", "/send", message, SEND_TIMEOUT_MS),
 		/** Re-read config and restart the watcher (after setup or auth). */
-		reload: () => call<{ ok: boolean }>("POST", "/reload"),
+		// Includes an IMAP logout, an XOAUTH2 token fetch and a fresh dial.
+		reload: () => call<{ ok: boolean }>("POST", "/reload", undefined, RELOAD_TIMEOUT_MS),
 		/** Ask the daemon to exit, so a fresh process can load updated code. */
 		shutdown: () => call<{ ok: boolean }>("POST", "/shutdown"),
 		/** Liveness heartbeat; the daemon exits when every client stops pinging. */

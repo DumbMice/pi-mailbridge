@@ -266,11 +266,11 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | `oauth.scope` | — | must include `offline_access` for a refresh token |
 | `device.name` | first label of `os.hostname()` | machine name shown in every notification and carried in the routing id |
 | `security.allowFrom` | `[]` | senders allowed to command the agent; empty denies all |
-| `security.requireDmarcPass` | `true` | require a DMARC pass from the pinned relay |
+| `security.requireDmarcPass` | `true` | require a DMARC pass (pinned to `trustedAuthservId` when that is set) |
 | `security.trustedAuthservId` | unset | pin the trusted `Authentication-Results` host. Leave unset for Microsoft consumer accounts — their relay emits no authserv-id |
-| `security.allowHeaderThreading` | `true` | accept a reply whose subject token was lost, by matching `In-Reply-To` / `References` against Message-IDs we minted |
+| `security.allowHeaderThreading` | `true` | accept a reply whose subject id was lost, by matching `In-Reply-To` / `References` against Message-IDs we minted |
 | `security.allowSelfReplies` | `false` | one address for both roles (personal Hotmail/Gmail): accept a self-addressed message, but only a real reply |
-| `security.tokenTtlHours` | `720` | routing-token lifetime; stale replies are refused |
+| `security.tokenTtlHours` | `720` | lifetime of a route id, a signed token and a reply-chain entry; stale replies are refused |
 | `daemon.host` / `.port` | `127.0.0.1` / `4177` | loopback HTTP for the extension; the port is the instance lock |
 | `daemon.exitWhenIdle` | `true` | exit once no pi session is pinging; set `false` for a systemd-owned daemon |
 | `daemon.idleTimeoutSecs` | `120` | grace period after the last ping |

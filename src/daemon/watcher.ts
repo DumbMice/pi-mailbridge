@@ -219,7 +219,10 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 		// have nulled `client` (and logged out nothing, because the dial had not finished),
 		// and tearing down `client` again would silently do nothing.
 		const c = target ?? client
-		if (!target) client = undefined
+		// Clear it either way: after a stop during the dial, `client` was assigned the very
+		// connection we are about to close, and leaving it set lets search/fetch reach a
+		// logged-out socket instead of failing fast.
+		if (client === c) client = undefined
 		if (!c) return
 		try {
 			await c.logout()

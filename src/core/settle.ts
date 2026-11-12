@@ -26,7 +26,7 @@ export interface SettleContext {
 export const REPLY_HINT = "Reply above this line to continue the session."
 
 /**
- * Subject: which session, on which device, with the routing token that makes the
+ * Subject: which session, on which device, with the routing id that makes the
  * reply land back here. Both facts are in the subject because that is all a
  * notification preview shows on a phone, tablet or another PC.
  */
