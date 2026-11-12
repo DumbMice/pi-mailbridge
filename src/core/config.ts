@@ -72,6 +72,8 @@ export interface ResolvedConfig {
 		exitWhenIdle?: boolean
 		/** Grace period after the last ping before exiting. Default 120. */
 		idleTimeoutSecs?: number
+		/** Safety-net catch-up scan cadence, so a silent IDLE cannot strand a reply. Default 60; 0 disables. */
+		scanIntervalSecs?: number
 	}
 	notify: { onSettled: boolean; debounceMs: number; notifyOnAborted: boolean }
 	tuning: { idleRenewMs: number; backoffInitialMs: number; backoffMaxMs: number }
@@ -93,7 +95,7 @@ const DEFAULTS: Omit<ResolvedConfig, "warnings"> = {
 		allowSelfReplies: false,
 		tokenTtlHours: 30 * 24,
 	},
-	daemon: { host: "127.0.0.1", port: 4177, exitWhenIdle: true, idleTimeoutSecs: 120 },
+	daemon: { host: "127.0.0.1", port: 4177, exitWhenIdle: true, idleTimeoutSecs: 120, scanIntervalSecs: 60 },
 	notify: { onSettled: true, debounceMs: 10_000, notifyOnAborted: false },
 	tuning: {
 		idleRenewMs: 25 * 60 * 1000,

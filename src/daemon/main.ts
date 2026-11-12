@@ -308,6 +308,8 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 	// The mtime of the file this config came from, taken BEFORE it was read, so a write in
 	// the gap is still detected as newer.
 	let configLoadedAt = initialStamp
+	/** Periodic catch-up timer (armed at the end of run()). */
+	let pollHandle: ReturnType<typeof setTimeout> | undefined
 	let lastCheckedAt: number | undefined
 	let lastScan: { at: number; examined: number; persisted: number; rejected: number; reasons: Record<string, number> } | undefined
 	const scanOnce = createScanQueue((why) => scanNow(why))
@@ -540,6 +542,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		if (stopping) return
 		stopping = true
 		log(`${signal}: shutting down`)
+		if (pollHandle !== undefined) clearTimeout(pollHandle)
 		await currentWatcher?.stop()
 		await service.close()
 		process.exit(0)
@@ -548,6 +551,23 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 	process.on("SIGINT", () => void shutdown("SIGINT"))
 
 	await startWatcher(currentConfig)
+
+	// Safety net: an IDLE that never fires (a provider that does not push, or a connection that
+	// silently stopped idling) would strand every reply until something else triggered a scan.
+	// A catch-up sweep costs one SEARCH that usually returns nothing. Observed live: a Hotmail
+	// reply sat unseen while the daemon reported "imap: connected".
+	const scanEveryMs = Math.max(0, currentConfig.daemon.scanIntervalSecs ?? 60) * 1000
+	if (scanEveryMs > 0) {
+		const armPoll = (): void => {
+			pollHandle = setTimeout(() => {
+				pollHandle = undefined
+				if (readMode(process.env) === "on" && currentWatcher?.isHealthy()) void scanOnce("poll")
+				armPoll()
+			}, scanEveryMs)
+			pollHandle.unref?.()
+		}
+		armPoll()
+	}
 }
 
 /**

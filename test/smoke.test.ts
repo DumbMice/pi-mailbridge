@@ -125,49 +125,41 @@ test("smoke touches no store state", async () => {
 	}
 })
 
-test("smoke reports whether our own marker survives delivery", async () => {
-	// Single-mailbox mode rests on the provider keeping either the marker header or our
-	// Message-ID. Probing it here turns the package's biggest open question into a step the
-	// user can read.
-	// Single-mailbox shape: mail.to is the mailbox itself.
+test("smoke reports whether our own headers survive delivery", async () => {
+	// Single-mailbox mode rests on the provider keeping the marker or our Message-ID. The probe
+	// retries and matches the id we stamped: the copy arrives asynchronously, and reading "the
+	// newest message" once produced a false alarm on a live account.
 	const cfg = config()
 	const single = { ...cfg, mail: { ...cfg.mail, to: cfg.mail.imap.user } }
+	const run = (sources: Buffer[]) =>
+		runSmoke(single, {
+			send: async () => ({ messageId: "<ours@qq.com>" }),
+			echoRetryDelaysMs: [0],
+			sleep: async () => {},
+			connect: async () => ({
+				count: async () => 1,
+				recentSources: async () => sources,
+				close: async () => {},
+			}),
+		})
+	const copy = (lines: string[]): Buffer => Buffer.from(lines.join("\r\n"))
 
-	const withMarker = await runSmoke(single, {
-		send: async () => ({ messageId: "<abc@example.com>" }),
-		connect: async () => ({
-			count: async () => 1,
-			newestHeaders: async () => Buffer.from("Message-ID: <abc@example.com>\r\nX-Pi-Mailbridge: notification\r\n"),
-			close: async () => {},
-		}),
-	})
-	const marker = withMarker.steps.find((s) => s.step === "echo")
+	const marker = (await run([copy(["X-Pi-Mailbridge-Id: <ours@qq.com>", "X-Pi-Mailbridge: notification"])])).steps.find(
+		(s) => s.step === "echo",
+	)
 	assert.equal(marker?.ok, true)
 	assert.match(marker!.detail, /marker header survives/)
 
-	const stripped = await runSmoke(single, {
-		send: async () => ({ messageId: "<abc@example.com>" }),
-		connect: async () => ({
-			count: async () => 1,
-			newestHeaders: async () => Buffer.from("Message-ID: <abc@example.com>\r\n"),
-			close: async () => {},
-		}),
-	})
-	const idOnly = stripped.steps.find((s) => s.step === "echo")
-	assert.equal(idOnly?.ok, true, "the Message-ID alone still keeps the guard")
-	assert.match(idOnly!.detail, /Message-ID survives/)
+	const idOnly = (await run([copy(["X-Pi-Mailbridge-Id: <ours@qq.com>"])])).steps.find((s) => s.step === "echo")
+	assert.equal(idOnly?.ok, true, "the stamped id alone keeps the guard")
+	assert.match(idOnly!.detail, /Message-ID survived/)
 
-	const both = await runSmoke(single, {
-		send: async () => ({ messageId: "<abc@example.com>" }),
-		connect: async () => ({
-			count: async () => 1,
-			newestHeaders: async () => Buffer.from("Message-ID: <other@example.com>\r\n"),
-			close: async () => {},
-		}),
-	})
-	const broken = both.steps.find((s) => s.step === "echo")
-	assert.equal(broken?.ok, false)
-	assert.match(broken!.detail, /may re-ingest/)
+	// An unrelated message is not ours: the probe must not judge our headers by it.
+	const unrelated = (await run([copy(["X-Pi-Mailbridge-Id: <theirs@qq.com>", "X-Pi-Mailbridge: notification"])])).steps.find(
+		(s) => s.step === "echo",
+	)
+	assert.equal(unrelated?.ok, false)
+	assert.match(unrelated!.detail, /did not come back/)
 })
 
 test("the echo probe only runs when the notification lands in the watched mailbox", async () => {
