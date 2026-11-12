@@ -50,7 +50,12 @@ export function authorize(input: AuthzInput, config: ResolvedConfig): AuthzResul
 	const self = normalizeAddress(config.mail.smtp.user) ?? normalizeAddress(config.mail.imap.user)
 	if (self && from === self) {
 		if (!config.security.allowSelfReplies) return { ok: false, reason: "self" }
-		if (!input.headers.inReplyTo?.trim()) return { ok: false, reason: "self-echo" }
+		// Reply evidence is either header the router accepts. Requiring only In-Reply-To
+		// killed genuine replies from clients that set References alone (or a
+		// forward-then-reply), because the router would have routed them by chain.
+		const threaded =
+			Boolean(input.headers.inReplyTo?.trim()) || Boolean(input.headers.references?.some((r) => r.trim()))
+		if (!threaded) return { ok: false, reason: "self-echo" }
 	}
 
 	// 2. Never answer robots, and never act on a bounce: a null sender or a postmaster

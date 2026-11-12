@@ -637,3 +637,30 @@ test("single-mailbox QQ: a self-addressed reply with no Authentication-Results i
 	assert.equal(r.persisted, 1, `the reply must be delivered (reasons: ${JSON.stringify(r.reasons)})`)
 	assert.equal(listPending(e)[0]?.sessionId, SESSION)
 })
+
+test("single-mailbox: a reply that carries only References is still a reply", async () => {
+	// Some clients set References without In-Reply-To. The router accepts either, so the
+	// authorization gate must too - otherwise the message is rejected as self-echo.
+	const e = env()
+	const cfg = config()
+	cfg.mail.smtp.user = "you@qq.com"
+	cfg.mail.imap.user = "you@qq.com"
+	cfg.mail.to = "you@qq.com"
+	cfg.security.allowFrom = ["you@qq.com"]
+	cfg.security.allowSelfReplies = true
+	cfg.security.requireDmarcPass = false
+	recordOutbound(e, { messageId: "<root@qq.com>", sessionId: SESSION, device: "test-device", subject: "x" })
+
+	const r = await scanAndProcess(cfg, {
+		source: source([
+			msg(1, {
+				from: "you@qq.com",
+				subject: "Re: pi: x",
+				headers: { references: ["<root@qq.com>"] },
+			}),
+		]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.persisted, 1, `References-only reply must be accepted (reasons: ${JSON.stringify(r.reasons)})`)
+})
