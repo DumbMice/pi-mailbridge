@@ -65,6 +65,8 @@ export interface HeaderLike {
 	subject?: string
 	/** Every `Authentication-Results` value, in the order received (top first). */
 	authResults?: string[]
+	/** `Message-ID` of this message. Used to recognise our own mail when it comes back. */
+	messageId?: string
 	/** `In-Reply-To`, the message this one directly answers. */
 	inReplyTo?: string
 	/** `References`, the ancestor chain. */

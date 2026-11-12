@@ -439,3 +439,29 @@ test("an unknown route id falls through to the reply chain instead of dropping t
 	assert.equal(r.persisted, 1, "and the reply still arrives via the chain")
 	assert.equal(listPending(e)[0]!.sessionId, SESSION)
 })
+
+test("our own threaded notification is not injected as a reply", async () => {
+	// Threading put In-Reply-To on every notification after the first, which is the very
+	// header the single-mailbox guard used to tell a reply from an echo. The outbound
+	// registry is the reliable discriminator, and it is checked before routing.
+	const e = env()
+	const cfg = config()
+	cfg.security.allowSelfReplies = true
+	cfg.security.allowFrom = [cfg.mail.smtp.user]
+	// The notification we sent, recorded when it went out.
+	recordOutbound(e, { messageId: "<ours-2@qq.com>", sessionId: SESSION, device: "test-device", subject: "x" })
+
+	const r = await scanAndProcess(cfg, {
+		source: source([
+			msg(1, {
+				from: cfg.mail.smtp.user,
+				subject: "Re: [pi:ffffff] pi: x",
+				headers: { authResults: [GOOD_AR], messageId: "<ours-2@qq.com>", inReplyTo: "<ours-1@qq.com>" },
+			}),
+		]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.reasons["self-echo"], 1, "rejected as our own mail")
+	assert.equal(r.persisted, 0, "and never injected")
+})

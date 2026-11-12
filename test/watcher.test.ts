@@ -351,3 +351,16 @@ test("the adapter passes real results through and exposes usable", async () => {
 	assert.deepEqual(await adapted.search({ uid: "1:*" }), [3, 9])
 	assert.equal(adapted.usable, false)
 })
+
+test("the scanner receives Message-ID, which the self-echo guard needs", async () => {
+	// Without this header the guard added for threaded notifications is inert in
+	// production, however well the scanner tests pass.
+	const { toHeaderLike, WANTED_HEADERS } = await import("../src/daemon/watcher.ts")
+	assert.ok(WANTED_HEADERS.includes("message-id"), "message-id must be fetched")
+	const headers = toHeaderLike({
+		from: "you@example.com",
+		subject: "re",
+		headerValues: new Map([["message-id", ["<abc@qq.com>"]]]),
+	})
+	assert.equal(headers.messageId, "<abc@qq.com>")
+})

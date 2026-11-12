@@ -129,6 +129,19 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			continue
 		}
 
+		// Self-echo, before routing: never treat our own notification as a reply. It arrives
+		// From: the mailbox itself, and because notifications now carry In-Reply-To (threading)
+		// the single-mailbox guard in authorize() can no longer tell them from a genuine
+		// reply. The outbound registry can: if this message's own Message-ID is one we sent,
+		// it is ours, whatever its headers say.
+		const ownIds = parseMessageIds(message.headers.messageId)
+		if (ownIds.length > 0 && ownIds.some((id) => lookupChain(env, [id]))) {
+			result.rejected++
+			bump(result.reasons, "self-echo")
+			result.cursor = advanceCursor(env, uid)
+			continue
+		}
+
 		// Routing, in order of preference:
 		//   1. a short local route id  [pi:a1b2c3]  — what new notifications carry
 		//   2. a signed token          [pi:<base64>.<mac>] — messages already in flight

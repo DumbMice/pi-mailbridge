@@ -45,7 +45,9 @@ export function authorize(input: AuthzInput, config: ResolvedConfig): AuthzResul
 	//    mailbox and the human, which is the normal case for a personal Hotmail or
 	//    Gmail. Then `from === self` is expected — but we still must not treat our
 	//    OWN outbound notification as a reply. The discriminator is `In-Reply-To`:
-	//    a reply carries it, the notification we sent does not.
+	//    a reply carries it - but so does every threaded notification we send, so this
+	//    header alone is not enough. process.ts rejects our own Message-IDs first, using
+	//    the outbound registry; this check remains as the cheap early gate.
 	const self = normalizeAddress(config.mail.smtp.user) ?? normalizeAddress(config.mail.imap.user)
 	if (self && from === self) {
 		if (!config.security.allowSelfReplies) return { ok: false, reason: "self" }
