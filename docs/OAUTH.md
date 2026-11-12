@@ -338,7 +338,7 @@ Approve from **any device** — phone, tablet, the laptop you actually have open
 That is the point of device code: no browser, no redirect listener, no port on the
 daemon's machine.
 
-The refresh token is stored in `~/.local/state/pi-mailbridge/oauth.json` at mode
+The refresh token is stored in `$XDG_STATE_HOME/pi-mailbridge/oauth.json` (default `~/.local/state/…`) at mode
 `0600`. Access tokens are cached in memory and refreshed shortly before expiry;
 one 401 from the mail server triggers exactly one refresh, then the daemon stops
 rather than hammering the provider.

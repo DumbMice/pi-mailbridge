@@ -108,8 +108,14 @@ test("security defaults are safe by construction", () => {
 
 test("the example never contains a live-looking secret", () => {
 	const text = read("../config.example.json")
-	assert.match(text, /APP_PASSWORD_NOT_LOGIN_PASSWORD/)
+	// A placeholder, not an instruction: a self-hosted user needs their account password,
+	// and "APP_PASSWORD_NOT_LOGIN_PASSWORD" would be sent verbatim if copied.
+	assert.match(text, /<PASSWORD>/)
 	assert.ok(!/-----BEGIN/.test(text))
+	// No password field may hold a plausible literal (the placeholder starts with "<").
+	for (const m of text.matchAll(/"password":\s*"([^"]*)"/g)) {
+		assert.ok(m[1] === "" || m[1]!.startsWith("<"), `config.example.json has a literal password: ${m[1]}`)
+	}
 })
 
 // --- systemd unit ----------------------------------------------------------

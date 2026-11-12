@@ -10,7 +10,7 @@
 import { Type } from "@sinclair/typebox"
 
 import { loadConfig, hasUsableMailConfig, type ResolvedConfig } from "./core/config.ts"
-import { readSecret } from "./store/secret.ts"
+import { ensureSecret, readSecret } from "./store/secret.ts"
 import { createSettleNotifier, type SettleContext, type SettleNotifier } from "./core/settle.ts"
 import { createDeliveryRunner, type DeliveryRunner } from "./core/deliveries.ts"
 import { toUserContent, type UserContent } from "./core/attachments.ts"
@@ -300,19 +300,26 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	pi.on("session_start", async (_event, c) => {
 		ctx = c
 
-		if (!secretFn()) {
-			c.ui.notify("mailbridge: no shared secret yet — start the daemon once to create it", "warning")
-			return
-		}
-
 		// Spawning a daemon that is guaranteed to exit (no mailbox configured) would just
-		// cost five seconds on every session start, so check first.
+		// cost five seconds on every session start, so check the mailbox first.
 		if (!hasUsableMailConfig(config)) {
 			c.ui.notify(
 				"mailbridge: no mailbox configured — run /mailbridge setup <pi-address> to <your-address>",
 				"warning",
 			)
 			return
+		}
+
+		// The daemon owns secret.key, but waiting for a daemon that only this code can start
+		// is a deadlock: on a machine that has never run it, the key does not exist yet and
+		// every session would bail out here. Mint it instead (first-writer-wins, 0600).
+		if (!secretFn()) {
+			try {
+				ensureSecret(env)
+			} catch (error) {
+				c.ui.notify(`mailbridge: could not create the shared secret (${(error as Error).message})`, "error")
+				return
+			}
 		}
 
 		const healthy = await ensureDaemonSafe()
@@ -382,19 +389,23 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				// The counter map mixes accepted paths (routed, threaded, journaled) with actual
 				// refusals. Showing "rejections: routed 1" after a successful reply read as a
 				// failure and had no row in the troubleshooting table.
-				const accepted = new Set(["routed", "threaded", "journaled", "vanished"])
+				// Accepted paths and partial notes are not rejections: `route-miss` still routes
+				// by chain, `attachment-*` drops one file but keeps the reply, and
+				// `pending-full` defers rather than discards.
+				const accepted = new Set(["routed", "threaded", "journaled", "vanished", "route-miss"])
+				const notes = new Set(["pending-full"])
 				const entries = Object.entries(summary.reasons ?? {}).filter(([, n]) => Number(n) > 0)
-				const refusals = entries
-					.filter(([reason]) => !accepted.has(reason))
-					.map(([reason, n]) => `${reason} ${n}`)
-				const handled = entries
-					.filter(([reason]) => accepted.has(reason))
-					.map(([reason, n]) => `${reason} ${n}`)
+				const fmt = (list: [string, number][]): string => list.map(([reason, n]) => `${reason} ${n}`).join(", ")
+				const refusals = fmt(entries.filter(([r]) => !accepted.has(r) && !notes.has(r) && !r.startsWith("attachment-")))
+				const handled = fmt(entries.filter(([r]) => accepted.has(r)))
+				const attachmentNotes = fmt(entries.filter(([r]) => r.startsWith("attachment-")))
 				const when = summary.at ? new Date(summary.at).toLocaleTimeString() : "unknown"
 				return [
 					`last scan: ${when} — examined ${summary.examined}, kept ${summary.persisted}, rejected ${summary.rejected}`,
-					`rejections: ${refusals.join(", ") || "none"}`,
-					...(handled.length ? [`handled: ${handled.join(", ")}`] : []),
+					`rejections: ${refusals || "none"}`,
+					...(handled ? [`handled: ${handled}`] : []),
+					...(attachmentNotes ? [`attachments dropped: ${attachmentNotes}`] : []),
+					...(notes.has("pending-full") ? ["queue full: replies are deferred, not dropped"] : []),
 				]
 			}
 

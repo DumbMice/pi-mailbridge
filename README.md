@@ -139,9 +139,13 @@ last scan: 14:02:11 — examined 2, kept 1, rejected 1
 rejections: not-allowlisted 1
 ```
 
-A rejection count means mail was seen and dropped. `examined 0` means nothing arrived. If
-mode is off nothing is scanned at all, so this panel keeps showing the *previous* scan —
-that is why `/mailbridge status` is not proof the channel is open; the `mode:` line is.
+A non-zero `rejected` count means mail was seen and dropped; the reasons below it say why.
+`handled:` lines are the accepted paths (`route-miss` means the route id had expired or came
+from another machine and the reply still routed by the chain), `attachments dropped:` is a
+partial loss, and a full queue defers rather than discards. `examined 0` means nothing
+arrived. If mode is off nothing is scanned at all, so this panel keeps showing the
+*previous* scan — that is why `/mailbridge status` is not proof the channel is open; the
+`mode:` line is.
 
 | Reason | What it means | Fix |
 | --- | --- | --- |
@@ -149,9 +153,10 @@ that is why `/mailbridge status` is not proof the channel is open; the `mode:` l
 | `allowlist-empty` | `security.allowFrom` is empty, which denies everything | set it |
 | `dmarc-missing` / `dmarc-failed` | no `Authentication-Results` with `dmarc=pass` from a trusted relay | check `security.requireDmarcPass`; Microsoft consumer accounts need `trustedAuthservId` unset |
 | `no-token` | the subject lost its `[pi:…]` id **and** nothing in `In-Reply-To`/`References` matched | reply to the original mail, or keep the tag |
-| `other-device` | the id names a different `device.name` | reply from the machine that owns the session, or set `device.name` |
+| `route-miss` | the subject's id was expired or minted on another machine | nothing, if it routed by the chain — it appears under `handled:` |
+| `other-device` | the notification was minted by another pi machine, or `device.name` changed since | reply to a notification from this machine, or restore the old `device.name` |
 | `self` | single-mailbox mode, but `security.allowSelfReplies` is false, so a reply from your own address is refused | set it `true` (see One mailbox or two?) |
-| `self-echo` | it is our own notification coming back | nothing to do; this is the guard working |
+| `self-echo` | our own notification looping back, **or** a new mail you composed from the same address in single-mailbox mode | reply to the original notification instead |
 | `auto-generated` | a robot, a mailing list, or a bounce (`mailer-daemon`, `postmaster`, null sender) | nothing to do |
 | `empty-body` | no prose and no usable attachment | — |
 | `attachment-*` | an attachment was dropped (type, size, count) | see the reason suffix |
@@ -167,8 +172,8 @@ Where to look:
 | `…/threads.json` | outbound Message-IDs used for threading and the reply chain |
 | `…/journal.json` | acked UIDs (replay protection) |
 
-`/mailbridge check` validates config and credentials; `/mailbridge smoke` proves send and
-read both work. If `/mailbridge status` says the daemon is unreachable, `/mailbridge restart`
+`/mailbridge check` validates config and that credentials are present; `/mailbridge smoke`
+is what proves they work. If `/mailbridge status` says the daemon is unreachable, `/mailbridge restart`
 replaces the process.
 
 ## Security first
@@ -185,6 +190,9 @@ authorization is the allowlist and DMARC alone. Prefer a dedicated account or a 
 folder, never a mailbox that receives untrusted mail.
 
 ## Install
+
+Requires **Node.js ≥ 22.6** — the package ships TypeScript and runs it with
+`--experimental-strip-types`, which older Node does not have. (`pi`'s own Node is fine.)
 
 ```bash
 pi install npm:pi-mailbridge
@@ -215,10 +223,12 @@ accounts are the exception — they need OAuth, which means registering an app *
 /mailbridge auth      # after oauth.clientId is real; see docs/OAUTH.md
 ```
 
-`/mailbridge check` validates the config and credentials without sending anything.
+`/mailbridge check` validates the config's shape and that credentials are *present* —
+without connecting to anything, so it cannot tell a wrong password from a right one.
 `/mailbridge smoke` reloads the daemon (so it picks up the password you just added), sends
-one real mail and then opens the folder and counts — that proves both directions work, and
-leaves the daemon using the new credentials.
+one real mail and then opens the folder and counts. That proves SMTP accepts and IMAP reads
+(it does not correlate the message it sent), and it leaves the daemon using the new
+credentials.
 
 ### Your first notification
 
@@ -295,9 +305,9 @@ systemctl --user enable --now pi-mailbridge
 | `/back` | Email mode off: decisions ask in the terminal |
 | `/mailbridge` | Status: daemon health, mode, session, secret, mailbox, allowlist, pending replies |
 | `/mailbridge setup <addr> [to <addr>] [force]` | Discover servers + auth, write the config, reload the daemon |
-| `/mailbridge check` | Validate config and credentials; says what is missing |
+| `/mailbridge check` | Validate the config and that credentials are present (no network) |
 | `/mailbridge auth` | Start the OAuth2 device login; prints the URL, polls in the background |
-| `/mailbridge smoke` | Send one real mail, then open the folder and count |
+| `/mailbridge smoke` | Reload the daemon, send one real mail, then open the folder and count |
 | `/mailbridge restart` | Replace the daemon process (needed after an update, not just a config change) |
 | `/mailbridge prime` | Set the cursor to now, so existing mail is never read |
 
@@ -311,9 +321,10 @@ systemctl --user disable --now pi-mailbridge
 rm -f ~/.config/systemd/user/pi-mailbridge.service
 systemctl --user daemon-reload
 
-# 2. the package — the same way you installed it
-#    (`pi install npm:pi-mailbridge` has an uninstall counterpart in pi; if you
-#     manage it by hand, remove it from your pi config and delete its directory)
+# 2. the package — the reverse of however you installed it. For the documented
+#    `pi install npm:pi-mailbridge`, use pi's uninstall for that package in your pi
+#    configuration; for a manual checkout, remove the package directory and any entry
+#    you added to your pi config.
 
 # 3. everything it wrote: credentials, routing ids, queued replies
 rm -rf ~/.local/state/pi-mailbridge ~/.config/pi-mailbridge
@@ -358,13 +369,13 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | --- | --- | --- |
 | `mail.imap.host` / `.port` / `.secure` | — / 993 / true | IMAP server |
 | `mail.imap.user` | — | pi's mailbox account |
-| `mail.imap.password` | — | app password when `authType` is `LOGIN` |
+| `mail.imap.password` | — | password or app password when `authType` is `LOGIN` |
 | `mail.imap.folder` | `INBOX` | watched folder |
 | `mail.imap.authType` | `LOGIN` | `LOGIN` or `XOAUTH2` |
 | `mail.imap.tokenCommand` | `[]` | argv whose stdout is an access token (XOAUTH2) |
 | `mail.smtp.host` / `.port` / `.secure` | — / 465 / true | SMTP server |
 | `mail.smtp.user` | — | also the `From:` and the loop-guard identity |
-| `mail.smtp.password` | — | app password when `authType` is `LOGIN` |
+| `mail.smtp.password` | — | password or app password when `authType` is `LOGIN` |
 | `mail.smtp.authType` | `LOGIN` | `LOGIN` or `XOAUTH2` |
 | `mail.smtp.tokenCommand` | `[]` | argv whose stdout is an access token (XOAUTH2) |
 | `mail.to` | — | **your** address: where notifications go |
@@ -392,7 +403,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 
 | Provider | Auth | Status |
 | --- | --- | --- |
-| Any IMAP/SMTP host (self-hosted, Posteo, Fastmail, Zoho…) | `LOGIN` app password | ✅ works |
+| Any IMAP/SMTP host (self-hosted, Posteo, Fastmail, Zoho…) | `LOGIN` — the account password or a provider app password | ✅ works |
 | **QQ Mail / Foxmail / 163 / 126** (practical in mainland China) | `LOGIN` 授权码 | ✅ works, built into discovery |
 | Gmail | app password (`LOGIN`) recommended | ✅ works |
 | Microsoft 365 / work accounts | `XOAUTH2` | ✅ usually works |

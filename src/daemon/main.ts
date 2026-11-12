@@ -283,7 +283,20 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 		return parts.length ? parts.join(" ") : "no reasons"
 	}
 
-	async function scanOnce(why: string): Promise<void> {
+	// Serialized: an IDLE event, a mode-on change and a reconnect can all ask for a scan at
+	// once, and two scans that both pass the journal check before either persists would
+	// deliver the same reply twice.
+	let scanQueue: Promise<void> = Promise.resolve()
+
+	function scanOnce(why: string): Promise<void> {
+		scanQueue = scanQueue.then(
+			() => scanNow(why),
+			() => scanNow(why),
+		)
+		return scanQueue
+	}
+
+	async function scanNow(why: string): Promise<void> {
 		// `/back` must actually close the channel, not just stop the mail coming back.
 		// While mode is off nothing is fetched or persisted and the cursor stays put, so
 		// turning /afk back on processes what arrived meanwhile.
@@ -396,6 +409,7 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 		idleTimeoutMs: (currentConfig.daemon.idleTimeoutSecs ?? 120) * 1000,
 		// `/mailbridge setup` / `auth` write new config or tokens; pick them up here.
 		reload: async () => {
+			const previous = currentConfig
 			try {
 				await currentWatcher?.stop()
 				currentConfig = loadConfig()
@@ -404,6 +418,15 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 				log("reloaded config and restarted the watcher")
 				return { ok: true }
 			} catch (error) {
+				// Do not leave the daemon holding a config whose watcher never started: that
+				// is a working install turned into a silent one by a diagnostic command.
+				currentConfig = previous
+				try {
+					await startWatcher(previous)
+					log(`reload failed (${(error as Error).message}); kept the previous config`)
+				} catch {
+					log(`reload failed (${(error as Error).message}); previous watcher could not restart either`)
+				}
 				return { ok: false, error: (error as Error).message }
 			}
 		},

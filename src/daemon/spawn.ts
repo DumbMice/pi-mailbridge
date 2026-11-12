@@ -4,7 +4,8 @@
 // freshly booted machine. `ensureDaemon` probes /health and, if nothing answers,
 // spawns the daemon detached so it outlives this pi session.
 //
-// Detached + stdio:ignore is deliberate. The daemon owns the mailbox and must outlive the
+// Detached, with output appended to daemon.log (not stdio:ignore: a silent daemon made the
+// catch-up failures invisible). The daemon owns the mailbox and must outlive the
 // process that started it so another session (or the phone) can still be served. It is not
 // immortal: it exits once every session has stopped pinging - see `daemon.exitWhenIdle`.
 

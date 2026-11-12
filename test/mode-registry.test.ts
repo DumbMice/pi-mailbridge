@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { DEFAULT_MODE, isMode, readMode, writeMode } from "../src/store/mode-store.ts"
+import { DEFAULT_MODE, isMode, readMode, scanningEnabled, writeMode } from "../src/store/mode-store.ts"
 import { DEFAULT_MAX_ENTRIES, REGISTRY_TTL_MS, createRegistry } from "../src/store/registry.ts"
 
 const env = () => ({ XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-mode-")) })
@@ -124,4 +124,10 @@ test("list reports live sessions only", () => {
 test("defaults are sane", () => {
 	assert.equal(REGISTRY_TTL_MS, 24 * 60 * 60 * 1000)
 	assert.equal(DEFAULT_MAX_ENTRIES, 10_000)
+})
+
+test("scanningEnabled: only 'on' lets the daemon touch the mailbox", () => {
+	// The rule /back rests on, in one place.
+	assert.equal(scanningEnabled("on"), true)
+	assert.equal(scanningEnabled("off"), false)
 })

@@ -451,3 +451,31 @@ test("the README's status example matches the formatter's shape", () => {
 	// Accepted-path counters must not be labelled as rejections (they were).
 	assert.match(extension, /accepted\.has|accepted = new Set/, "status must separate accepted counters from refusals")
 })
+
+test("no doc claims /mailbridge check verifies credentials work", () => {
+	// It checks presence and shape without a network call; a wrong password still reports
+	// "config ok", so saying it validates credentials sends users away from smoke.
+	for (const { file, text } of allProse()) {
+		for (const line of text.split("\n")) {
+			if (!/mailbridge check|--check/.test(line)) continue
+			assert.ok(
+				!/(validates?|verif(?:y|ies)|checks?)\b[^.]*\bcredentials\b(?!\s*(?:are\s+)?\*?present)/i.test(line),
+				`${file}: ${line.trim()}`,
+			)
+		}
+	}
+})
+
+test("the README states the Node floor", () => {
+	assert.match(doc("README.md"), /Node(?:\.js)?\s*(?:≥|>=)\s*22\.6/, "the docs must state the minimum Node version")
+	const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { engines?: { node?: string } }
+	assert.equal(pkg.engines?.node, ">=22.6", "and it must match package.json")
+})
+
+test("route-miss and attachment drops are not classified as rejections", () => {
+	// They were printed under "rejections:" while `rejected` said 0, contradicting itself.
+	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
+	const accepted = /const accepted = new Set\(\[([^\]]*)\]\)/.exec(extension)?.[1] ?? ""
+	assert.ok(accepted.includes("route-miss"), "route-miss still routes, so it is not a rejection")
+	assert.match(extension, /attachment-/, "attachment drops are reported as notes")
+})

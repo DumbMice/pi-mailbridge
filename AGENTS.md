@@ -36,7 +36,7 @@ Break one of these and the package loses mail or becomes a hole:
 src/extension.ts     pi entry: tools, commands, events, polling client
 src/core/            authz, config, mailer, token, reply parsing, oauth, rendering, settle
 src/daemon/          main (CLI+lifecycle), service (HTTP), watcher (IDLE), process (scan)
-src/store/           paths, secret, pending, journal, routes, threads, cursor, mode, registry
+src/store/           paths, secret, pending, journal, routes, threads, cursor, mode, registry, oauth
 docs/                ARCHITECTURE, SECURITY, OAUTH, MAPPING
 test/                unit tests — must never touch real IMAP or SMTP
 ```

@@ -27,7 +27,7 @@ export interface ParsedCommand {
 export const USAGE = [
 	"/mailbridge                 status",
 	"/mailbridge setup <pi-address> [to <your-address>] [force]",
-	"/mailbridge check           validate config and credentials",
+	"/mailbridge check           validate config, and that credentials are present",
 	"/mailbridge auth            approve OAuth2 device login",
 	"/mailbridge smoke           send one real mail, then read the folder back",
 	"/mailbridge prime           start watching from now, ignoring existing mail",

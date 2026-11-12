@@ -1,4 +1,7 @@
 import { test } from "node:test"
+import { mkdtempSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import assert from "node:assert/strict"
 
 import mailbridge, { type ExtensionCtxLike, type ExtensionLike, type SettleTimers } from "../src/extension.ts"
@@ -606,4 +609,40 @@ test("with ping present, the per-tick gate still blocks a claim while mode is of
 	await new Promise((r) => setImmediate(r))
 	await new Promise((r) => setImmediate(r))
 	assert.deepEqual(daemon.acked, [8], "delivered once the channel reopens")
+})
+
+test("a machine with no secret yet still starts the daemon and the poll loop", async () => {
+	// The extension used to bail out with "start the daemon once to create it" - but the
+	// daemon can only be started by this code, so a fresh install was a deadlock: no daemon,
+	// no notifier, no first notification, and the documented recovery did not help either.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon()
+	let spawned = 0
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-bootstrap-")) }
+	const { readSecret } = await import("../src/store/secret.ts")
+	const pi = fakePi(ctx(notes))
+	mailbridge(pi, {
+		env,
+		// Reads the file each time, so the key the extension mints is visible afterwards -
+		// which is exactly how production behaves.
+		secret: () => readSecret(env),
+		loadConfig: config,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => {
+			spawned++
+			return true
+		},
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+
+	assert.equal(spawned, 1, "the daemon is started on a first run")
+	assert.ok(
+		!notes.some((n) => /no shared secret/.test(n)),
+		`must not bail out for a missing secret (notifications: ${JSON.stringify(notes)})`,
+	)
+	// And the poll loop is armed, which is what proves startRuntime ran.
+	assert.ok(t.queue.some((q) => q.ms === 60_000), "the poll loop is running")
 })

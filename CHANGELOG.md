@@ -397,7 +397,7 @@ flow against `login.microsoftonline.com` fails. config now warns when
 
 docs/OAUTH.md gains the concrete steps for getting a tenant with a personal
 Hotmail — global Azure free account (creates a default directory) or the
-Microsoft 365 Developer Program (free sandbox tenant, no credit card) — and the
+Microsoft 365 Developer Program (free sandbox tenant, no credit card) — **corrected below: the sandbox is now gated** — and the
 note that an MSA already attached to a tenant joins that tenant instead of
 getting a fresh directory.
 

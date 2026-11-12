@@ -5,7 +5,7 @@
       "port": 993,
       "secure": true,
       "user": "pi@example.com",
-      "password": "APP_PASSWORD_NOT_LOGIN_PASSWORD",
+      "password": "<PASSWORD>",
       "folder": "INBOX",
       "authType": "LOGIN",
       "tokenCommand": []
@@ -15,7 +15,7 @@
       "port": 465,
       "secure": true,
       "user": "pi@example.com",
-      "password": "APP_PASSWORD_NOT_LOGIN_PASSWORD",
+      "password": "<PASSWORD>",
       "authType": "LOGIN",
       "tokenCommand": []
     },
