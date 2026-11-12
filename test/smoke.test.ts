@@ -129,9 +129,11 @@ test("smoke reports whether our own marker survives delivery", async () => {
 	// Single-mailbox mode rests on the provider keeping either the marker header or our
 	// Message-ID. Probing it here turns the package's biggest open question into a step the
 	// user can read.
+	// Single-mailbox shape: mail.to is the mailbox itself.
 	const cfg = config()
+	const single = { ...cfg, mail: { ...cfg.mail, to: cfg.mail.imap.user } }
 
-	const withMarker = await runSmoke(cfg, {
+	const withMarker = await runSmoke(single, {
 		send: async () => ({ messageId: "<abc@example.com>" }),
 		connect: async () => ({
 			count: async () => 1,
@@ -143,7 +145,7 @@ test("smoke reports whether our own marker survives delivery", async () => {
 	assert.equal(marker?.ok, true)
 	assert.match(marker!.detail, /marker header survives/)
 
-	const stripped = await runSmoke(cfg, {
+	const stripped = await runSmoke(single, {
 		send: async () => ({ messageId: "<abc@example.com>" }),
 		connect: async () => ({
 			count: async () => 1,
@@ -155,7 +157,7 @@ test("smoke reports whether our own marker survives delivery", async () => {
 	assert.equal(idOnly?.ok, true, "the Message-ID alone still keeps the guard")
 	assert.match(idOnly!.detail, /Message-ID survives/)
 
-	const both = await runSmoke(cfg, {
+	const both = await runSmoke(single, {
 		send: async () => ({ messageId: "<abc@example.com>" }),
 		connect: async () => ({
 			count: async () => 1,
@@ -166,4 +168,25 @@ test("smoke reports whether our own marker survives delivery", async () => {
 	const broken = both.steps.find((s) => s.step === "echo")
 	assert.equal(broken?.ok, false)
 	assert.match(broken!.detail, /may re-ingest/)
+})
+
+test("the echo probe only runs when the notification lands in the watched mailbox", async () => {
+	// In layout A the smoke mail goes to the human, so the newest message in our INBOX is
+	// unrelated; probing it would report a false alarm about our own marker.
+	const cfg = config()
+	let probed = 0
+	const twoBoxes = { ...cfg, mail: { ...cfg.mail, to: "you@hotmail.com", imap: { ...cfg.mail.imap, user: "pi@qq.com" } } }
+	const result = await runSmoke(twoBoxes, {
+		send: async () => ({ messageId: "<abc@example.com>" }),
+		connect: async () => ({
+			count: async () => 1,
+			newestHeaders: async () => {
+				probed++
+				return Buffer.from("X-Pi-Mailbridge: notification")
+			},
+			close: async () => {},
+		}),
+	})
+	assert.equal(probed, 0, "no probe for two mailboxes")
+	assert.equal(result.steps.some((s) => s.step === "echo"), false, "and no echo step")
 })

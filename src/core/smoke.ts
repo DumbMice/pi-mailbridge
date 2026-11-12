@@ -110,13 +110,16 @@ export async function runSmoke(config: ResolvedConfig, deps: SmokeDeps = {}): Pr
 		const count = await connection.count()
 		steps.push({ ok: true, step: "imap", detail: `${count} message(s) visible in ${folder}` })
 
-		// --- echo probe (the one live question single-mailbox mode depends on) ---
+		// --- echo probe ---
 		//
-		// Our own notification must come back carrying `X-Pi-Mailbridge` and the Message-ID we
-		// stamped: they are the two independent guards that stop the agent re-ingesting its own
-		// mail. If the provider strips both, the loop becomes possible. Probe it here rather than
-		// discovering it from a talking agent.
-		const headers = await connection.newestHeaders?.()
+		// Only meaningful in the single-mailbox layout: there the notification is delivered into
+		// the folder we watch, so the newest message is ours. In layout A it goes to the human's
+		// mailbox, and the newest message in *our* INBOX is unrelated - probing it would report a
+		// false alarm about the marker header.
+		const sameMailbox =
+			Boolean(config.mail.to) &&
+			config.mail.to.trim().toLowerCase() === (config.mail.imap.user ?? "").trim().toLowerCase()
+		const headers = sameMailbox ? await connection.newestHeaders?.() : undefined
 		if (headers) {
 			const text = headers.toString("utf8")
 			const marker = /^x-pi-mailbridge:\s*notification/im.test(text)
