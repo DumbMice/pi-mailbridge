@@ -104,5 +104,8 @@ export function renderBody(text: string): string {
 
 	const head = text.slice(0, index)
 	const tail = text.slice(index)
-	return `${renderMarkdown(head)}\n<pre class="signature" style="font:inherit;opacity:.75;margin:0">${escapeHtml(tail)}</pre>`
+	// A visible divider, but literal text: rendering `--` as Markdown would make it a
+	// setext heading underline and swallow the body above it.
+	const signatureStyle = "font:inherit;opacity:.75;margin:18px 0 0;padding-top:10px;border-top:1px solid #d8dee4"
+	return `${renderMarkdown(head)}\n<pre class="signature" style="${signatureStyle}">${escapeHtml(tail)}</pre>`
 }

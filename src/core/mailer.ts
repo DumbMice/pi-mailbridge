@@ -15,12 +15,14 @@
 import nodemailer from "nodemailer"
 
 import type { ResolvedConfig } from "./config.ts"
-import { textToHtml } from "./html.ts"
+import { renderMessage } from "./html.ts"
 
 export interface OutboundMessage {
 	to: string
 	subject: string
 	text: string
+	/** Base directory for relative image paths; normally the agent's project dir. */
+	cwd?: string
 	/** Defaults to the SMTP user. */
 	from?: string
 }
@@ -92,6 +94,7 @@ export async function sendMail(
 	const factory = deps.transportFactory ?? defaultTransportFactory
 	const transportOptions = await buildTransportOptions(config, deps)
 	const transporter = factory(transportOptions)
+	const rendered = renderMessage(message.text, { ...(message.cwd ? { root: message.cwd } : {}) })
 
 	const info = (await transporter.sendMail({
 		from: message.from ?? config.mail.smtp.user,
@@ -100,7 +103,9 @@ export async function sendMail(
 		// multipart/alternative: clients fold quoted history only for HTML mail, so
 		// plain-text-only notifications produced reply threads of raw repeated text.
 		text: message.text,
-		html: textToHtml(message.text),
+		html: rendered.html,
+		// Local images become cid: attachments; a bare file path would arrive broken.
+		...(rendered.attachments.length > 0 ? { attachments: rendered.attachments } : {}),
 	})) as { messageId?: string } | undefined
 
 	return info?.messageId ? { messageId: info.messageId } : {}

@@ -31,7 +31,7 @@ export interface DaemonDeps {
 	token: string
 	source: MailSource
 	/** Sends mail. Injected so tests never open a socket. */
-	send: (message: { to: string; subject: string; text: string }) => Promise<{ messageId?: string } | void>
+	send: (message: { to: string; subject: string; text: string; cwd?: string }) => Promise<{ messageId?: string } | void>
 	/**
 	 * Called after a successful send with the assigned Message-ID, so the caller can
 	 * record it for reply-chain routing. Kept out of this module so the service does
@@ -282,9 +282,11 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					const subject = typeof body?.subject === "string" ? body.subject : ""
 					const text = typeof body?.text === "string" ? body.text : ""
 					const to = typeof body?.to === "string" && body.to ? body.to : deps.config.mail.to
+					// cwd lets the mailer resolve relative image paths from the agent's project.
+					const cwd = typeof body?.cwd === "string" ? body.cwd : undefined
 					if (!subject || !text) return fail(400, "bad_request")
 					try {
-						const result = await deps.send({ to, subject, text })
+						const result = await deps.send({ to, subject, text, ...(cwd ? { cwd } : {}) })
 						// Record the outbound id so a reply reaches this session even if a
 						// client or a human rewrites the subject token away.
 						deps.onSent?.({ messageId: (result as { messageId?: string } | undefined)?.messageId, subject })

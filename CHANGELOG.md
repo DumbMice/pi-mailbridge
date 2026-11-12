@@ -125,7 +125,26 @@ IDLE event - the opposite of what ARCHITECTURE.md promises.
 - spawn.ts: a detached daemon now appends to `daemon.log` instead of discarding stdio.
   `stdio: "ignore"` is why this failure was invisible; the log is what found it.
 
-### Tables in mail need inline borders
+### Local images are inlined as cid attachments
+
+A Markdown image pointing at a local file rendered as `<img src="./shot.png">`, which a
+mail client cannot resolve - the reader saw a broken image. Local images are now read and
+attached with `multipart/related`, referenced by `cid:`, so a screenshot the agent
+produced arrives as an actual picture.
+
+Safety, because the src comes from model output and the result leaves the machine:
+
+- the file must **sniff** as an image from magic bytes (PNG/JPEG/GIF/WebP), so a renamed
+  text file or key is never attached
+- 128 KB per image, 384 KB total, 4 images - a notification cannot become a file transfer
+- unreadable, oversized or non-image paths degrade to a short bracketed note, never a
+  broken image
+- cids are content-addressed, so one screenshot referenced twice is attached once
+
+Relative paths resolve against the sending session's project directory, which the
+extension now passes to `/send` as `cwd`.
+
+### Tables in mail need inline borders### Tables in mail need inline borders
 
 Reported from a rendered notification: a Markdown table arrived as loose text. markdown-it
 emits a bare <table>, and mail clients default to no borders, while a <style> block is
@@ -179,9 +198,9 @@ wrote first. The library earns its six small transitive dependencies:
 - `linkify` turns bare URLs into links, which is most of the value of a mail
 - `breaks` keeps single newlines, matching how the body is written
 
-The `--` signature block is still rendered as literal text (`<pre>`), because a line of
-`--` after text is a setext heading underline and would swallow our metadata into an
-`<h2>`.
+The `--` signature block stays literal text (`<pre>`), because a line of `--` after text
+is a setext heading underline and would swallow our metadata into an `<h2>`. It now
+carries a top border so it reads as a divider rather than running into the answer.
 
 
 

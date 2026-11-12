@@ -242,7 +242,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			mode: () => emailMode,
 			context: sessionContext,
 			send: async (message) => {
-				await client?.send({ subject: message.subject, text: message.text })
+				await client?.send({
+					subject: message.subject,
+					text: message.text,
+					...(ctx ? { cwd: ctx.cwd } : {}),
+				})
 			},
 			secret: () => secret,
 			config: config.notify,
@@ -558,6 +562,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			const sent = await client.send({
 				subject: `[pi:${tag}] ${String(params["subject"] ?? "pi: decision")}`,
 				text: body,
+				cwd: c.cwd,
 			})
 			if (!sent.ok) {
 				await client.release(sessionId)
@@ -589,6 +594,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			const sent = await client.send({
 				subject: `[pi:${tag}] ${String(params["subject"] ?? "pi: update")}`,
 				text: String(params["message"] ?? ""),
+				...((sessionContext()?.cwd ?? undefined) ? { cwd: sessionContext()!.cwd } : {}),
 			})
 			return {
 				content: [{ type: "text", text: sent.ok ? "Sent." : "Could not send." }],

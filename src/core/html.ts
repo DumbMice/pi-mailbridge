@@ -12,6 +12,7 @@
 // into the recipient's mail client.
 
 import { renderBody } from "./markdown.ts"
+import { inlineLocalImages, type InlineAttachment, type SkippedImage } from "./inline-images.ts"
 
 const ENTITIES: Record<string, string> = {
 	"&": "&amp;",
@@ -40,4 +41,19 @@ export function textToHtml(text: string): string {
 		renderBody(text),
 		"</div>",
 	].join("")
+}
+
+export interface RenderedMessage {
+	html: string
+	attachments: InlineAttachment[]
+	skipped: SkippedImage[]
+}
+
+/**
+ * Full HTML body plus any images that had to be inlined.
+ * `root` is the agent's working directory, used to resolve relative image paths.
+ */
+export function renderMessage(text: string, options: { root?: string } = {}): RenderedMessage {
+	const rendered = inlineLocalImages(textToHtml(text), options)
+	return { html: rendered.html, attachments: rendered.attachments, skipped: rendered.skipped }
 }
