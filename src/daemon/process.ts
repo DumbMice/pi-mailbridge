@@ -22,7 +22,7 @@ import { tokenFromSubject } from "../core/token.ts"
 import { selectAttachments, type RawAttachment } from "../core/attachments.ts"
 import { findOutbound, parseMessageIds, lookupChain } from "../store/threads.ts"
 import { routeIdFromSubject, resolveRoute } from "../store/routes.ts"
-import { addPending, type PendingRecord } from "../store/pending-store.ts"
+import { addPending, expirePending, type PendingRecord } from "../store/pending-store.ts"
 import { isJournaled } from "../store/journal.ts"
 import { advanceCursor, readCursor } from "../store/uid-cursor.ts"
 
@@ -276,6 +276,20 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		// Persist BEFORE the cursor moves. A crash here leaves the mail unseen.
 		const added = addPending(env, record)
 		if (!added.ok) {
+			// The queue is full. Before stalling every future reply, drop records nothing can
+			// deliver any more - a session that has not come back in a week. This is the only
+			// place age-based expiry runs, because it is the only place the loss buys progress.
+			const expired = expirePending(env)
+			if (expired.length > 0) {
+				result.rejected++
+				bump(result.reasons, "expired")
+				const retry = addPending(env, record)
+				if (retry.ok) {
+					result.persisted++
+					result.cursor = advanceCursor(env, uid)
+					continue
+				}
+			}
 			// The queue is full. STOP the batch: advancing past this UID would lose it, and
 			// so would processing a later UID (the cursor is monotonic, so it would jump
 			// over this one). The mail stays unread and the whole batch is retried once

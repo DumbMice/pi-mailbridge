@@ -7,7 +7,7 @@ import { join } from "node:path"
 import type { ResolvedConfig } from "../src/core/config.ts"
 import { signToken } from "../src/core/token.ts"
 import { MAX_BODY_CHARS, scanAndProcess, type MailSource, type RawMessage } from "../src/daemon/process.ts"
-import { addPending, getPending, PENDING_CAP } from "../src/store/pending-store.ts"
+import { addPending, getPending, pendingSize, PENDING_CAP } from "../src/store/pending-store.ts"
 import { listPending } from "../src/store/pending-store.ts"
 import { journal } from "../src/store/journal.ts"
 import { readCursor } from "../src/store/uid-cursor.ts"
@@ -562,7 +562,7 @@ test("a full pending store does not advance the cursor past the undelivered mail
 			from: "you@example.com",
 			subject: "x",
 			body: "y",
-			receivedAt: 1,
+			receivedAt: Date.now(),
 		})
 	}
 	const { readCursor } = await import("../src/store/uid-cursor.ts")
@@ -593,7 +593,7 @@ test("pending-full stops the batch so a later UID cannot advance the cursor past
 	// UID that persists would jump over the refused one, losing it for good.
 	const e = env()
 	for (let uid = 1; uid <= PENDING_CAP; uid++) {
-		addPending(e, { uid, sessionId: "other", from: "you@example.com", subject: "x", body: "y", receivedAt: 1 })
+		addPending(e, { uid, sessionId: "other", from: "you@example.com", subject: "x", body: "y", receivedAt: Date.now() })
 	}
 	const { readCursor } = await import("../src/store/uid-cursor.ts")
 	const before = readCursor(e)
@@ -690,4 +690,43 @@ test("a huge body is truncated before it is stored", async () => {
 	const body = listPending(e)[0]!.body
 	assert.ok(body.startsWith("x".repeat(MAX_BODY_CHARS)), "keeps the first MAX_BODY_CHARS")
 	assert.match(body, /\[truncated: \d+ more characters\]/, "and says it was cut")
+})
+
+test("a full queue expires records nothing can deliver rather than stalling for ever", async () => {
+	// At the cap the scanner normally stops and stops advancing the cursor, which stalls ALL
+	// inbound mail. Dropping records old enough that no session will claim them is the only
+	// place that loss buys progress - and it must not touch fresh ones.
+	const e = env()
+	for (let uid = 1; uid <= PENDING_CAP; uid++) {
+		addPending(e, {
+			uid,
+			sessionId: "gone",
+			from: "you@example.com",
+			subject: "x",
+			body: "y",
+			receivedAt: Date.now() - 8 * 24 * 3600_000,
+		})
+	}
+	const r = await scanAndProcess(config(), { source: source([msg(PENDING_CAP + 1)]), secret: SECRET, env: e })
+	assert.equal(r.reasons["expired"], 1, "old records were expired")
+	assert.equal(r.persisted, 1, "and the new reply was accepted")
+	assert.equal(pendingSize(e), 1, "the queue is clear of the undeliverable backlog")
+})
+
+test("a quiet session's queued reply is not expired by simply reconnecting", async () => {
+	// /back + a holiday: the reply waited nine days, and a reconnect used to delete it. The
+	// cursor was already past it, so it was gone for good.
+	const { expirePending } = await import("../src/store/pending-store.ts")
+	const e = env()
+	addPending(e, {
+		uid: 9,
+		sessionId: "quiet-but-alive",
+		from: "you@example.com",
+		subject: "re",
+		body: "yes",
+		receivedAt: Date.now() - 9 * 24 * 3600_000,
+	})
+	// Nothing expires it on its own; only queue pressure can.
+	assert.equal(expirePending(e, 30 * 24 * 3600_000).length, 0, "a 30-day horizon keeps it")
+	assert.equal(pendingSize(e), 1)
 })

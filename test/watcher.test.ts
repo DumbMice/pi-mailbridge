@@ -505,3 +505,41 @@ test("the real adapter exposes UIDVALIDITY (the guard is not inert in production
 	const closed = adapt({ ...fake, mailbox: false } as never)
 	assert.equal(closed.mailbox, undefined)
 })
+
+test("a message whose only body part is HTML still yields text", async () => {
+	// mailparser leaves `text` undefined for a multipart message with just a text/html part,
+	// and the scanner then rejected the reply as empty-body - permanently, since the cursor had
+	// advanced. Reproduced with a parser that mimics mailparser's shape.
+	const t = fakeTimers()
+	const watcher = createImapWatcher(config(), {
+		timers: t.timers,
+		callbacks: { onMail: () => {}, onReady: () => {} },
+		parser: async () => ({ text: "", html: "<p>yes, <b>ship it</b></p><p>thanks</p>", attachments: [] }),
+		factory: () =>
+			({
+				usable: true,
+				async connect() {},
+				async logout() {},
+				async mailboxOpen() {},
+				async search() {
+					return []
+				},
+				async fetchOne() {
+					return { source: Buffer.from("Subject: x\r\n\r\n<p>yes</p>") }
+				},
+				on() {},
+			}) as never,
+	})
+	await watcher.start()
+	const message = await watcher.fetch(1)
+	assert.match(message?.text ?? "", /yes, ship it/, "the human's words survive")
+	assert.match(message?.text ?? "", /thanks/)
+})
+
+test("htmlToText keeps text content and drops markup", async () => {
+	const { htmlToText } = await import("../src/daemon/watcher.ts")
+	const text = htmlToText("<div>Hello <b>you</b></div><br><p>第二行</p><style>x{}</style>")
+	assert.match(text, /Hello you/)
+	assert.match(text, /第二行/)
+	assert.ok(!/[<>]/.test(text), `no tags should remain: ${text}`)
+})

@@ -148,7 +148,30 @@ export const defaultBodyParser: BodyParser = async (raw) => {
 		contentType: a.contentType ?? "application/octet-stream",
 		content: a.content,
 	}))
-	return { text: parsed.text ?? "", attachments }
+	// mailparser leaves `text` undefined for a multipart message whose only body part is
+	// text/html, and the scanner rejected such a reply as empty-body - permanently, because the
+	// cursor had advanced. Fall back to the HTML part, tag-stripped.
+	// `text` is often the empty string (not undefined) for that shape, so test for content.
+	const text = parsed.text?.trim() ? parsed.text : parsed.html ? htmlToText(parsed.html) : ""
+	return { text, attachments }
+}
+
+/** Coarse HTML → text: enough to keep the human's words, not a renderer. */
+export function htmlToText(html: string): string {
+	return html
+		.replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
+		.replace(/<br\s*\/?>/gi, "\n")
+		.replace(/<\/(p|div|tr|li|h[1-6])>/gi, "\n")
+		.replace(/<[^>]+>/g, " ")
+		.replace(/&nbsp;/gi, " ")
+		.replace(/&amp;/gi, "&")
+		.replace(/&lt;/gi, "<")
+		.replace(/&gt;/gi, ">")
+		.replace(/&quot;/gi, '"')
+		.replace(/&#39;/gi, "'")
+		.replace(/[ \t]{2,}/g, " ")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim()
 }
 
 /** The subset of ImapFlow this module uses. */

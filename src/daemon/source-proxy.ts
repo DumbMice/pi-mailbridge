@@ -5,7 +5,7 @@
 // ever tested through a hand-built fixture, so the proxy and the UIDVALIDITY bookkeeping live
 // here, in one small file, where they can be driven directly.
 
-import { dropPendingFromOtherSpaces, expirePending, listPending } from "../store/pending-store.ts"
+import { dropPendingFromOtherSpaces, listPending } from "../store/pending-store.ts"
 import { syncUidValidity } from "../store/uid-cursor.ts"
 import type { MailSource } from "./process.ts"
 
@@ -68,10 +68,11 @@ export function applyUidValidity(
 	// On a reset the cursor re-reads it; on the orphan path (no reset) the message is behind
 	// an already-advanced cursor, which is why the drop runs every connect. Their decision
 	// slots are freed, or that session would be told it has an outstanding decision for a day.
-	// Expire first: a record whose session is gone can never be claimed, and enough of them
-	// fill the queue cap - at which point the scanner stops advancing and all mail stalls.
-	const expired = expirePending(env)
-	const dropped = [...expired, ...dropPendingFromOtherSpaces(env, validity)]
+	// Only records from another UID space are dropped here. Age-based expiry used to run on every
+	// connect, which deleted replies for sessions that were merely quiet - a user on /back for a
+	// week came home to nothing to drain, with the cursor already past the mail. Expiry now
+	// happens under queue pressure only (see process.ts).
+	const dropped = dropPendingFromOtherSpaces(env, validity)
 	if (dropped.length > 0) {
 		// Only free a slot the dropped record was holding: a session that still has a live
 		// record in the current space must keep its reservation, or it could be granted a
