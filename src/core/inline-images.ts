@@ -29,7 +29,7 @@
 
 import { createHash } from "node:crypto"
 import { readFileSync, realpathSync, statSync } from "node:fs"
-import { isAbsolute, resolve } from "node:path"
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path"
 import { homedir } from "node:os"
 import { configDir, stateDir } from "../store/paths.ts"
 
@@ -45,7 +45,15 @@ export interface InlineAttachment {
 
 export interface SkippedImage {
 	src: string
-	reason: "not-found" | "not-an-image" | "too-large" | "too-many" | "unreadable" | "not-allowed" | "outside-root"
+	reason:
+		| "not-found"
+		| "not-an-image"
+		| "too-large"
+		| "too-many"
+		| "unreadable"
+		| "not-allowed"
+		| "outside-root"
+		| "root-refused"
 }
 
 export interface InlineResult {
@@ -159,6 +167,9 @@ function safeStat(path: string): ReturnType<typeof statSync> | undefined {
 	}
 }
 
+/** Where an attachment was refused, so the note can say something true. */
+type RootVerdict = "ok" | "outside-root" | "root-refused"
+
 /**
  * Is this resolved file safe to attach?
  *
@@ -167,24 +178,41 @@ function safeStat(path: string): ReturnType<typeof statSync> | undefined {
  *   - the project directory itself must be a real project, not `/` or your home - with cwd = ~
  *     the config file is "inside the project" and the allowlist would happily mail the password;
  *   - the daemon's own config and state directories are never attached, whatever the cwd.
+ *
+ * The comparison goes through `relative()`, not a `/`-joined prefix: on Windows the separator is
+ * `\`, so a prefix test silently refused every attachment there.
  */
-function insideRoot(path: string, rootReal: string | undefined): boolean {
-	if (!rootReal) return false
-	// A path that does not resolve yet (a missing file, a dangling link) is compared in its
-	// resolved-lexical form so the caller's stat can report "not found"; a path that resolves to
-	// somewhere else - `ln -s /proc/self/fd/0` - is compared at its real location and refused.
-	const target = safeRealpath(path) ?? path
+function insideRoot(path: string, rootReal: string | undefined): RootVerdict {
+	if (!rootReal) return "root-refused"
+
+	// A path that does not resolve yet (a missing file, a dangling link) is compared by its
+	// parent's real location plus its own name, so a project reached through a symlinked path
+	// (macOS /var -> /private/var, a symlinked checkout) still reports "not found" rather than
+	// "outside the project"; a path that resolves elsewhere - `ln -s /proc/self/fd/0` - is
+	// compared at its real location and refused.
+	const target = safeRealpath(path) ?? joinResolved(dirname(path), basename(path))
 
 	const home = safeRealpath(homedir())
-	if (rootReal === "/" || (home !== undefined && rootReal === home)) return false
+	// Exact equality: a project *inside* home is the normal case and must still attach.
+	if (rootReal === "/" || (home !== undefined && rootReal === home)) return "root-refused"
 
 	for (const dir of [configDir(), stateDir()]) {
 		const real = safeRealpath(dir)
-		if (real && (target === real || target.startsWith(`${real}/`))) return false
+		if (real && contains(real, target)) return "root-refused"
 	}
 
-	const prefix = rootReal.endsWith("/") ? rootReal : `${rootReal}/`
-	return target === rootReal || target.startsWith(prefix)
+	return contains(rootReal, target) ? "ok" : "outside-root"
+}
+
+/** Does `parent` contain `child`? Separator-agnostic and not fooled by a shared prefix. */
+function contains(parent: string, child: string): boolean {
+	const rel = relative(parent, child)
+	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))
+}
+
+/** realpath of a directory plus one unresolved name. */
+function joinResolved(dir: string, name: string): string {
+	return `${safeRealpath(dir) ?? dir}/${name}`
 }
 
 /** A filename a mail client will accept: no separators, no control characters, bounded. */
@@ -259,9 +287,15 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 		}
 
 		const path = resolvePath(src, root)
-		if (!insideRoot(path, rootReal)) {
-			skipped.push({ src, reason: "outside-root" })
-			return note(alt || "image", "not attached, outside the project")
+		const verdict = insideRoot(path, rootReal)
+		if (verdict !== "ok") {
+			skipped.push({ src, reason: verdict })
+			return note(
+				alt || "image",
+				verdict === "root-refused"
+					? "not attached, start pi in a project directory"
+					: "not attached, outside the project",
+			)
 		}
 		let bytes: Buffer
 		try {
@@ -330,7 +364,13 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 			return `${inner} ${note("not attached", text)}`
 		}
 		if (attachments.length >= maxCount) return refuse("too-many", "too many attachments")
-		if (!insideRoot(path, rootReal)) return refuse("outside-root", "outside the project")
+		const verdict = insideRoot(path, rootReal)
+		if (verdict !== "ok") {
+			return refuse(
+				verdict,
+				verdict === "root-refused" ? "start pi in a project directory" : "outside the project",
+			)
+		}
 		const filename = safeFilename(href, "file")
 		const ext = filename.includes(".") ? filename.split(".").pop()!.toLowerCase() : ""
 		const contentType = ALLOWED_FILE_EXTENSIONS[ext]
@@ -341,13 +381,14 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 			const st = safeStat(path)
 			if (!st) return refuse("not-found", "file not found")
 			if (!st.isFile()) return refuse("unreadable", "not a regular file")
-			const bytesOnDisk = size(path)
-			if (bytesOnDisk > MAX_FILE_BYTES || total + bytesOnDisk > maxTotal) {
-				return refuse("too-large", `${Math.round(bytesOnDisk / 1024)} KB, over the limit`)
+			// Per-file cap before reading; the *total* is charged after the dedupe below, so a
+			// file that is already attached does not fail as "over the limit" for zero new bytes.
+			if (size(path) > MAX_FILE_BYTES) {
+				return refuse("too-large", `${Math.round(size(path) / 1024)} KB, over the limit`)
 			}
 			bytes = read(path)
-			// The file can grow between stat and read. Re-check, as the image branch does.
-			if (bytes.length > MAX_FILE_BYTES || total + bytes.length > maxTotal) {
+			// The file can grow between stat and read.
+			if (bytes.length > MAX_FILE_BYTES) {
 				return refuse("too-large", `${Math.round(bytes.length / 1024)} KB, over the limit`)
 			}
 		} catch {
@@ -360,6 +401,9 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 		const existing = byCid.get(`file-${digest}`)
 		const name = existing?.filename ?? filename
 		if (!existing) {
+			if (total + bytes.length > maxTotal) {
+				return refuse("too-large", `${Math.round(bytes.length / 1024)} KB, over the limit`)
+			}
 			const attachment: InlineAttachment = {
 				filename,
 				content: bytes,

@@ -227,19 +227,22 @@ model output. The controls, all fail-closed:
 - **A home-rooted or `/`-rooted launch attaches nothing**, because with `cwd = $HOME` the config
   file is "inside the project". Start pi in a project; that is the intended usage.
 - **The daemon's own config and state directories are never attached**, whatever the `cwd`.
-- **An extension allowlist** (`pdf txt log md csv json yml xml zip docx xlsx pptx` and images)
+- **An extension allowlist** (`pdf txt log md csv tsv json yml yaml xml html zip gz tar docx xlsx
+  pptx`, plus `png jpg jpeg gif webp svg` for links and the sniffed image types inline)
   keeps the obvious key filenames out of an accidental attach. It is not a content filter:
   `cp ~/.ssh/id_rsa notes.txt` or `tar czf k.tar ~/.ssh` defeats it, and `realpath` cannot see a
   hardlink. Treat it as a guard rail against a naive single-shot injection, not a sandbox.
-- **Size caps** per file and per mail (`notify.maxAttachmentMb`, default 18 MB) keep a
-  notification from becoming a file transfer; a non-regular file (FIFO, device) is refused
-  rather than read.
-- **The recipient cannot be influenced by mail.** `mail.to` comes from the config only; a
-  command reply cannot change it (`setup` is refused by the dispatcher), and the send path has no
-  Cc/Bcc.
+- **Size caps**: 5 MB per inline image and 15 MB per linked file (fixed), and
+  `notify.maxAttachmentMb` (default 18 MB, max 45) for the total per mail, before base64. A
+  non-regular file (FIFO, device) is refused rather than read, because it reports size 0 and
+  then blocks.
+- **No automated path changes the recipient.** Every notification's `to` is config-derived, a
+  command reply cannot rewrite the config (`setup` is refused by the dispatcher), and the send
+  path has no Cc/Bcc. An authenticated caller *can* pass a different `to` to `POST /send` — that
+  is §4's "mail as you to any address", and it needs `secret.key`.
 
 Residual risk, plainly: anything the agent can read and re-materialise inside the project can be
-mailed to **you**, up to the cap, including a file that happens to contain secrets and archives
+mailed to the address the daemon sends to, up to the cap, including a file that happens to contain secrets and archives
 whose contents the allowlist cannot inspect. There is no per-account send budget, so a model that
 is instructed to send repeatedly can consume a provider's daily quota. The real defence remains
 tool scoping and not running the agent in a directory full of secrets.

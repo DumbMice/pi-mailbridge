@@ -200,18 +200,21 @@ test("a symlink out of the project is not attached", () => {
 	assert.equal(ok.attachments.length, 1)
 })
 
-test("a FIFO is refused instead of hanging the send", { skip: process.platform === "win32" }, () => {
-	// A named pipe reports size 0, passes every size check, and then blocks readFileSync until a
-	// writer appears - which would hang the notification and the poll tick awaiting it.
+test("a directory that looks like a file is refused fast, on both paths", () => {
+	// A FIFO proves the real case but *hangs* if the check is removed, which makes the mutation
+	// look like a pass. A directory has the same "not a regular file" verdict and fails fast, so
+	// the check is pinned in a way a mutation test can see.
 	const root = dir()
-	// Node has no mkfifo; the platform tool is the honest way to create one.
-	execFileSync("mkfifo", [join(root, "pipe.log")])
-	const started = Date.now()
-	const result = inlineLocalImages('<a href="pipe.log">p</a>', { root })
-	assert.ok(Date.now() - started < 1000, "must return immediately")
-	assert.equal(result.attachments.length, 0)
-	assert.deepEqual(result.skipped.map((s) => s.reason), ["unreadable"])
-	assert.match(result.html, /not a regular file/)
+	mkdirSync(join(root, "shot.png"))
+	mkdirSync(join(root, "notes.log"))
+
+	const image = inlineLocalImages('<img src="shot.png" alt="shot">', { root })
+	assert.equal(image.attachments.length, 0)
+	assert.deepEqual(image.skipped.map((s) => s.reason), ["unreadable"], "image path")
+
+	const link = inlineLocalImages('<a href="notes.log">log</a>', { root })
+	assert.equal(link.attachments.length, 0)
+	assert.deepEqual(link.skipped.map((s) => s.reason), ["unreadable"], "link path")
 })
 
 test("the project-directory guard fails closed", () => {
@@ -223,7 +226,9 @@ test("the project-directory guard fails closed", () => {
 	// 1. Unresolvable root (deleted worktree, stale cwd): nothing is attachable.
 	const stale = inlineLocalImages('<a href="/etc/hostname">h</a>', { root: "/nonexistent/worktree" })
 	assert.equal(stale.attachments.length, 0)
-	assert.deepEqual(stale.skipped.map((s) => s.reason), ["outside-root"])
+	// Distinct from "outside the project": the *root* could not be trusted, which is a different
+	// thing for the reader to act on.
+	assert.deepEqual(stale.skipped.map((s) => s.reason), ["root-refused"])
 
 	// 2. Project root = your home directory: `~/.config/pi-mailbridge/config.json` is then
 	//    "inside the project", is `.json`, and mailing it mails the mailbox password. Nothing is
@@ -235,11 +240,16 @@ test("the project-directory guard fails closed", () => {
 	try {
 		const fromHome = inlineLocalImages('<a href="notes.md">n</a>', { root: home })
 		assert.equal(fromHome.attachments.length, 0, "cwd = $HOME attaches nothing")
-		assert.deepEqual(fromHome.skipped.map((s) => s.reason), ["outside-root"])
+		assert.deepEqual(fromHome.skipped.map((s) => s.reason), ["root-refused"], "and says why")
+		assert.match(fromHome.html, /start pi in a project directory/)
 
-		// And a root of "/" is the same mistake at a larger scale.
-		const fromRoot = inlineLocalImages('<a href="/etc/hostname">h</a>', { root: "/" })
+		// A root of "/" is the same mistake at a larger scale. Use a file that *would* pass the
+		// allowlist, or the refusal would come from the extension check instead.
+		const outside = join(home, "elsewhere.log")
+		writeFileSync(outside, "x")
+		const fromRoot = inlineLocalImages(`<a href="${outside}">h</a>`, { root: "/" })
 		assert.equal(fromRoot.attachments.length, 0)
+		assert.deepEqual(fromRoot.skipped.map((s) => s.reason), ["root-refused"])
 	} finally {
 		if (realHome === undefined) delete process.env.HOME
 		else process.env.HOME = realHome
@@ -248,18 +258,56 @@ test("the project-directory guard fails closed", () => {
 	// A normal project directory still works.
 	assert.equal(inlineLocalImages('<a href="notes.md">n</a>', { root }).attachments.length, 1)
 
-	// 3. The daemon's own directories are refused even when they are under the root.
-	const stateDir = join(home, ".local", "state", "pi-mailbridge")
+	// 3. The daemon's own directories are refused even when they sit inside a normal project
+	//    root. This is the case the first version of the test could not see: it used root = home,
+	//    which the earlier rule already refused, so deleting the state-dir check stayed green.
+	const project = dir()
+	const stateDir = join(project, ".local", "state", "pi-mailbridge")
 	mkdirSync(stateDir, { recursive: true })
 	writeFileSync(join(stateDir, "uid-cursor.json"), "{}")
-	process.env.XDG_STATE_HOME = join(home, ".local", "state")
-	process.env.XDG_CONFIG_HOME = join(home, ".config")
+	assert.equal(inlineLocalImages('<a href=".local/state/pi-mailbridge/uid-cursor.json">c</a>', { root: project }).attachments.length, 1,
+		"sanity: without the override it is just a json file in the project")
+	process.env.XDG_STATE_HOME = join(project, ".local", "state")
 	try {
-		const secret = inlineLocalImages('<a href=".local/state/pi-mailbridge/uid-cursor.json">c</a>', { root: home })
+		const secret = inlineLocalImages('<a href=".local/state/pi-mailbridge/uid-cursor.json">c</a>', { root: project })
 		assert.equal(secret.attachments.length, 0, "state dir is never attached")
-		assert.deepEqual(secret.skipped.map((s) => s.reason), ["outside-root"])
+		assert.deepEqual(secret.skipped.map((s) => s.reason), ["root-refused"])
 	} finally {
 		delete process.env.XDG_STATE_HOME
-		delete process.env.XDG_CONFIG_HOME
 	}
+})
+
+test("a duplicated file is not charged twice against the budget", () => {
+	// Two links to the same 10 MB report, with an 18 MB budget: the second adds zero bytes and
+	// must not be refused as over the limit.
+	const root = dir()
+	writeFileSync(join(root, "report.pdf"), Buffer.alloc(10 * 1024 * 1024, 7))
+	const result = inlineLocalImages(
+		'<a href="report.pdf">one</a><a href="./report.pdf">two</a>',
+		{ root, maxTotalBytes: 18 * 1024 * 1024 },
+	)
+	assert.equal(result.attachments.length, 1)
+	assert.deepEqual(result.skipped, [], "the duplicate is deduped, not refused")
+	assert.match(result.html, /\[attached: report\.pdf\][\s\S]*\[attached: report\.pdf\]/)
+})
+
+test("a FIFO is refused instead of blocking the send, on both paths", { skip: process.platform === "win32" }, () => {
+	// A FIFO reports size 0, passes the caps, and blocks readFileSync forever - on the daemon's
+	// only thread. Run each probe in a child with a timeout: if the type check is removed the
+	// child hangs and this fails fast, instead of hanging the whole suite (which would hide the
+	// regression from a mutation test).
+	const root = dir()
+	execFileSync("mkfifo", [join(root, "pipe.log"), join(root, "shot.png")])
+	const probe = `
+		import { inlineLocalImages } from ${JSON.stringify(new URL("../src/core/inline-images.ts", import.meta.url).pathname)}
+		const r = inlineLocalImages('<a href="pipe.log">p</a><img src="shot.png" alt="s">', { root: process.argv[1] })
+		console.log(JSON.stringify({ n: r.attachments.length, reasons: r.skipped.map((s) => s.reason) }))
+	`
+	const out = execFileSync(process.execPath, ["--experimental-strip-types", "-e", probe, root], {
+		timeout: 5_000,
+		encoding: "utf8",
+	})
+	const result = JSON.parse(out.trim()) as { n: number; reasons: string[] }
+	assert.equal(result.n, 0)
+	assert.deepEqual(result.reasons, ["unreadable", "unreadable"], "both paths refuse it")
 })
