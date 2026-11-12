@@ -326,7 +326,7 @@ systemctl --user enable --now pi-mailbridge
 | `/mailbridge check` | Validate the config and that credentials are present (in pi: no network; `--check` runs your `tokenCommand` if XOAUTH2 is configured) |
 | `/mailbridge auth` | Start the OAuth2 device login; prints the URL, polls in the background |
 | `/mailbridge smoke` | Reload the daemon, send one real mail, then open the folder and count |
-| `/mailbridge restart` | Replace the daemon process (needed after an update; the daemon re-reads the config on `setup`/`smoke` and when a session finds a newer file, but this session's own copy — device name, shown mailbox — refreshes only when a `/mailbridge` command runs or pi restarts. `daemon.host`/`daemon.port` changes are re-read by the next `/mailbridge` command, and the session rebuilds its client on the new address within one poll tick) |
+| `/mailbridge restart` | Replace the daemon process (needed after an update; the daemon re-reads the config on `setup`/`smoke` and when a session finds a newer file, but this session's own copy — device name, shown mailbox — refreshes only when a `/mailbridge` command runs or pi restarts. `daemon.host`/`daemon.port` changes are re-read by the next `/mailbridge` command, and the session rebuilds its client on the new address within a poll tick or two — respawns are throttled to one a minute) |
 | `/mailbridge prime` | Set the cursor to now, so existing mail is never read |
 
 ## Turning it off for good

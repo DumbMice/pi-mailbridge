@@ -166,3 +166,20 @@ test("the daemon URL follows the config, so a changed port is dialled", async ()
 		`the daemon URL must follow the config (dialled: ${JSON.stringify(h.dialledAt())})`,
 	)
 })
+
+test("status reports the address the live client was built with", async () => {
+	// After a port edit the config says 4199 but the running client still dials 4177. Printing
+	// the config's address would attribute a health answer to a port it never came from.
+	const h = harness(Date.now() + 60_000)
+	await h.events.get("session_start")!({}, h.ctx)
+	h.setPort(4199)
+	await h.runCommand("status")
+	assert.ok(
+		h.notes.some((n) => n.includes(":4177")),
+		`status must name the client's address (notes: ${JSON.stringify(h.notes)})`,
+	)
+	assert.ok(
+		!h.notes.some((n) => n.includes(":4199")),
+		"and must not claim an address the client is not using",
+	)
+})

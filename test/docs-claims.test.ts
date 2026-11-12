@@ -605,8 +605,9 @@ test("no doc claims the daemon stops when a token is rejected", () => {
 	// stops" would tell a user with a revoked grant to expect silence while it actually
 	// re-authenticates every minute.
 	for (const { file, text } of allProse()) {
+		// Collapsed first: a re-wrapped sentence would slip past a line-based match.
 		assert.ok(
-			!/then the daemon stops|daemon stops rather than/i.test(text),
+			!/then the daemon stops|daemon stops rather than/i.test(flat(text)),
 			`${file} claims the daemon stops after a rejected token`,
 		)
 	}
