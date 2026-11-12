@@ -28,7 +28,7 @@
 // attached once.
 
 import { createHash } from "node:crypto"
-import { readFileSync, statSync } from "node:fs"
+import { readFileSync, realpathSync, statSync } from "node:fs"
 import { isAbsolute, resolve } from "node:path"
 import { homedir } from "node:os"
 
@@ -44,7 +44,7 @@ export interface InlineAttachment {
 
 export interface SkippedImage {
 	src: string
-	reason: "not-found" | "not-an-image" | "too-large" | "too-many" | "unreadable" | "not-allowed"
+	reason: "not-found" | "not-an-image" | "too-large" | "too-many" | "unreadable" | "not-allowed" | "outside-root"
 }
 
 export interface InlineResult {
@@ -140,6 +140,23 @@ const ALT_ATTR = /\balt\s*=\s*"([^"]*)"/i
 /** Markdown links become anchors; the text between them is already rendered HTML. */
 const LINK_TAG = /<a\s+href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi
 
+/** realpath, or the input when it cannot be resolved (tests use paths that may not exist). */
+function safeRealpath(path: string): string | undefined {
+	try {
+		return realpathSync(path)
+	} catch {
+		return undefined
+	}
+}
+
+/** Is this resolved file inside the project directory, following symlinks? */
+function insideRoot(path: string, root: string, rootReal: string | undefined): boolean {
+	const target = safeRealpath(path) ?? path
+	if (rootReal === undefined) return true
+	const prefix = rootReal.endsWith("/") ? rootReal : `${rootReal}/`
+	return target === rootReal || target.startsWith(prefix)
+}
+
 /** A filename a mail client will accept: no separators, no control characters, bounded. */
 function safeFilename(path: string, fallback: string): string {
 	const base = path.split(/[\\/]/).pop() ?? fallback
@@ -190,6 +207,11 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 	const read = options.readFile ?? ((path: string) => readFileSync(path))
 	const size = options.sizeOf ?? ((path: string) => statSync(path).size)
 
+	// Resolve the project directory once. Attachments are limited to it: a symlink inside the
+	// project pointing at `~/.config/pi-mailbridge/config.json` would otherwise mail the
+	// mailbox password, and the allowlist says nothing about where a file came from.
+	const rootReal = safeRealpath(root)
+
 	const attachments: InlineAttachment[] = []
 	const skipped: SkippedImage[] = []
 	const byCid = new Map<string, InlineAttachment>()
@@ -207,6 +229,10 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 		}
 
 		const path = resolvePath(src, root)
+		if (!insideRoot(path, root, rootReal)) {
+			skipped.push({ src, reason: "outside-root" })
+			return note(alt || "image", "not attached, outside the project")
+		}
 		let bytes: Buffer
 		try {
 			if (size(path) > maxBytes) {
@@ -262,6 +288,7 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 			return `${inner} ${note("not attached", text)}`
 		}
 		if (attachments.length >= maxCount) return refuse("too-many", "too many attachments")
+		if (!insideRoot(path, root, rootReal)) return refuse("outside-root", "outside the project")
 		const filename = safeFilename(href, "file")
 		const ext = filename.includes(".") ? filename.split(".").pop()!.toLowerCase() : ""
 		const contentType = ALLOWED_FILE_EXTENSIONS[ext]

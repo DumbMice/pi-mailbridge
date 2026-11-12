@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, writeFileSync } from "node:fs"
+import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -173,4 +173,28 @@ test("the total budget can be raised, and the default is under every provider ce
 	const big = inlineLocalImages('<a href="a.log">log</a>', { root })
 	assert.equal(big.attachments.length, 1, "and does fit the default")
 	assert.match(big.html, /\[attached: a\.log\]/)
+})
+
+test("a symlink out of the project is not attached", () => {
+	// The allowlist says nothing about where a file came from. `ln -s ~/.config/pi-mailbridge/
+	// config.json report.log` would otherwise mail the mailbox password in a notification.
+	const root = dir()
+	const outside = join(dir(), "config.json")
+	writeFileSync(outside, '{"mail":{"imap":{"password":"hunter2"}}}')
+	writeFileSync(join(root, "inside.log"), "fine")
+	symlinkSync(outside, join(root, "report.log"))
+	symlinkSync(outside, join(root, "shot.png"))
+
+	const linked = inlineLocalImages('<a href="report.log">report</a>', { root })
+	assert.equal(linked.attachments.length, 0, "the symlinked file must not be attached")
+	assert.deepEqual(linked.skipped.map((s) => s.reason), ["outside-root"])
+	assert.match(linked.html, /outside the project/)
+
+	const image = inlineLocalImages('<img src="shot.png" alt="shot">', { root })
+	assert.equal(image.attachments.length, 0, "and not as an inline image either")
+	assert.deepEqual(image.skipped.map((s) => s.reason), ["outside-root"])
+
+	// A real file in the project is unaffected.
+	const ok = inlineLocalImages('<a href="inside.log">log</a>', { root })
+	assert.equal(ok.attachments.length, 1)
 })
