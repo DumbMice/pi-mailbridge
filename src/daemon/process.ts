@@ -235,7 +235,13 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 
 		// A body cap as well as a message cap: the pending store is re-read on every poll and
 		// on every /health, so one enormous reply would be paid for repeatedly.
-		const body = stripQuoted(message.text).slice(0, MAX_BODY_CHARS)
+		const stripped = stripQuoted(message.text)
+		// Marked, not silently cut: the agent must be able to tell that its instruction is
+		// incomplete (the outbound truncation note does the same).
+		const body =
+			stripped.length > MAX_BODY_CHARS
+				? `${stripped.slice(0, MAX_BODY_CHARS)}\n\n[truncated: ${stripped.length - MAX_BODY_CHARS} more characters]`
+				: stripped
 
 		// Attachments are filtered BEFORE persisting; a dropped one is recorded with
 		// a reason so `/mailbridge` can explain why the agent did not see it.

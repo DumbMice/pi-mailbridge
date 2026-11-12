@@ -686,5 +686,7 @@ test("a huge body is truncated before it is stored", async () => {
 		env: e,
 	})
 	assert.equal(r.persisted, 1)
-	assert.equal(listPending(e)[0]!.body.length, MAX_BODY_CHARS)
+	const body = listPending(e)[0]!.body
+	assert.ok(body.startsWith("x".repeat(MAX_BODY_CHARS)), "keeps the first MAX_BODY_CHARS")
+	assert.match(body, /\[truncated: \d+ more characters\]/, "and says it was cut")
 })

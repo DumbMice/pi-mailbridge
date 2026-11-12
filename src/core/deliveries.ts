@@ -67,6 +67,8 @@ const inFlightByInstance = new Map<string, Promise<DeliveryOutcome[]>>()
 const injectedByInstance = new Map<string, Set<number>>()
 /** A process has one instanceId; this only guards against a pathological caller. */
 const MAX_INSTANCE_SETS = 8
+/** Cap per instance, like the journal: one number per injected UID, oldest dropped. */
+const MAX_INJECTED_PER_INSTANCE = 5_000
 
 function injectedFor(instanceId: string): Set<number> {
 	let set = injectedByInstance.get(instanceId)
@@ -75,6 +77,7 @@ function injectedFor(instanceId: string): Set<number> {
 		injectedByInstance.set(instanceId, set)
 		if (injectedByInstance.size > MAX_INSTANCE_SETS) {
 			const oldest = injectedByInstance.keys().next().value
+			// Never evict the caller's own set: losing it would let this instance re-inject.
 			if (oldest !== undefined && oldest !== instanceId) injectedByInstance.delete(oldest)
 		}
 	}
@@ -122,7 +125,14 @@ export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 		}
 
 		// Record before acking: if the ack fails we still refuse to inject twice.
-		injected().add(record.uid)
+		const set = injected()
+		set.add(record.uid)
+		// Bounded like the journal; dropping the oldest entries only risks a redundant ack.
+		while (set.size > MAX_INJECTED_PER_INSTANCE) {
+			const oldest = set.values().next().value
+			if (oldest === undefined) break
+			set.delete(oldest)
+		}
 
 		try {
 			const ackResult = await deps.client.ack(record.uid, deps.instanceId, record.sessionId)

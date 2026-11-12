@@ -83,6 +83,14 @@ function save(env: NodeJS.ProcessEnv, items: PendingRecord[]): void {
 	// insertion instead, where the caller can refuse and leave the cursor alone.
 	writeFileSync(tmp, JSON.stringify({ items } satisfies PendingFile), { mode: 0o600 })
 	renameSync(tmp, p)
+	// The process that wrote knows the truth; an mtime+size stamp can collide when two writes
+	// land in the same millisecond with the same length (measured on ext4).
+	try {
+		const stat = statSync(p)
+		cached = { path: p, stamp: `${stat.mtimeMs}:${stat.size}`, items }
+	} catch {
+		cached = undefined
+	}
 }
 
 export function listPending(env: NodeJS.ProcessEnv = process.env): PendingRecord[] {

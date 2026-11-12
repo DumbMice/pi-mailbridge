@@ -654,3 +654,15 @@ test("the QQ provider row carries the 14-day activation rule", () => {
 	assert.ok(row, "the provider table should have a QQ row")
 	assert.match(row!, /14 days old/, "new QQ accounts cannot enable IMAP/SMTP before 14 days")
 })
+
+test("the DMARC-off explanation says what it costs", () => {
+	// "DMARC was never what separated you from a stranger" was backwards: it is exactly the
+	// control that would stop address forgery, and the docs must not quietly drop it.
+	const readme = flat(doc("README.md"))
+	const at = readme.indexOf("DMARC cannot work here")
+	assert.ok(at > -1, "the layout-B section should explain the DMARC decision")
+	const paragraph = readme.slice(at, at + 1200)
+	assert.match(paragraph, /forging your address/i, "names the risk that is given up")
+	assert.match(paragraph, /route id|routing/i, "and what still keeps a stranger out")
+	assert.ok(!/DMARC was never what separated/i.test(readme), "the old claim must not return")
+})
