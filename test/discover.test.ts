@@ -193,3 +193,38 @@ test("ISPDB still wins when it has an entry", async () => {
 	assert.equal(found?.imap.host, "custom.host", "the published document is authoritative, not the table")
 	assert.equal(found?.imap.secure, false)
 })
+
+// --- China: providers reachable where Google is not -----------------------
+
+test("the Chinese providers resolve offline with password auth", async () => {
+	const fetchImpl = (async () => {
+		throw new Error("ENOTFOUND")
+	}) as unknown as typeof fetch
+
+	for (const [domain, imapHost, smtpHost] of [
+		["qq.com", "imap.qq.com", "smtp.qq.com"],
+		["foxmail.com", "imap.qq.com", "smtp.qq.com"],
+		["163.com", "imap.163.com", "smtp.163.com"],
+		["126.com", "imap.126.com", "smtp.126.com"],
+	] as const) {
+		const found = await discoverDomain(domain, { fetchImpl })
+		assert.ok(found, `${domain} must resolve from the built-in table`)
+		assert.equal(found.imap.host, imapHost)
+		assert.equal(found.smtp.host, smtpHost)
+		assert.equal(found.authType, "LOGIN", `${domain} uses an app-specific code, not OAuth`)
+		assert.equal(found.imap.secure, true)
+	}
+})
+
+test("qq.com from the live ISPDB document still yields LOGIN", () => {
+	// Shape of the real qq.com entry: password-cleartext on SSL.
+	const xml = `<clientConfig><emailProvider>
+	  <incomingServer type="imap"><hostname>imap.qq.com</hostname><port>993</port>
+	    <socketType>SSL</socketType><authentication>password-cleartext</authentication></incomingServer>
+	  <outgoingServer type="smtp"><hostname>smtp.qq.com</hostname><port>465</port>
+	    <socketType>SSL</socketType><authentication>password-cleartext</authentication></outgoingServer>
+	</emailProvider></clientConfig>`
+	const parsed = parseAutoconfig(xml)
+	assert.equal(parsed?.authType, "LOGIN")
+	assert.equal(parsed?.imap.secure, true)
+})

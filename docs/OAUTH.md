@@ -39,6 +39,33 @@ For Gmail: [Google Cloud console](https://console.cloud.google.com) → APIs &
 Services → Credentials → *Create OAuth client ID* → **TVs and Limited Input
 devices** (that is Google's name for device flow) → enable the Gmail API.
 
+## If Google is unreachable (mainland China)
+
+Gmail is out twice over: no Google access, and phone verification you may not have.
+The practical providers there authenticate with an **app-specific code**
+(授权码 / authorization code) used as the password — so, like a Gmail app password,
+there is no OAuth app, no tenant, and no consent screen:
+
+| Provider | IMAP | SMTP | Notes |
+| --- | --- | --- | --- |
+| **QQ Mail** (`qq.com`, `foxmail.com`) | `imap.qq.com:993` | `smtp.qq.com:465` | Enable **IMAP/SMTP服务** in 设置 → 账户, then generate a 授权码 |
+| **163** (`163.com`) | `imap.163.com:993` | `smtp.163.com:465` | Enable in 设置 → POP3/SMTP/IMAP; requires the IMAP `ID` command, which this client sends automatically |
+| **126** (`126.com`) | `imap.126.com:993` | `smtp.126.com:465` | same as 163 |
+
+All three are built into the discovery table, so they resolve even when the
+autoconfig service is slow or blocked:
+
+```
+/mailbridge setup pi-yourname@qq.com to you@hotmail.com
+```
+
+Then paste the 授权码 into both password fields and run `/mailbridge smoke`.
+
+**One thing to watch:** if every reply is rejected with `dmarc-missing`, the
+provider is not adding an `Authentication-Results` header. Set
+`security.requireDmarcPass: false` — the sender allowlist still applies, so this
+loses a defence layer rather than all of them.
+
 ## Why can't I log into Entra with my new Hotmail address?
 
 Because it is two different systems:

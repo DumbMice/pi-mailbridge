@@ -235,7 +235,8 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 
 | Provider | Auth | Status |
 | --- | --- | --- |
-| Any IMAP/SMTP host (self-hosted, Posteo, Fastmail, QQ, 163, Zoho…) | `LOGIN` app password | ✅ works |
+| Any IMAP/SMTP host (self-hosted, Posteo, Fastmail, Zoho…) | `LOGIN` app password | ✅ works |
+| **QQ Mail / Foxmail / 163 / 126** (practical in mainland China) | `LOGIN` 授权码 | ✅ works, built into discovery |
 | Gmail | app password (`LOGIN`) recommended | ✅ works |
 | Microsoft 365 / work accounts | `XOAUTH2` | ✅ usually works |
 | **Personal** `@outlook.com` / `@hotmail.com` | `XOAUTH2` | ⚠️ two obstacles — see below |
@@ -269,7 +270,18 @@ and the Gmail equivalent: **[docs/OAUTH.md](./docs/OAUTH.md)**.
    you already have with *personal accounts* in the supported account types.
 2. **The servers may refuse the token anyway.** See below.
 
-**If you only need a dedicated pi mailbox, use Gmail with an app password.** No
+**In mainland China, use QQ Mail or 163** — Google is unreachable and the 授权码
+(authorization code) works exactly like an app password:
+
+1. in the provider's web settings, enable **IMAP/SMTP服务**, then generate a 授权码
+2. `/mailbridge setup pi-yourname@qq.com to you@hotmail.com`
+3. paste the 授权码 into both password fields, then `/mailbridge smoke`
+
+`qq.com`, `foxmail.com`, `163.com` and `126.com` are in the built-in discovery
+table, so setup works even if the autoconfig service is slow. See
+[docs/OAUTH.md](./docs/OAUTH.md).
+
+**Elsewhere, use Gmail with an app password.** No
 OAuth app, no tenant, no verification — and no refresh token that dies weekly:
 
 1. enable 2-Step Verification, then create an app password at

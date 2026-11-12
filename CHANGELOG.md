@@ -81,6 +81,20 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### China: QQ Mail, Foxmail, 163 and 126 built in
+
+Google is unreachable in mainland China, so the Gmail recommendation does not
+apply there. Those providers authenticate with an app-specific code (授权码) used as
+a password, which needs no OAuth app at all.
+
+- KNOWN_PROVIDERS gains qq.com, foxmail.com, 163.com, 126.com — all LOGIN, over
+  implicit TLS — so discovery works even when the autoconfig service is blocked
+- verified from imapflow's source that it sends the IMAP `ID` command whenever the
+  server advertises it, which is what 163/126 require ("Unsafe Login" otherwise)
+- docs/OAUTH.md gains a mainland-China section including the `dmarc-missing`
+  fallback (`requireDmarcPass: false`) for providers that emit no
+  Authentication-Results header
+
 ### Setup: Gmail defaults to an app password
 
 Corrected a wrong recommendation. Gmail *OAuth* is harder than Outlook's, not

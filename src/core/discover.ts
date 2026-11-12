@@ -135,6 +135,34 @@ export const KNOWN_PROVIDERS: Record<string, Omit<Discovered, "provider"> & { pr
 		authType: "XOAUTH2",
 		provider: "microsoft",
 	},
+	// Chinese providers: the practical choice where Google is unreachable. All four
+	// authenticate with an app-specific code (授权码) as a password, so no OAuth app
+	// is needed. NetEase (163/126) requires the IMAP ID command, which imapflow
+	// sends automatically when the server advertises ID.
+	"qq.com": {
+		imap: { host: "imap.qq.com", port: 993, secure: true },
+		smtp: { host: "smtp.qq.com", port: 465, secure: true },
+		authType: "LOGIN",
+		provider: "other",
+	},
+	"foxmail.com": {
+		imap: { host: "imap.qq.com", port: 993, secure: true },
+		smtp: { host: "smtp.qq.com", port: 465, secure: true },
+		authType: "LOGIN",
+		provider: "other",
+	},
+	"163.com": {
+		imap: { host: "imap.163.com", port: 993, secure: true },
+		smtp: { host: "smtp.163.com", port: 465, secure: true },
+		authType: "LOGIN",
+		provider: "other",
+	},
+	"126.com": {
+		imap: { host: "imap.126.com", port: 993, secure: true },
+		smtp: { host: "smtp.126.com", port: 465, secure: true },
+		authType: "LOGIN",
+		provider: "other",
+	},
 	"gmail.com": {
 		imap: { host: "imap.gmail.com", port: 993, secure: true },
 		smtp: { host: "smtp.gmail.com", port: 465, secure: true },
