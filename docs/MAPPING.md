@@ -175,7 +175,7 @@ pi.registerCommand("mailbridge", { description: "Status, setup, check, auth, smo
 | Service | opencode/qq mail tuned | provider-neutral | `config.mail.*`; no hard-coded host |
 | Transport | SMTP password | SMTP password **or** OAuth2/XOAUTH2 | Outlook requires OAuth2 since 2024-09-16 |
 | Reply parsing | hand-rolled | hand-rolled, quote-stripping covered by tests | no `inreply` dependency: the stripping rules are ours and tested |
-| Auth check | allowlist | allowlist + DMARC header (pinned when `trustedAuthservId` is set) | see SECURITY.md §2 |
+| Auth check | allowlist | allowlist + DMARC header (pinned when `trustedAuthservId` is set; **off for a single mailbox** — SECURITY.md §5) | see SECURITY.md §2 |
 | Port | 4100 | 4177 | avoid colliding with a running afk |
 
 ---

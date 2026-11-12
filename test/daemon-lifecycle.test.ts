@@ -8,6 +8,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { daemonBaseUrl, ensureDaemon, probeHealth } from "../src/daemon/spawn.ts"
+import type { ResolvedConfig } from "../src/core/config.ts"
 
 const MAIN = fileURLToPath(new URL("../src/daemon/main.ts", import.meta.url))
 
@@ -330,4 +331,33 @@ test("a send outlives the generic ceiling, so a slow relay is not cut off", asyn
 
 	const sent = await client.send({ subject: "x", text: "y" })
 	assert.equal(sent.ok, true, "the send must not be cut off by the poll budget")
+})
+
+test("--check warns when DMARC is required for a single mailbox", async () => {
+	// The systemd unit runs this as ExecStartPre; the in-pi command warned, this did not.
+	const { checkProblems } = await import("../src/daemon/main.ts")
+	const cfg: ResolvedConfig = {
+		mail: {
+			imap: { host: "imap.example.com", port: 993, secure: true, user: "pi@example.com", password: "x", folder: "INBOX" },
+			smtp: { host: "smtp.example.com", port: 465, secure: true, user: "pi@example.com", password: "x", authType: "LOGIN" },
+			to: "you@example.com",
+		},
+		security: {
+			allowFrom: ["you@example.com"],
+			requireDmarcPass: true,
+			allowSelfReplies: true,
+			trustedAuthservId: "mx.example.com",
+			tokenTtlHours: 24,
+		} as ResolvedConfig["security"],
+		daemon: { host: "127.0.0.1", port: 4177, exitWhenIdle: true, idleTimeoutSecs: 120 },
+		notify: { onSettled: true, debounceMs: 0, notifyOnAborted: false },
+		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
+		device: { name: "test-device" },
+		warnings: [],
+	}
+	const problems = checkProblems(cfg)
+	assert.ok(
+		problems.some((p) => /allowSelfReplies.*requireDmarcPass/s.test(p)),
+		`check must warn (problems: ${JSON.stringify(problems)})`,
+	)
 })

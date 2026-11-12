@@ -72,6 +72,14 @@ export function adapt(client: ImapFlow): ImapClientLike {
 		get usable() {
 			return client.usable
 		},
+
+		// The watcher's UIDVALIDITY guard reads this. Without the passthrough the property
+		// is always undefined in production and the guard silently never runs - the same
+		// class of bug as a header that is fetched but never mapped.
+		get mailbox() {
+			const m = client.mailbox
+			return m ? { uidValidity: m.uidValidity } : undefined
+		},
 	}
 }
 

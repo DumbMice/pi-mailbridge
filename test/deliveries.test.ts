@@ -132,7 +132,9 @@ test("a replayed delivery is not injected twice in the same process", async () =
 	assert.equal(await r.handle(record()), "injected")
 	assert.equal(await r.handle(record()), "already-injected")
 	assert.deepEqual(injected, ["yes, ship it"], "injected exactly once")
-	assert.deepEqual(client.acked, [1], "acked exactly once")
+	// A replay re-acks (idempotent) rather than skipping: that is what lets a failed ack
+	// recover on the next drain.
+	assert.deepEqual(client.acked, [1, 1], "re-acked on replay, injected once")
 })
 
 test("drain replays pending and skips uids already injected", async () => {
@@ -233,5 +235,28 @@ test("a rebuilt runner with the same instance does not re-inject after a failed 
 	const second = runner(client, async () => {}, () => SESSION, instance)
 	assert.equal(await second.r.handle(record()), "already-injected")
 	assert.deepEqual(second.injected, [], "the rebuilt runner must not inject it again")
-	assert.equal(client.acked.length, 1)
+	assert.equal(client.acked.length, 2, "and it retried the failed ack")
+})
+
+test("a failed ack is retried on the next drain instead of pinning the record", async () => {
+	// Without the retry the record stays pending forever: it holds a queue slot, \Seen is
+	// never set, the journal is never written, and after a restart it is injected again.
+	const client = fakeClient({ pending: [record()] })
+	let acks = 0
+	client.ack = async () => {
+		acks++
+		return acks === 1
+			? { ok: false as const, status: 502, code: "boom" }
+			: { ok: true as const, data: { ok: true } }
+	}
+	const { r, injected } = runner(client, async () => {})
+
+	assert.deepEqual(await r.drain(), ["injected"])
+	assert.equal(acks, 1, "the first ack failed")
+	assert.equal(injected.length, 1)
+
+	// The record is still pending; the next drain must retry the ack, not skip silently.
+	assert.deepEqual(await r.drain(), ["already-injected"])
+	assert.equal(acks, 2, "the ack was retried")
+	assert.equal(injected.length, 1, "and it was not injected twice")
 })

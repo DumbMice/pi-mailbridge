@@ -481,3 +481,25 @@ test("the watcher reports the open mailbox's UIDVALIDITY", async () => {
 	await watcher.start()
 	assert.equal(watcher.uidValidity(), 42, "bigint from imapflow is normalised to a number")
 })
+
+test("the real adapter exposes UIDVALIDITY (the guard is not inert in production)", async () => {
+	// The watcher reads client.mailbox.uidValidity. adapt() must forward it - a guard that
+	// only works with a hand-built fake is no guard at all.
+	const fake = {
+		connect: async () => {},
+		logout: async () => {},
+		mailboxOpen: async () => {},
+		search: async () => [],
+		fetchOne: async () => undefined,
+		on: () => {},
+		usable: true,
+		mailbox: { uidValidity: 987654n, exists: 3 },
+	}
+	const { adapt } = await import("../src/daemon/imapflow.ts")
+	const adapted = adapt(fake as never)
+	assert.equal(adapted.mailbox?.uidValidity, 987654n, "UIDVALIDITY must reach the watcher")
+
+	// imapflow reports `false` when no mailbox is open; that must not look like validity 0.
+	const closed = adapt({ ...fake, mailbox: false } as never)
+	assert.equal(closed.mailbox, undefined)
+})

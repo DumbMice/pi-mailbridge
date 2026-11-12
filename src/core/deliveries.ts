@@ -85,7 +85,18 @@ export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 	const injected = (): Set<number> => injectedFor(deps.instanceId)
 
 	async function handle(record: PendingRecord): Promise<DeliveryOutcome> {
-		if (injected().has(record.uid)) return "already-injected"
+		if (injected().has(record.uid)) {
+			// Injected earlier but possibly not acked: a single failed /ack used to pin the
+			// record for the process lifetime, leaking a queue slot, leaving \Seen unset and
+			// the journal unwritten - and after a restart (new pid, new instance) the same
+			// instruction would be injected again. The ack is idempotent, so retry it.
+			try {
+				await deps.client.ack(record.uid, deps.instanceId, record.sessionId)
+			} catch {
+				/* the next drain tries again */
+			}
+			return "already-injected"
+		}
 
 		const mine = deps.sessionId()
 		if (!mine || record.sessionId !== mine) return "foreign-session"

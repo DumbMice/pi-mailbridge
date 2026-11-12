@@ -1,11 +1,11 @@
-// Ack journal — durable replay protection.
+// Acked UIDs — durable replay protection.
 //
-// A UID lands here only after a session has injected the reply and acked. That
-// is what makes delivery at-least-once but effect-at-most-once: if a pending
-// record is re-offered (daemon restart, client reconnect) the journal refuses it.
+// The cursor says what we have *seen*; the journal says what a session has *acked*. A crash
+// between the two is why this file exists.
 //
-// Capped so the file cannot grow without bound; the oldest entries are dropped,
-// which is safe because the UID cursor has long since passed them in practice.
+// UIDs are only meaningful within one UIDVALIDITY, so the journal stores the one it belongs
+// to. A re-indexed mailbox renumbers from 1, and an old journal then suppresses brand-new
+// mail as "already acked" - so a validity mismatch means the journal is not consulted.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
@@ -17,45 +17,71 @@ export const JOURNAL_CAP = 5_000
 
 interface JournalFile {
 	uids: number[]
+	/** The UIDVALIDITY these UIDs were acked under. */
+	uidValidity?: number
 }
 
 function path(env: NodeJS.ProcessEnv): string {
 	return statePath(env, "journal.json")
 }
 
-function load(env: NodeJS.ProcessEnv): number[] {
+function loadFile(env: NodeJS.ProcessEnv): JournalFile {
 	const p = path(env)
 	try {
-		if (!existsSync(p)) return []
+		if (!existsSync(p)) return { uids: [] }
 		const parsed = JSON.parse(readFileSync(p, "utf8")) as Partial<JournalFile>
-		return Array.isArray(parsed?.uids) ? parsed.uids.filter((n) => typeof n === "number") : []
+		return {
+			uids: Array.isArray(parsed?.uids) ? parsed.uids.filter((n) => typeof n === "number") : [],
+			...(typeof parsed?.uidValidity === "number" ? { uidValidity: parsed.uidValidity } : {}),
+		}
 	} catch {
-		return []
+		return { uids: [] }
 	}
 }
 
-function save(env: NodeJS.ProcessEnv, uids: number[]): void {
+function save(env: NodeJS.ProcessEnv, file: JournalFile): void {
 	const p = path(env)
 	mkdirSync(dirname(p), { recursive: true, mode: 0o700 })
 	const tmp = `${p}.${process.pid}.tmp`
-	const trimmed = uids.length > JOURNAL_CAP ? uids.slice(uids.length - JOURNAL_CAP) : uids
-	writeFileSync(tmp, JSON.stringify({ uids: trimmed } satisfies JournalFile), { mode: 0o600 })
+	const trimmed = file.uids.length > JOURNAL_CAP ? file.uids.slice(file.uids.length - JOURNAL_CAP) : file.uids
+	writeFileSync(tmp, JSON.stringify({ ...file, uids: trimmed } satisfies JournalFile), { mode: 0o600 })
 	renameSync(tmp, p)
 }
 
-export function isJournaled(env: NodeJS.ProcessEnv, uid: number): boolean {
-	return load(env).includes(uid)
+/**
+ * Has this UID been acked?
+ *
+ * When the caller knows the mailbox's UIDVALIDITY and it differs from the journal's, the
+ * answer is "no": those UIDs belonged to a different numbering and say nothing about this one.
+ */
+export function isJournaled(env: NodeJS.ProcessEnv, uid: number, uidValidity?: number): boolean {
+	const file = loadFile(env)
+	if (uidValidity !== undefined && file.uidValidity !== undefined && file.uidValidity !== uidValidity) {
+		return false
+	}
+	return file.uids.includes(uid)
 }
 
 /** Append `uid` (idempotent). Returns false when it was already journaled. */
-export function journal(env: NodeJS.ProcessEnv, uid: number): boolean {
-	const uids = load(env)
-	if (uids.includes(uid)) return false
+export function journal(env: NodeJS.ProcessEnv, uid: number, uidValidity?: number): boolean {
+	const file = loadFile(env)
+	// A new numbering starts a new journal: keeping old entries would suppress new mail.
+	const sameSpace = uidValidity === undefined || file.uidValidity === undefined || file.uidValidity === uidValidity
+	const uids = sameSpace ? file.uids : []
+	if (uids.includes(uid)) {
+		save(env, { uids, ...(uidValidity === undefined ? {} : { uidValidity }) })
+		return false
+	}
 	uids.push(uid)
-	save(env, uids)
+	save(env, { uids, ...(uidValidity === undefined ? {} : { uidValidity }) })
 	return true
 }
 
 export function journalSize(env: NodeJS.ProcessEnv): number {
-	return load(env).length
+	return loadFile(env).uids.length
+}
+
+/** Test helper: forget every ack. */
+export function resetJournal(env: NodeJS.ProcessEnv): void {
+	save(env, { uids: [] })
 }

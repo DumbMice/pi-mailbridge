@@ -53,7 +53,7 @@ export interface CommandTokenProviderOptions {
 	now?: () => number
 	/** How long a fetched token is considered fresh. Default 50 minutes. */
 	ttlMs?: number
-	/** Consecutive failures allowed before disabling. Default 1 (fail fast). */
+	/** Consecutive failures allowed before disabling. Default 3. */
 	maxConsecutiveFailures?: number
 }
 

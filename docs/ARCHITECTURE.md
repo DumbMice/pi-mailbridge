@@ -35,7 +35,7 @@ to move the cursor without reading anything).
 ## 2. Delivery pipeline (the part that must not lose mail)
 
 ```
-new UID ──► fetch ──► authorize ──► route (id / token / chain) ──► persist pending (durable)
+new UID ──► fetch ──► self-echo marker ──► authorize ──► route (id / token / chain) ──► persist pending (durable)
                                                         │
                                                         ▼
                                      waiting for the next poll tick
@@ -231,7 +231,7 @@ src/
   extension.ts          pi entry: tools, commands, polling client, session lifecycle
   core/
     attachments.ts      image/markdown attachment rendering
-    authz.ts            loop → robot → allowlist → DMARC
+    authz.ts            loop/bounce → robot → allowlist → DMARC (off for one mailbox)
     commands.ts         /mailbridge parsing + usage text
     config.ts           layered config, env overrides, type validation
     config-freshness.ts  is the daemon's config older than the file?

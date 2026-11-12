@@ -27,6 +27,8 @@ export interface PendingRecord {
 	/** Already allowlisted and capped by core/attachments before persisting. */
 	attachments?: { name: string; mimeType: string; size: number; data: string }[]
 	receivedAt: number
+	/** The UIDVALIDITY this UID belongs to, when known. */
+	uidValidity?: number
 	claimedBy?: string
 	claimedAt?: number
 }
@@ -156,6 +158,24 @@ export function ackPending(env: NodeJS.ProcessEnv, uid: number, instanceId: stri
 	if (record.claimedBy !== instanceId) return { ok: false, reason: "not-claimed" }
 	save(env, items.filter((r) => r.uid !== uid))
 	return { ok: true, sessionId: record.sessionId }
+}
+
+/**
+ * Drop queued records that belong to a different UID numbering.
+ *
+ * A re-indexed mailbox renumbers from 1, so an old UID can collide with a new one and
+ * `addPending` would silently replace a queued reply. The dropped mail is *not* lost: it was
+ * never acked, so it is still unread in the mailbox, and the cursor reset that accompanies
+ * this re-reads it.
+ *
+ * @returns how many records were dropped.
+ */
+export function dropPendingFromOtherSpaces(env: NodeJS.ProcessEnv, uidValidity: number): number {
+	const items = load(env)
+	const kept = items.filter((r) => r.uidValidity === undefined || r.uidValidity === uidValidity)
+	const dropped = items.length - kept.length
+	if (dropped > 0) save(env, kept)
+	return dropped
 }
 
 export function pendingSize(env: NodeJS.ProcessEnv): number {

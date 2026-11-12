@@ -200,3 +200,39 @@ test("uid cursor: a changed UIDVALIDITY resets it, an unchanged one does not", a
 	// Unknown validity changes nothing.
 	assert.equal(syncUidValidity(e, undefined), false)
 })
+
+test("journal: a UIDVALIDITY change does not let an old journal suppress new mail", async () => {
+	// The reset exists because the folder was renumbered. A journal keyed on bare UIDs then
+	// speaks for a space it knows nothing about, and the first N new replies are skipped as
+	// "already acked" - silent loss in the exact event the reset handles.
+	const { isJournaled, journal, journalSize } = await import("../src/store/journal.ts")
+	const e = env()
+	for (const uid of [1, 2, 3]) journal(e, uid, 1111)
+	assert.equal(journalSize(e), 3)
+	assert.equal(isJournaled(e, 1, 1111), true, "same space still dedupes")
+
+	// New numbering: nothing is suppressed.
+	assert.equal(isJournaled(e, 1, 2222), false)
+	assert.equal(isJournaled(e, 2, 2222), false)
+	assert.equal(isJournaled(e, 3, 2222), false)
+
+	// Writing in the new space starts a fresh journal rather than mixing the two.
+	journal(e, 1, 2222)
+	assert.equal(journalSize(e), 1)
+	assert.equal(isJournaled(e, 2, 2222), false)
+})
+
+test("a re-indexed mailbox does not let an old UID collide with a new one", async () => {
+	// Records are keyed by UID. After a renumbering, new mail at UID 7 would replace a queued
+	// reply that was also UID 7 in the old space - silently discarding it.
+	const { dropPendingFromOtherSpaces } = await import("../src/store/pending-store.ts")
+	const e = env()
+	addPending(e, { ...rec(7), uidValidity: 1111 })
+	addPending(e, { ...rec(8), uidValidity: 1111 })
+	addPending(e, { ...rec(9), uidValidity: 2222 })
+	assert.equal(pendingSize(e), 3)
+
+	assert.equal(dropPendingFromOtherSpaces(e, 2222), 2, "both old-space records are dropped")
+	assert.equal(pendingSize(e), 1)
+	assert.equal(getPending(e, 9)?.uidValidity, 2222)
+})

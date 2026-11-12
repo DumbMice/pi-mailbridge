@@ -103,10 +103,16 @@ how you reply:
 message from your address to the same address is submitted and delivered by your own
 provider; some providers (QQ is one) add no `Authentication-Results` header at all for
 such mail. Requiring one rejects every genuine reply, so `/mailbridge setup` writes
-`requireDmarcPass: false` when the two addresses match and says so. The allowlist, the
-loop guard and the two guards above still apply — DMARC was never what separated you from
-a stranger in this layout. If you know your provider stamps the header on self-mail, set
-it back to `true`.
+`requireDmarcPass: false` when the two addresses match and says so.
+
+Be clear about what that costs: **DMARC is what would stop someone forging your address.**
+With it off, a message that says `From: you@qq.com` is treated as you by the allowlist — and
+the reply-evidence gate adds little, because anyone can set `In-Reply-To`. What actually
+keeps a stranger out is **routing**: they would need a live `[pi:…]` route id (six hex,
+local, 30-day TTL) or a recorded Message-ID from one of our notifications. Neither is
+guessable. So the shape is safe against opportunists, not against someone who has read one of
+your notifications. If you know your provider stamps `Authentication-Results` on self-mail,
+set this back to `true`.
 
 Point layout B at a mailbox you would not mind an agent reading, or prime it before your
 first `/afk` (below). The isolation of layout A is real, and this layout gives it up.
@@ -133,8 +139,8 @@ allowlist plus DMARC.
 
 What this means in practice:
 
-- **Reply normally.** Every mail client sets `In-Reply-To`, so a plain Reply works
-  either way.
+- **Reply normally.** Mail clients set `In-Reply-To` or at least `References`, and either is
+  accepted, so a plain Reply works.
 - **Editing the subject is safe** — the chain still routes it, until the TTL expires.
 - **Composing a brand-new email** with no id and no reference is *not* identified. In
   layout A, use Reply or keep the `[pi:…]` tag in the subject; in layout B (one address)
@@ -177,7 +183,7 @@ arrived. If mode is off nothing is scanned at all, so this panel keeps showing t
 | `no-from` / `not-allowlisted` | the `From:` header is missing, or not an exact `addr-spec` in `security.allowFrom` | add the address you actually reply from |
 | `allowlist-empty` | `security.allowFrom` is empty, which denies everything | set it |
 | `dmarc-missing` / `dmarc-failed` | no `Authentication-Results` with `dmarc=pass` from a trusted relay | check `security.requireDmarcPass`; Microsoft consumer accounts need `trustedAuthservId` unset |
-| `no-token` | the subject lost its `[pi:…]` id **and** nothing in `In-Reply-To`/`References` matched | reply to the original mail, or keep the tag |
+| `no-token` | the subject lost its `[pi:…]` id **and** nothing in `In-Reply-To`/`References` matched | reply to the original mail; in layout A you can also keep the tag |
 | `route-miss` | the subject's id was expired or minted on another machine | nothing, if it routed by the chain — it appears under `handled:` |
 | `other-device` | the notification was minted by another pi machine, or `device.name` changed since | reply to a notification from this machine, or restore the old `device.name` |
 | `self` | single-mailbox mode, but `security.allowSelfReplies` is false, so a reply from your own address is refused | set it `true` (see One mailbox or two?) |
@@ -186,6 +192,7 @@ arrived. If mode is off nothing is scanned at all, so this panel keeps showing t
 | `empty-body` | no prose and no usable attachment | — |
 | `attachment-*` | an attachment was dropped (type, size, count) | see the reason suffix |
 | `pending-full` | the queue holds 1 000 undelivered replies | start a session so they drain |
+| `too-large` | the message exceeds 8 MiB and was refused before its body was downloaded | send a smaller one (the attachment caps are 4 files / 1 MB each) |
 
 Where to look:
 
@@ -426,7 +433,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | `oauth.scope` | — | must include `offline_access` for a refresh token |
 | `device.name` | first label of `os.hostname()` | machine name shown in every settle notification, and stored on the routing record |
 | `security.allowFrom` | `[]` | senders allowed to command the agent; empty denies all |
-| `security.requireDmarcPass` | `true` | require a DMARC pass (pinned to `trustedAuthservId` when that is set) |
+| `security.requireDmarcPass` | `true` | require a DMARC pass (pinned to `trustedAuthservId` when that is set). Must be `false` for a single-mailbox setup — see One mailbox or two? |
 | `security.trustedAuthservId` | unset | pin the trusted `Authentication-Results` host. Leave unset for Microsoft consumer accounts — their relay emits no authserv-id |
 | `security.allowHeaderThreading` | `true` | accept a reply whose subject id was lost, by matching `In-Reply-To` / `References` against Message-IDs we minted |
 | `security.allowSelfReplies` | `false` | one address for both roles (personal Hotmail/Gmail): accept a self-addressed message, but only a real reply |

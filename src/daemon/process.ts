@@ -48,6 +48,8 @@ export interface RawMessage {
  * implement it over an in-memory fixture, so the pipeline never needs a socket.
  */
 export interface MailSource {
+	/** The mailbox's UIDVALIDITY, when the source knows it. */
+	uidValidity?(): number | undefined
 	/** UIDs strictly greater than `afterUid`, ascending. */
 	searchAfter(afterUid: number): Promise<number[]>
 	/** The message, or undefined when it vanished between search and fetch. */
@@ -99,6 +101,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 	const now = deps.now ?? (() => Date.now())
 
 	const startCursor = readCursor(env)
+	const uidValidity = deps.source.uidValidity?.()
 	const uids = (await deps.source.searchAfter(startCursor)).slice().sort((a, b) => a - b)
 
 	const result: ScanResult = {
@@ -112,7 +115,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 
 	for (const uid of uids) {
 		// Dedupe: an acked UID must never be re-offered, whatever the server says.
-		if (isJournaled(env, uid)) {
+		if (isJournaled(env, uid, uidValidity)) {
 			result.skipped++
 			bump(result.reasons, "journaled")
 			result.cursor = advanceCursor(env, uid)
@@ -257,6 +260,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			body,
 			...(accepted.length ? { attachments: accepted } : {}),
 			receivedAt: message.receivedAt,
+			...(uidValidity === undefined ? {} : { uidValidity }),
 		}
 
 		// Persist BEFORE the cursor moves. A crash here leaves the mail unseen.

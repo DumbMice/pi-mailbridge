@@ -43,6 +43,11 @@ now explicit and tested:
   no `Authentication-Results` on self-addressed mail (QQ) would otherwise reject every reply,
   and the rejection advanced the cursor past it.
 
+**Upgrading a single-mailbox config:** if `security.allowSelfReplies` is already `true` and
+every reply reports `dmarc-missing`, set `security.requireDmarcPass: false`. Setup writes that
+for new configs; it never rewrites an existing one. `/mailbridge check` and
+`pi-mailbridge --check` both warn when the two are combined.
+
 ### Daemon
 
 - A session that attaches to an already-running daemon now reloads it when `config.json` is

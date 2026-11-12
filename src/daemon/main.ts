@@ -33,6 +33,7 @@ import { createOpenidClient } from "../core/oauth-openid.ts"
 import { buildTokenProvider } from "../core/token-source.ts"
 import { fileTokenStore } from "../store/oauth-store.ts"
 import { scanAndProcess } from "./process.ts"
+import { dropPendingFromOtherSpaces } from "../store/pending-store.ts"
 import { createImapWatcher, type ImapWatcher } from "./watcher.ts"
 import { createImapflowFactory } from "./imapflow.ts"
 import { createDaemonService, type DaemonService } from "./service.ts"
@@ -190,8 +191,11 @@ function log(message: string): void {
  * `--check`: report every problem distinctly and exit with a code a supervisor
  * can act on. Never touches mail.
  */
-async function check(config: ResolvedConfig): Promise<number> {
-	let code = 0
+/**
+ * Problems `--check` reports, without the network or the log side-effects.
+ * Exported so the combination rules can be tested.
+ */
+export function checkProblems(config: ResolvedConfig): string[] {
 	const problems: string[] = []
 	const add = (problem: string) => {
 		if (!problems.includes(problem)) problems.push(problem)
@@ -201,6 +205,26 @@ async function check(config: ResolvedConfig): Promise<number> {
 
 	if (!hasUsableMailConfig(config)) {
 		add("mail.imap.host / mail.imap.user / mail.smtp.host / mail.to must all be set")
+	}
+
+	// Same check as /mailbridge check: one address plus DMARC means every reply is rejected
+	// on providers that stamp no Authentication-Results on self-addressed mail. This is the
+	// headless path the systemd unit runs, so it must not stay silent.
+	if (config.security.allowSelfReplies && config.security.requireDmarcPass) {
+		add(
+			"security.allowSelfReplies is on but security.requireDmarcPass is too — providers that do not " +
+				"stamp Authentication-Results on self-addressed mail will reject every reply (dmarc-missing)",
+		)
+	}
+
+	return problems
+}
+
+async function check(config: ResolvedConfig): Promise<number> {
+	let code = 0
+	const problems = checkProblems(config)
+	const add = (problem: string) => {
+		if (!problems.includes(problem)) problems.push(problem)
 	}
 
 	if (config.mail.imap.authType === "XOAUTH2" || config.mail.smtp.authType === "XOAUTH2") {
@@ -395,8 +419,15 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 					// folder renumbers from 1; without this the high-water cursor would skip
 					// every future message, with "examined 0" as the only symptom.
 					// `currentWatcher` is assigned before start(), so it is this watcher here.
-					if (syncUidValidity(process.env, currentWatcher?.uidValidity())) {
-						log("mailbox UIDVALIDITY changed; cursor reset - re-reading from the start")
+					const validity = currentWatcher?.uidValidity()
+					if (syncUidValidity(process.env, validity) && validity !== undefined) {
+						// The renumbering also invalidates any queued record from the old space:
+						// a new UID could collide with it and replace it silently. Dropped mail is
+						// still unread in the mailbox and is re-read from the reset cursor.
+						const dropped = dropPendingFromOtherSpaces(process.env, validity)
+						log(
+							`mailbox UIDVALIDITY changed to ${validity}; cursor reset and ${dropped} queued record(s) dropped - re-reading from the start`,
+						)
 					}
 					log("imap ready; running catch-up scan")
 					void scanOnce("catch-up")
