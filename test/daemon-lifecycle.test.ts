@@ -42,7 +42,7 @@ function rig(port: number): Rig {
 			},
 			security: { allowFrom: ["you@example.com"], requireDmarcPass: false },
 			daemon: { host: "127.0.0.1", port },
-			tuning: { idleRenewMs: 1000, autoIdleDelayMs: 1, backoffInitialMs: 50, backoffMaxMs: 200 },
+			tuning: { idleRenewMs: 1000, backoffInitialMs: 50, backoffMaxMs: 200 },
 		}),
 	)
 	const env = { ...process.env, XDG_CONFIG_HOME: join(root, "config"), XDG_STATE_HOME: join(root, "state") }

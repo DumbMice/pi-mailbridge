@@ -21,8 +21,8 @@ function config(): ResolvedConfig {
 		},
 		security: { allowFrom: ["you@example.com"], requireDmarcPass: false, tokenTtlHours: 24 },
 		daemon: { host: "127.0.0.1", port: 4177 },
-		notify: { onSettled: true, debounceMs: 10_000, notifyOnAborted: false, subject: "pi" },
-		tuning: { idleRenewMs: 1, autoIdleDelayMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
+		notify: { onSettled: true, debounceMs: 10_000, notifyOnAborted: false },
+		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
 		device: { name: "test-device" },
 		warnings: [],
 	}

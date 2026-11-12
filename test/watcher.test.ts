@@ -20,8 +20,8 @@ function config(over: Partial<ResolvedConfig["tuning"]> = {}): ResolvedConfig {
 		},
 		security: { allowFrom: ["you@example.com"], requireDmarcPass: true, trustedAuthservId: "mx.example.com", tokenTtlHours: 24 },
 		daemon: { host: "127.0.0.1", port: 4177 },
-		notify: { onSettled: true, debounceMs: 0, notifyOnAborted: false, subject: "pi" },
-		tuning: { idleRenewMs: 1000, autoIdleDelayMs: 1, backoffInitialMs: 100, backoffMaxMs: 800, ...over },
+		notify: { onSettled: true, debounceMs: 0, notifyOnAborted: false },
+		tuning: { idleRenewMs: 1000, backoffInitialMs: 100, backoffMaxMs: 800, ...over },
 		device: { name: "test-device" },
 		warnings: [],
 	}

@@ -11,7 +11,6 @@
 // Config is read from, in order, each deep-merged over the previous:
 //   1. built-in defaults
 //   2. $XDG_CONFIG_HOME/pi-mailbridge/config.json
-//   3. <project>/.pi/mailbridge.json    (optional, per-project overrides)
 //   4. PI_MAILBRIDGE_* environment variables
 
 import { homedir } from "node:os"

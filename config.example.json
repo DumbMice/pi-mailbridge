@@ -30,7 +30,9 @@
     "scope": "offline_access https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send"
   },
   "security": {
-    "allowFrom": ["you@example.com"],
+    "allowFrom": [
+      "you@example.com"
+    ],
     "requireDmarcPass": true,
     "allowHeaderThreading": true,
     "allowSelfReplies": false,
@@ -46,12 +48,10 @@
   "notify": {
     "onSettled": true,
     "debounceMs": 10000,
-    "notifyOnAborted": false,
-    "subject": "pi"
+    "notifyOnAborted": false
   },
   "tuning": {
     "idleRenewMs": 1500000,
-    "autoIdleDelayMs": 1000,
     "backoffInitialMs": 1000,
     "backoffMaxMs": 60000
   }

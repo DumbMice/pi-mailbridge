@@ -244,9 +244,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | `notify.onSettled` | `true` | email when an agent settles |
 | `notify.debounceMs` | `10000` | quiet period before the settle mail |
 | `notify.notifyOnAborted` | `false` | also mail when you hit Escape |
-| `notify.subject` | `"pi"` | unused by the settle mail; reserved for custom notifications |
 | `tuning.idleRenewMs` | `1500000` | IDLE renew interval (keep under ~29 min) |
-| `tuning.autoIdleDelayMs` | `1000` | quiet period before imapflow re-issues IDLE |
 | `tuning.backoffInitialMs` / `.backoffMaxMs` | `1000` / `60000` | reconnect backoff bounds |
 
 ### Provider support

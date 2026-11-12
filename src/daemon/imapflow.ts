@@ -92,14 +92,3 @@ export function createImapflowFactory(options: ImapflowFactoryOptions = {}): Ima
 		return adapt(client)
 	}
 }
-
-/**
- * Convenience: a factory that pulls XOAUTH2 tokens from a `tokenCommand`.
- * Used by the daemon when `mail.imap.authType` is XOAUTH2.
- */
-export function createImapflowFactoryWithCommand(config: ResolvedConfig): ImapClientFactory {
-	const provider = createCommandTokenProvider({
-		command: config.mail.imap.tokenCommand ?? [],
-	})
-	return createImapflowFactory({ getAccessToken: () => provider.getToken() })
-}

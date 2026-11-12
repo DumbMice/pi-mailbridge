@@ -67,8 +67,8 @@ export interface ResolvedConfig {
 		/** Grace period after the last ping before exiting. Default 120. */
 		idleTimeoutSecs?: number
 	}
-	notify: { onSettled: boolean; debounceMs: number; notifyOnAborted: boolean; subject: string }
-	tuning: { idleRenewMs: number; autoIdleDelayMs: number; backoffInitialMs: number; backoffMaxMs: number }
+	notify: { onSettled: boolean; debounceMs: number; notifyOnAborted: boolean }
+	tuning: { idleRenewMs: number; backoffInitialMs: number; backoffMaxMs: number }
 	/** Human-readable problems found while loading; surfaced by `/mailbridge`. */
 	warnings: string[]
 }
@@ -88,10 +88,9 @@ const DEFAULTS: Omit<ResolvedConfig, "warnings"> = {
 		tokenTtlHours: 30 * 24,
 	},
 	daemon: { host: "127.0.0.1", port: 4177, exitWhenIdle: true, idleTimeoutSecs: 120 },
-	notify: { onSettled: true, debounceMs: 10_000, notifyOnAborted: false, subject: "pi: finished" },
+	notify: { onSettled: true, debounceMs: 10_000, notifyOnAborted: false },
 	tuning: {
 		idleRenewMs: 25 * 60 * 1000,
-		autoIdleDelayMs: 1000,
 		backoffInitialMs: 1000,
 		backoffMaxMs: 60_000,
 	},

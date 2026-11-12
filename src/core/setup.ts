@@ -77,8 +77,8 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
 		...built,
 		device: { name: shortHostname() },
 		daemon: { host: "127.0.0.1", port: 4177 },
-		notify: { onSettled: true, debounceMs: 10_000, notifyOnAborted: false, subject: "pi" },
-		tuning: { idleRenewMs: 25 * 60 * 1000, autoIdleDelayMs: 1000, backoffInitialMs: 1000, backoffMaxMs: 60_000 },
+		notify: { onSettled: true, debounceMs: 10_000, notifyOnAborted: false },
+		tuning: { idleRenewMs: 25 * 60 * 1000, backoffInitialMs: 1000, backoffMaxMs: 60_000 },
 	}
 
 	mkdirSync(dirname(target), { recursive: true, mode: 0o700 })
