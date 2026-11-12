@@ -239,10 +239,13 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | **QQ Mail / Foxmail / 163 / 126** (practical in mainland China) | `LOGIN` 授权码 | ✅ works, built into discovery |
 | Gmail | app password (`LOGIN`) recommended | ✅ works |
 | Microsoft 365 / work accounts | `XOAUTH2` | ✅ usually works |
-| **Personal** `@outlook.com` / `@hotmail.com` | `XOAUTH2` | ⚠️ two obstacles — see below |
+| **Personal** `@outlook.com` / `@hotmail.com` | `XOAUTH2` only | ⚠️ app passwords are rejected over IMAP; two obstacles — see below |
 
-**Outlook needs OAuth2, not a password.** Microsoft retired Basic Authentication on
-2024-09-16, so an app password no longer authenticates. This package ships a
+**Outlook needs OAuth2, not a password.** Enabling IMAP/SMTP in Outlook.com's
+settings does *not* restore password login — the toggle makes the protocols
+available, it does not change authentication. App passwords can still be created
+and may work for SMTP, but **IMAP rejects them**, and IMAP is how your replies
+arrive. This package ships a
 device-code login, so you approve once from any device and it refreshes itself:
 
 ```bash

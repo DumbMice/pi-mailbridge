@@ -89,7 +89,7 @@ Nothing is wrong with your mailbox. You just do not have a directory to put an a
 
 |  | Outlook (personal) | Gmail |
 | --- | --- | --- |
-| **App password** | ❌ retired 2024-09-16 | ✅ 16-char passcode, needs 2-Step Verification |
+| **App password** | ⚠️ can still be created; **IMAP rejects it** (SMTP may accept it) | ✅ 16-char passcode, works for both directions |
 | **OAuth app needed** | ✅ plus an Entra **tenant** | ✅ plus a GCP project |
 | **OAuth friction** | no tenant → "account does not exist" | mail scopes are **restricted**: verification **+ annual CASA** to publish; a consent screen left in **Testing** expires refresh tokens **every 7 days** (`invalid_grant`) |
 | **Servers** | sometimes refuse IMAP/SMTP OAuth2 outright | reliable |
@@ -196,6 +196,32 @@ one 401 from the mail server triggers exactly one refresh, then the daemon stops
 rather than hammering the provider.
 
 ## When IMAP/SMTP OAuth2 still fails
+
+### Enabling IMAP/SMTP in Outlook.com does not restore password login
+
+Worth stating plainly, because it is the obvious thing to try: the toggle in
+Outlook.com settings (*Settings → Mail → Forwarding and IMAP → "Let devices and
+apps use IMAP"*, off by default) makes the **protocols available**. It does not
+change **authentication**. Basic Authentication was removed service-wide — for
+IMAP as far back as October 2022, for the rest on 2024-09-16 — and no per-mailbox
+setting reverses it.
+
+There is a subtlety that is widely misreported:
+
+| Direction | App password |
+| --- | --- |
+| **Outgoing** (SMTP) | often still accepted |
+| **Incoming** (IMAP/POP) | **rejected** — "devices using those protocols can no longer use App Passwords" |
+
+So an app password can let a tool *send* from a personal Outlook mailbox but not
+*read* it. This package needs both — IMAP is how your reply arrives — so an app
+password is not a workaround here even when SMTP accepts it.
+
+Enabling IMAP/SMTP was still the right move if you take the OAuth route: it is
+prerequisite one of two. Prerequisite two is the Entra tenant for the app
+registration.
+
+### The server may refuse a valid token
 
 This is the honest part, and it applies to **personal** `outlook.com` only:
 
