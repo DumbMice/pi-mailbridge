@@ -199,27 +199,49 @@ rather than hammering the provider.
 
 ### Enabling IMAP/SMTP in Outlook.com does not restore password login
 
-Worth stating plainly, because it is the obvious thing to try: the toggle in
-Outlook.com settings (*Settings → Mail → Forwarding and IMAP → "Let devices and
-apps use IMAP"*, off by default) makes the **protocols available**. It does not
-change **authentication**. Basic Authentication was removed service-wide — for
-IMAP as far back as October 2022, for the rest on 2024-09-16 — and no per-mailbox
-setting reverses it.
+Worth stating plainly, because it is the obvious thing to try: the toggle
+(*Settings → Mail → Forwarding and IMAP → "Let devices and apps use IMAP"*) makes
+the **protocols available**. It does not change **authentication**.
 
-There is a subtlety that is widely misreported:
+Microsoft's own [POP, IMAP and SMTP settings page](https://support.microsoft.com/en-us/outlook/pop-imap-and-smtp-settings-for-outlook-com)
+says both things in adjacent sentences:
 
-| Direction | App password |
-| --- | --- |
-| **Outgoing** (SMTP) | often still accepted |
-| **Incoming** (IMAP/POP) | **rejected** — "devices using those protocols can no longer use App Passwords" |
+> POP & IMAP access is **disabled by default**. See the section below on how to
+> enable POP or IMAP access in Outlook.com.
 
-So an app password can let a tool *send* from a personal Outlook mailbox but not
-*read* it. This package needs both — IMAP is how your reply arrives — so an app
-password is not a workaround here even when SMTP accepts it.
+> **Outlook.com requires the use of Modern Auth / OAuth2.**
 
-Enabling IMAP/SMTP was still the right move if you take the OAuth route: it is
-prerequisite one of two. Prerequisite two is the Entra tenant for the app
-registration.
+and its settings table lists the authentication method for every protocol:
+
+| Protocol | Server | Authentication Method |
+| --- | --- | --- |
+| IMAP | `outlook.office365.com:993` | **OAuth2/Modern Auth** |
+| POP | `outlook.office365.com:995` | **OAuth2/Modern Auth** |
+| SMTP | `smtp-mail.outlook.com:587` | **OAuth2/Modern Auth** |
+
+So enabling the toggle is necessary and not sufficient: it opens the port, and
+OAuth2 is still the only way in.
+
+**Why the internet disagrees with itself.** That same page also carries a stale
+sentence — *"if your password is not being recognized … you may need an app
+password"* — left over from before the shutdown. That sentence is why forum
+threads confidently report that app passwords still work. Field reports split on
+SMTP specifically (some clients still succeed with an app password, Microsoft's
+Q&A said in 2025 that they were disabled, n8n's docs say not to rely on them). For
+IMAP there is no ambiguity: **app passwords are not a workaround**.
+
+That is what settles it here, because IMAP is how a reply reaches you. A tool that
+could only send would not be this tool.
+
+#### What to actually do about a personal Outlook mailbox
+
+1. **Get an Entra tenant** (free Azure signup) and register the app — the OAuth
+   route. Enabling IMAP/SMTP was prerequisite one; the tenant is prerequisite two.
+2. **Or use a provider that still takes a password** — Gmail app password, or
+   QQ/163 with a 授权码. Both avoid OAuth entirely.
+
+Given the tenant friction *and* the server-side refusal reports below, option 2 is
+usually the shorter path.
 
 ### The server may refuse a valid token
 
