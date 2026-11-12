@@ -485,6 +485,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		scanSummary: () => lastScan,
 		// The file's mtime, not a clock reading: comparing mtime to mtime has no clock coupling.
 		configLoadedAt: () => configLoadedAt,
+		imapHealthy: () => currentWatcher?.isHealthy() ?? false,
 		// Re-open the channel: process what arrived while mode was off, and retry anything a
 		// full queue refused. Safe to call when nothing changed (an empty scan is cheap).
 		onModeChange: (mode) => {

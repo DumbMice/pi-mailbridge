@@ -96,7 +96,7 @@ A legitimate email can still contain text that reads like instructions
   reachable without the token, apart from the `/health` liveness probe. That returns mode,
   pending/clients counts, the decision-registry size, ping timing, whether idle-exit is armed,
   the number of SSE subscribers, the last scan's
-  reason *counts*, and the config file's mtime — no mail content, no addresses, no subjects.
+  reason *counts*, and the config file's mtime and whether IMAP is connected — no mail content, no addresses, no subjects.
 - Bearer token from `secret.key`, mode `0600`, created first-writer-wins,
   compared in constant time.
 - Body cap 1 MB; registry cap 10 000; SSE client cap 100.

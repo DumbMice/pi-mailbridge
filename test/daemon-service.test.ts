@@ -931,3 +931,23 @@ test("the SSE client cap is enforced", async () => {
 		await service.close()
 	}
 })
+
+test("/health reports whether IMAP is connected", async () => {
+	// A revoked credential leaves the daemon running and looking healthy; without this the
+	// user sees "daemon healthy, last scan N minutes ago" and nothing else.
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-imap-")) },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
+		send: async () => ({ messageId: "<x@qq.com>" }),
+		imapHealthy: () => false,
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	try {
+		const body = (await (await fetch(`http://127.0.0.1:${port}/health`)).json()) as { imap: string }
+		assert.equal(body.imap, "disconnected")
+	} finally {
+		await service.close()
+	}
+})

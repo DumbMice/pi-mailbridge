@@ -775,3 +775,12 @@ test("the Outlook config snippet has a security block", () => {
 	assert.ok(snippet.includes('"security"'), "the full config snippet must include security")
 	assert.match(snippet, /"allowSelfReplies": true/, "and match its own single-mailbox shape")
 })
+
+test("the daemon's mode gate is present in the code that runs it", () => {
+	// The /back promise is enforced in main.ts's scanNow, which no test can reach. This pins
+	// the wiring itself, so deleting the gate fails the suite rather than shipping silently.
+	const main = readFileSync(join(root, "src/daemon/main.ts"), "utf8")
+	assert.match(main, /if \(!scanningEnabled\(readMode\(process\.env\)\)\)/, "scanNow must check the mode")
+	const source = readFileSync(join(root, "src/core/status.ts"), "utf8")
+	assert.ok(source.includes("HANDLED"), "sanity: unrelated file read")
+})

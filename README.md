@@ -166,6 +166,8 @@ Every scan records why each message was refused, so this is answerable:
 ```
 
 ```
+mode: on
+imap: connected
 last scan: 14:02:11 — examined 2, kept 1, rejected 1
 rejections: not-allowlisted 1
 ```
@@ -210,7 +212,10 @@ Where to look:
 | `…/journal.json` | acked UIDs, tagged with the mailbox UIDVALIDITY (replay protection within one numbering) |
 
 `/mailbridge check` validates config and that credentials are present; `/mailbridge smoke`
-is what proves they work. If `/mailbridge status` says the daemon is unreachable, either this session never built a
+is what proves they work. If `imap:` says `disconnected`, the credentials or the host are wrong even though the daemon
+itself is up — that is the state a revoked app password leaves you in.
+
+If `/mailbridge status` says the daemon is unreachable, either this session never built a
 client (it started before a config existed) or the daemon process is down. `/mailbridge
 restart` fixes both — it starts the daemon and wires the session — so run it and check
 again.

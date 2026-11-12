@@ -463,6 +463,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						`daemon: ${health?.ok ? "healthy" : "unreachable"} (${clientBase ?? currentBaseUrl()})`,
 						`device: ${config.device.name}`,
 						`mode: ${health?.ok ? health.data.mode : "(unknown)"}`,
+						`imap: ${health?.ok ? (health.data as { imap?: string }).imap ?? "unknown" : "(unknown)"}`,
 						`session: ${ctx?.sessionManager.getSessionId() ?? "(none)"}`,
 						`secret: ${secret ? "present" : "missing"}`,
 						`mailbox: ${config.mail.to || "(unset)"}`,

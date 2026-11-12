@@ -197,6 +197,8 @@ export function createDaemonClient(options: DaemonClientOptions) {
 					reasons: Record<string, number>
 				} | null
 				configLoadedAt?: number | null
+				/** "connected" | "disconnected" | "unknown" */
+				imap?: string
 			}>("GET", "/health"),
 		pending: () => call<{ pending: PendingRecord[] }>("GET", "/pending"),
 		mode: () => call<{ mode: string }>("GET", "/mode"),

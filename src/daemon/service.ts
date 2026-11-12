@@ -85,6 +85,8 @@ export interface DaemonDeps {
 	scanSummary?: () => { at: number; examined: number; persisted: number; rejected: number; reasons: Record<string, number> } | undefined
 	/** mtime of the config file the daemon is running on (0 when there was no file). */
 	configLoadedAt?: () => number
+	/** Is the IMAP watcher connected? A revoked credential shows here, not in the process. */
+	imapHealthy?: () => boolean
 	/** How long after the last ping to exit. Default 120s. */
 	idleTimeoutMs?: number
 	env?: NodeJS.ProcessEnv
@@ -202,6 +204,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				idleExitEnabled: deps.exitWhenIdle ? deps.exitWhenIdle() : false,
 				lastScan: deps.scanSummary?.() ?? null,
 				configLoadedAt: deps.configLoadedAt?.() ?? null,
+				imap: deps.imapHealthy ? (deps.imapHealthy() ? "connected" : "disconnected") : "unknown",
 			})
 		}
 
