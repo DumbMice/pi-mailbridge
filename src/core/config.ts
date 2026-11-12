@@ -202,6 +202,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 				`mail.${side}.authType is XOAUTH2 but neither mail.${side}.tokenCommand nor oauth.issuer/oauth.clientId is set`,
 			)
 		}
+		if (hasOAuth && /(partner\.microsoftonline\.cn|chinacloudapi\.cn)/i.test(resolved.oauth?.issuer ?? "")) {
+			warnings.push(
+				"oauth.issuer points at the Azure China (21Vianet) sovereign cloud — apps registered there cannot authenticate against global Outlook.com; use login.microsoftonline.com",
+			)
+		}
 		if (hasOAuth && !/\boffline_access\b/.test(resolved.oauth?.scope ?? "")) {
 			warnings.push("oauth.scope should include offline_access, otherwise no refresh token is issued")
 		}

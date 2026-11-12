@@ -112,10 +112,38 @@ verification, and no token that dies weekly.
 `--setup` picks `LOGIN` for Google automatically and attaches no OAuth block, so
 there is nothing to register.
 
-**B. Get a free Entra tenant for the Hotmail account.** Sign up for a free Azure
-account with that MSA; Microsoft creates a default directory where you are global
-admin, and app registration works there. Honest caveats: card or phone verification
-is usually required, and some new personal accounts are refused outright.
+**B. Get a free Entra tenant for the Hotmail account.** Signing up for Azure with a
+personal Microsoft account creates a **default directory** where you are Global
+Administrator, and app registration then works there. Two routes:
+
+*Global Azure free account* — <https://azure.microsoft.com/free/>:
+
+1. Sign in with the pi Hotmail account (not via the Entra admin centre)
+2. Complete identity verification (phone) and the profile step; a card is usually
+   required as a payment-method check even for the free tier
+3. On completion Azure creates the default directory. Sign in to
+   <https://entra.microsoft.com> and you should now see it in the directory picker
+4. **App registrations → New registration**
+
+*Microsoft 365 Developer Program* — <https://developer.microsoft.com/microsoft-365/dev-program>:
+free, no credit card, gives a sandbox tenant with E5 licences where you are admin.
+The app registration step is the same. Slower to provision, but it avoids the billing
+step entirely.
+
+> **Do not use Azure China / 21Vianet.** `azure.cn` is a physically and logically
+> isolated sovereign cloud with its own identity endpoints
+> (`login.partner.microsoftonline.cn`). An app registered in a 21Vianet tenant
+> **cannot** authenticate against global Outlook.com — the device flow against
+> `login.microsoftonline.com` will fail. You need the global cloud, i.e.
+> `azure.microsoft.com` / `login.microsoftonline.com`. `--check` warns if
+> `oauth.issuer` points at a sovereign-cloud domain.
+
+> Caveat: if the Microsoft account already belongs to a tenant as a member or
+> guest, Azure signup joins that tenant instead of creating a fresh directory.
+> A brand-new personal account gets its own.
+
+Whatever tenant holds the app, set **Supported account types** to include *personal Microsoft accounts* so the Hotmail identity can sign in, and
+**Allow public client flows → Yes**.
 
 **C. Use a GCP project for Gmail OAuth.** Only worth it if you object to app
 passwords. You must either accept **7-day refresh tokens** in Testing status (the

@@ -388,3 +388,34 @@ test("single-mailbox mode still rejects our own notification echo", async () => 
 	assert.equal(r.reasons["self-echo"], 1, "must not inject our own sent mail as a reply")
 	assert.equal(listPending(e).length, 0)
 })
+
+test("a sovereign-cloud oauth issuer is flagged as unusable for global Outlook", async () => {
+	const { loadConfig } = await import("../src/core/config.ts")
+	const env = {
+		XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "pmb-cfg-")),
+		PI_MAILBRIDGE_IMAP_HOST: "outlook.office365.com",
+		PI_MAILBRIDGE_IMAP_USER: "pi@hotmail.com",
+		PI_MAILBRIDGE_SMTP_HOST: "smtp-mail.outlook.com",
+		PI_MAILBRIDGE_TO: "me@hotmail.com",
+	} as NodeJS.ProcessEnv
+	const { mkdirSync, writeFileSync } = await import("node:fs")
+	mkdirSync(join(env.XDG_CONFIG_HOME!, "pi-mailbridge"), { recursive: true })
+	writeFileSync(
+		join(env.XDG_CONFIG_HOME!, "pi-mailbridge", "config.json"),
+		JSON.stringify({
+			mail: {
+				imap: { host: "outlook.office365.com", port: 993, secure: true, user: "pi@hotmail.com", password: "", folder: "INBOX", authType: "XOAUTH2" },
+				smtp: { host: "smtp-mail.outlook.com", port: 587, secure: false, user: "pi@hotmail.com", password: "", authType: "XOAUTH2" },
+				to: "me@hotmail.com",
+			},
+			security: { allowFrom: ["me@hotmail.com"], requireDmarcPass: false },
+			oauth: {
+				issuer: "https://login.partner.microsoftonline.cn/consumers/v2.0",
+				clientId: "x",
+				scope: "offline_access",
+			},
+		}),
+	)
+	const warnings = loadConfig(env).warnings.join("\n")
+	assert.match(warnings, /Azure China|21Vianet|sovereign/)
+})

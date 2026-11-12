@@ -81,6 +81,20 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### China trap: Azure China cannot authenticate global Outlook
+
+`azure.cn` (Azure operated by 21Vianet) is a physically isolated sovereign cloud
+with its own identity endpoints (`login.partner.microsoftonline.cn`). An app
+registered there cannot authenticate against global Outlook.com, so the device
+flow against `login.microsoftonline.com` fails. config now warns when
+`oauth.issuer` points at a sovereign-cloud domain.
+
+docs/OAUTH.md gains the concrete steps for getting a tenant with a personal
+Hotmail — global Azure free account (creates a default directory) or the
+Microsoft 365 Developer Program (free sandbox tenant, no credit card) — and the
+note that an MSA already attached to a tenant joins that tenant instead of
+getting a fresh directory.
+
 ### China: QQ Mail, Foxmail, 163 and 126 built in
 
 Google is unreachable in mainland China, so the Gmail recommendation does not
