@@ -214,6 +214,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 			warnings.push(`mail.${side}.password is set but authType is XOAUTH2 — the password will be ignored`)
 		}
 	}
+
+	// A LOGIN account with no password cannot authenticate, and saying "config ok"
+	// in that state sends the user straight into a confusing smoke failure.
+	for (const side of ["imap", "smtp"] as const) {
+		const account = resolved.mail[side]
+		if (account.authType !== "XOAUTH2" && !account.password) {
+			warnings.push(
+				`mail.${side}.password is empty — paste the provider's app password there (QQ/163 call it 授权码)`,
+			)
+		}
+	}
 	return resolved
 }
 

@@ -81,6 +81,13 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### check: an empty app password is now a reported problem
+
+Running `--check` on a freshly written QQ config printed "config ok" while
+`mail.imap.password` was still empty - which sends the user straight into a
+confusing smoke failure. It now reports, per side, that the password is missing and
+names the 授权码, because that is the string QQ's UI shows. Exit 2 instead of 0.
+
 ### Costs: Entra ID Free is enough
 
 Documented that no paid Entra license is required. App registration, device-code
