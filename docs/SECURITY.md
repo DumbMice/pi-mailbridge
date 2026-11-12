@@ -148,8 +148,9 @@ A legitimate email can still contain text that reads like instructions
   can already send from your address; they exist to stop loops, not attackers.
   **DMARC is off in this shape by default**, because a provider may deliver a message from
   your address to the same address with no `Authentication-Results` header at all (QQ does),
-  which would reject every reply. `/mailbridge setup` writes it that way and `--check`
-  warns if you set it back on. Prefer a dedicated mailbox.
+  which would reject every reply. `/mailbridge setup` writes it that way; setting it back on is
+  reported by `/mailbridge check` and by `--check`, which exits non-zero — under the shipped
+  unit that stops it at `ExecStartPre`. Prefer a dedicated mailbox.
 - **Multiple machines, one mailbox.** Each daemon only claims replies whose route id, token
   or chain entry names its own device, so they cannot steal each other's work. They share
   the allowlist (one config each), but **each machine has its own `secret.key`** — it is a

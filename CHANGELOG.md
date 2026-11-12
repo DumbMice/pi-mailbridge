@@ -76,7 +76,9 @@ daemon that rejects every reply.
 
 - `pending-store` — durable deliveries with exclusive claim, same-instance
   re-claim, abandoned-claim TTL, claimant-only ack.
-- `uid-cursor` — monotonic, atomic, corrupt-tolerant.
+- `uid-cursor` — records the mailbox's UIDVALIDITY beside the cursor; a renumbering resets
+  it (with `uidNext`-based detection for a cursor written by an older version), so a rebuilt
+  folder is re-read instead of skipped.
 - `journal` — capped acked-UID set for durable replay protection.
 - `mode-store` — global on/off, default off, atomic replace.
 - `registry` — one outstanding decision per session, TTL + hard cap.

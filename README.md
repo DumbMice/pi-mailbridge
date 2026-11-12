@@ -153,8 +153,8 @@ Rule 3 is a convenience fallback, not authentication — a Message-ID is only
 visible to the recipient, but it is unsigned. Set
 `security.allowHeaderThreading: false` to switch *that rule* off. It does not make the
 subject id authoritative: rule 1 is an unsigned lookup key either way, so if you want
-no unauthenticated path at all, treat the mailbox as trusted input and rely on the allowlist and DMARC (DMARC is off in
-single-mailbox mode).
+no unauthenticated path at all, treat the mailbox as trusted input and rely on the
+allowlist and DMARC (DMARC is off in single-mailbox mode).
 
 ## A reply did not arrive
 
@@ -200,6 +200,7 @@ Where to look:
 | --- | --- |
 | `$XDG_STATE_HOME/pi-mailbridge/daemon.log` (default `~/.local/state/…`); under systemd, `journalctl --user -u pi-mailbridge` | scan summaries, connect errors, rejected reasons |
 | `…/uid-cursor.json` | last seen UID + the mailbox's UIDVALIDITY; a change resets it |
+| `…/mode.json` | the global on/off state `/afk` and `/back` write |
 | `…/pending.json` | accepted replies waiting for a session |
 | `…/routes.json` | short routing ids (`security.tokenTtlHours`) |
 | `…/threads.json` | outbound Message-IDs used for threading and the reply chain |

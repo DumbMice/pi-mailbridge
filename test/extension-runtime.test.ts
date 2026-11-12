@@ -109,6 +109,7 @@ interface FakeDaemon {
 	registered: string[]
 	released: string[]
 	acked: number[]
+	claimArgs: (number | undefined)[]
 	pendingRecords: PendingRecord[]
 }
 
@@ -118,6 +119,7 @@ function fakeDaemon(over: { mode?: "on" | "off"; pending?: PendingRecord[]; send
 	const registered: string[] = []
 	const released: string[] = []
 	const acked: number[] = []
+	const claimArgs: (number | undefined)[] = []
 	let currentMode = over.mode ?? "on"
 	const pendingRecords = over.pending ?? []
 
@@ -135,7 +137,10 @@ function fakeDaemon(over: { mode?: "on" | "off"; pending?: PendingRecord[]; send
 		// The tick's first call. Without it the whole tick threw and the swallow-all catch
 		// hid it, so gate tests passed for the wrong reason.
 		ping: async () => ok({ ok: true, clients: 1 }),
-		claim: async () => ok({ ok: true }),
+		claim: async (uid: number, _id: string, uidValidity?: number) => {
+			claimArgs.push(uidValidity)
+			return ok({ ok: true })
+		},
 		ack: async (uid: number) => {
 			acked.push(uid)
 			return ok({ ok: true })
@@ -155,7 +160,7 @@ function fakeDaemon(over: { mode?: "on" | "off"; pending?: PendingRecord[]; send
 		},
 	}
 
-	return { client: client as never, sent, modes, registered, released, acked, pendingRecords }
+	return { client: client as never, sent, modes, registered, released, acked, claimArgs, pendingRecords }
 }
 
 function boot(daemon: FakeDaemon, timers: SettleTimers, c = ctx()) {
@@ -686,4 +691,31 @@ test("a session that started before the config existed can recover via /mailbrid
 	)
 	// Called at least once by restart and again by the runtime bootstrap.
 	assert.ok(spawned >= 1, `the injected ensureDaemon must be used (spawned=${spawned})`)
+})
+
+test("the extension forwards the record's UID space to claim and ack", async () => {
+	// This adapter has silently dropped an argument before, which disabled the stale-space
+	// guard on the only production client while the store's own test stayed green.
+	const t = fakeTimers()
+	const daemon = fakeDaemon({
+		mode: "on",
+		pending: [
+			{
+				uid: 9,
+				sessionId: SESSION,
+				from: "you@example.com",
+				subject: "re",
+				body: "yes",
+				receivedAt: 1,
+				uidValidity: 1234,
+			},
+		],
+	})
+	const pi = boot(daemon, t.timers)
+	await pi.fire("session_start")
+	await new Promise((r) => setImmediate(r))
+	await new Promise((r) => setImmediate(r))
+
+	assert.deepEqual(daemon.claimArgs, [1234], "claim must carry the record's UIDVALIDITY")
+	assert.deepEqual(daemon.acked, [9])
 })

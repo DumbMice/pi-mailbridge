@@ -72,8 +72,8 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 | GET | `/health` | liveness probe; **unauthenticated** by design (mode, pending/client counts, the decision-registry size — sessions *with an outstanding decision*, not live sessions — ping timing, idle-exit armed, SSE subscribers, the last scan's summary, `configLoadedAt`; no content, no addresses) |
 | GET | `/events` | SSE: `delivery`, `mode` (no client uses it; sessions poll) |
 | GET | `/pending` | the delivery channel: polled every 10 s, and replayed on reconnect |
-| POST | `/claim` | `{uid, instanceId}` — atomic claim |
-| POST | `/ack` | claimant-only → `\Seen` + journal + prune |
+| POST | `/claim` | `{uid, instanceId, uidValidity?}` — atomic claim; refused as `stale-space` when the record belongs to another UID space |
+| POST | `/ack` | claimant-only → `\Seen` + journal (in the **record's** UID space) + prune |
 | POST | `/register` | reserve a session's single outstanding decision |
 | POST | `/bye` | a session is leaving; the daemon exits when the last one goes |
 | POST | `/ping` | heartbeat, the other half of the idle exit |

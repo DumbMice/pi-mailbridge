@@ -247,9 +247,11 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 						typeof body?.uidValidity === "number" && Number.isFinite(body.uidValidity) ? body.uidValidity : undefined
 					const acked = ackPending(env, uid, instanceId, uidValidity)
 					if (!acked.ok) return fail(acked.reason === "not-found" ? 404 : 409, acked.reason)
-					// The record's space, not the watcher's: after a renumbering the two can differ,
-					// and journaling in the wrong space suppresses a brand-new message at that UID.
-					journal(env, uid, acked.uidValidity ?? deps.source.uidValidity?.())
+					// The record's space, never the watcher's: after a renumbering the two differ,
+					// and journaling under the live space would suppress a brand-new message at
+					// that UID. A record predating UIDVALIDITY carries none, and journal() then
+					// keeps the space the file already records.
+					journal(env, uid, acked.uidValidity)
 					// The record's session, never the request body's: a client that acks
 					// another session's mail must not also free its decision slot.
 					registry.release(acked.sessionId)

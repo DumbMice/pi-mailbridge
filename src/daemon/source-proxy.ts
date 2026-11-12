@@ -5,7 +5,7 @@
 // ever tested through a hand-built fixture, so the proxy and the UIDVALIDITY bookkeeping live
 // here, in one small file, where they can be driven directly.
 
-import { dropPendingFromOtherSpaces } from "../store/pending-store.ts"
+import { dropPendingFromOtherSpaces, listPending } from "../store/pending-store.ts"
 import { syncUidValidity } from "../store/uid-cursor.ts"
 import type { MailSource } from "./process.ts"
 
@@ -52,13 +52,21 @@ export interface UidValidityOutcome {
  * Called on every successful connect. A renumbering cannot be detected by the cursor alone,
  * so this is the only place it is noticed - and the only place its consequences are undone.
  */
-export function applyUidValidity(env: NodeJS.ProcessEnv, watcher: ProxyTarget | undefined): UidValidityOutcome {
+export function applyUidValidity(
+	env: NodeJS.ProcessEnv,
+	watcher: ProxyTarget | undefined,
+	onDropped?: (sessionId: string) => void,
+): UidValidityOutcome {
 	const validity = watcher?.uidValidity()
 	if (validity === undefined) return { reset: false, validity, dropped: 0 }
 	const reset = syncUidValidity(env, validity, watcher?.uidNext())
 	if (!reset) return { reset: false, validity, dropped: 0 }
 	// Queued records from the old numbering could collide with new UIDs and be replaced
 	// silently. Dropping them is safe: they were never acked, so the mail is still unread and
-	// the reset cursor re-reads it.
-	return { reset: true, validity, dropped: dropPendingFromOtherSpaces(env, validity) }
+	// the reset cursor re-reads it. Their decision slots are freed, though, or that session
+	// would be told it still has an outstanding decision for up to a day.
+	const doomed = listPending(env).filter((r) => r.uidValidity !== undefined && r.uidValidity !== validity)
+	const dropped = dropPendingFromOtherSpaces(env, validity)
+	for (const record of doomed) onDropped?.(record.sessionId)
+	return { reset: true, validity, dropped }
 }

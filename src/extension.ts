@@ -283,8 +283,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 		runner = createDeliveryRunner({
 			client: {
-				claim: (uid, id) => client!.claim(uid, id),
-				ack: (uid, id, sessionId) => client!.ack(uid, id, sessionId),
+				// Pass every argument through. This adapter has silently dropped one before
+				// (uidValidity), which disabled the stale-space guard on the only production
+				// client while the store's own test stayed green.
+				claim: (uid, id, uidValidity) => client!.claim(uid, id, uidValidity),
+				ack: (uid, id, sessionId, uidValidity) => client!.ack(uid, id, sessionId, uidValidity),
 				pending: () => client!.pending(),
 			},
 			instanceId,

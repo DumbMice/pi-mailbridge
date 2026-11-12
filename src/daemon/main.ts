@@ -34,6 +34,7 @@ import { buildTokenProvider } from "../core/token-source.ts"
 import { fileTokenStore } from "../store/oauth-store.ts"
 import { scanAndProcess } from "./process.ts"
 import { applyUidValidity, createSourceProxy } from "./source-proxy.ts"
+import { createRegistry } from "../store/registry.ts"
 import { createImapWatcher, type ImapWatcher } from "./watcher.ts"
 import { createImapflowFactory } from "./imapflow.ts"
 import { createDaemonService, type DaemonService } from "./service.ts"
@@ -291,6 +292,9 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 	const getAccessToken = () => (tokenProvider ? tokenProvider.getToken() : Promise.reject(new Error("no token provider")))
 
 	// A stable MailSource the service can hold across reloads.
+	// One registry for the process: the service uses it for decisions, and the UIDVALIDITY
+	// reset releases the slots of records it drops.
+	const registry = createRegistry()
 	// Built once; every call reads the live watcher, which /reload swaps.
 	const sourceProxy: MailSource = createSourceProxy({ watcher: () => currentWatcher, env: process.env })
 
@@ -408,7 +412,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 					// folder renumbers from 1; without this the high-water cursor would skip
 					// every future message, with "examined 0" as the only symptom.
 					// `currentWatcher` is assigned before start(), so it is this watcher here.
-					const outcome = applyUidValidity(process.env, currentWatcher)
+					const outcome = applyUidValidity(process.env, currentWatcher, (sessionId) => registry.release(sessionId))
 					if (outcome.reset) {
 						log(
 							`mailbox UIDVALIDITY changed to ${outcome.validity}; cursor reset and ${outcome.dropped} queued record(s) dropped - re-reading from the start`,
@@ -438,6 +442,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		// The service must see the CURRENT config: /reload swaps it, and a stale recipient
 		// would keep mailing the previous address after a documented re-setup.
 		getConfig: () => currentConfig,
+		registry,
 		config: initialConfig,
 		token,
 		source: sourceProxy,

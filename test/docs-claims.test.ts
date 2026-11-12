@@ -703,3 +703,16 @@ test("authorization claims name DMARC's exception for one mailbox", () => {
 		}
 	}
 })
+
+test("the /claim and /ack contracts are documented with the UID space", () => {
+	const arch = flat(doc("docs/ARCHITECTURE.md"))
+	assert.ok(arch.includes("{uid, instanceId, uidValidity?}"), "/claim documents uidValidity")
+	assert.match(arch, /stale-space/, "and the refusal reason")
+	assert.match(arch, /\/ack[^\n|]*record's\*\*/i, "/ack says it journals the record's space")
+})
+
+test("the UIDVALIDITY behaviour is in the changelog, not just the architecture", () => {
+	const changelog = flat(doc("CHANGELOG.md"))
+	assert.match(changelog, /UIDVALIDITY/i, "the release notes must mention it")
+	assert.match(changelog, /renumber|renumbering/i, "and what happens when the mailbox is renumbered")
+})
