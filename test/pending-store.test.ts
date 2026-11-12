@@ -262,3 +262,17 @@ test("a claim from a stale UID space is refused", () => {
 	assert.equal(ackPending(e, 7, "B", 2222).ok, false, "and an ack from that space is refused too")
 	assert.equal(pendingSize(e), 1, "the record survives")
 })
+
+test("journal: an ack in a new space adopts it (the file is not write-once)", async () => {
+	// Preferring the file's space made it write-once: after the first renumbering every later
+	// ack was journaled under the dead numbering, so dedupe was permanently inert and the
+	// reply could be injected again on the next reset.
+	const { isJournaled } = await import("../src/store/journal.ts")
+	const e = env()
+	journal(e, 2, 1111)
+	assert.equal(isJournaled(e, 2, 1111), true)
+
+	journal(e, 2, 2222)
+	assert.equal(isJournaled(e, 2, 2222), true, "the new space owns the journal now")
+	assert.equal(isJournaled(e, 2, 1111), false, "and the old one no longer matches")
+})

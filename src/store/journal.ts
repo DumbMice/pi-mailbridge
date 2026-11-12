@@ -70,9 +70,11 @@ export function journal(env: NodeJS.ProcessEnv, uid: number, uidValidity?: numbe
 	const uids = sameSpace ? file.uids : []
 	// Never erase a validity we already know: an ack from a caller that could not report one
 	// must not blind the next comparison.
-	// The file's space wins when it has one: a caller holding an old record must not rewrite
-	// the journal under a numbering the file already superseded.
-	const known = file.uidValidity ?? uidValidity
+	// The caller's space wins, because claim/ack refuse a record from another space: an ack
+	// that reaches here is for the live numbering, and the file must adopt it. (Preferring the
+	// file's space made it write-once - after the first renumbering every later ack was
+	// journaled under the dead numbering and dedupe was permanently inert.)
+	const known = uidValidity ?? file.uidValidity
 	const next = { uids, ...(known === undefined ? {} : { uidValidity: known }) }
 	if (uids.includes(uid)) {
 		save(env, next)

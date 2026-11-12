@@ -3,7 +3,7 @@
 //
 //   $XDG_STATE_HOME/pi-mailbridge/   (default ~/.local/state/pi-mailbridge)
 //     secret.key        shared HMAC + daemon bearer key, mode 0600
-//     uid-cursor.json   monotonic IMAP UID cursor
+//     uid-cursor.json   IMAP UID cursor + the mailbox UIDVALIDITY it belongs to
 //     pending.json      durable pending deliveries
 //     journal.json      UIDs already acked (replay protection)
 //     mode.json         global on/off

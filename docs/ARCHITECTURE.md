@@ -73,7 +73,7 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 | GET | `/events` | SSE: `delivery`, `mode` (no client uses it; sessions poll) |
 | GET | `/pending` | the delivery channel: polled every 10 s, and replayed on reconnect |
 | POST | `/claim` | `{uid, instanceId, uidValidity?}` — atomic claim; refused as `stale-space` when the record belongs to another UID space |
-| POST | `/ack` | claimant-only → `\Seen` + journal (in the **record's** UID space) + prune |
+| POST | `/ack` | `{uid, instanceId, uidValidity?}` — claimant-only; refused as `stale-space` when the record (or the caller) belongs to another UID space; journals in the **record's** space, then `\Seen` + prune |
 | POST | `/register` | reserve a session's single outstanding decision |
 | POST | `/bye` | a session is leaving; the daemon exits when the last one goes |
 | POST | `/ping` | heartbeat, the other half of the idle exit |
@@ -285,7 +285,7 @@ src/
     routes.ts           short routing ids, TTL
     secret.ts           shared HMAC/bearer key, atomic 0600
     threads.ts          outbound Message-IDs: threading + reply chain
-    uid-cursor.ts       monotonic cursor
+    uid-cursor.ts       cursor + UID space; resets when the mailbox is renumbered
 test/                   hermetic unit tests; no IMAP, no SMTP, no sockets
 ```
 

@@ -110,6 +110,7 @@ interface FakeDaemon {
 	released: string[]
 	acked: number[]
 	claimArgs: (number | undefined)[]
+	ackArgs: (number | undefined)[]
 	pendingRecords: PendingRecord[]
 }
 
@@ -120,6 +121,7 @@ function fakeDaemon(over: { mode?: "on" | "off"; pending?: PendingRecord[]; send
 	const released: string[] = []
 	const acked: number[] = []
 	const claimArgs: (number | undefined)[] = []
+	const ackArgs: (number | undefined)[] = []
 	let currentMode = over.mode ?? "on"
 	const pendingRecords = over.pending ?? []
 
@@ -141,8 +143,9 @@ function fakeDaemon(over: { mode?: "on" | "off"; pending?: PendingRecord[]; send
 			claimArgs.push(uidValidity)
 			return ok({ ok: true })
 		},
-		ack: async (uid: number) => {
+		ack: async (uid: number, _id: string, _s: string, uidValidity?: number) => {
 			acked.push(uid)
+			ackArgs.push(uidValidity)
 			return ok({ ok: true })
 		},
 		register: async (sessionId: string) => {
@@ -160,7 +163,7 @@ function fakeDaemon(over: { mode?: "on" | "off"; pending?: PendingRecord[]; send
 		},
 	}
 
-	return { client: client as never, sent, modes, registered, released, acked, claimArgs, pendingRecords }
+	return { client: client as never, sent, modes, registered, released, acked, claimArgs, ackArgs, pendingRecords }
 }
 
 function boot(daemon: FakeDaemon, timers: SettleTimers, c = ctx()) {
@@ -717,5 +720,6 @@ test("the extension forwards the record's UID space to claim and ack", async () 
 	await new Promise((r) => setImmediate(r))
 
 	assert.deepEqual(daemon.claimArgs, [1234], "claim must carry the record's UIDVALIDITY")
+	assert.deepEqual(daemon.ackArgs, [1234], "and so must the ack")
 	assert.deepEqual(daemon.acked, [9])
 })

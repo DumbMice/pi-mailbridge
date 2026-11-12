@@ -135,6 +135,7 @@ export function claimPending(
 	instanceId: string,
 	now: number = Date.now(),
 	uidValidity?: number,
+	liveValidity?: number,
 ): ClaimResult {
 	const items = load(env)
 	const record = items.find((r) => r.uid === uid)
@@ -142,6 +143,11 @@ export function claimPending(
 	// A caller holding a record from a previous UID numbering must not act on whatever now
 	// occupies that UID: after a renumbering it is a different message.
 	if (record.uidValidity !== undefined && uidValidity !== undefined && record.uidValidity !== uidValidity) {
+		return { ok: false, reason: "stale-space" }
+	}
+	// Also compare against the mailbox itself: a caller and a record can agree with each other
+	// while both belong to a numbering the mailbox has already left.
+	if (record.uidValidity !== undefined && liveValidity !== undefined && record.uidValidity !== liveValidity) {
 		return { ok: false, reason: "stale-space" }
 	}
 	if (record.claimedBy && record.claimedBy !== instanceId) {
@@ -167,13 +173,22 @@ export type AckResult =
 	| { ok: true; sessionId: string; uidValidity?: number }
 	| { ok: false; reason: "not-found" | "not-claimed" }
 
-export function ackPending(env: NodeJS.ProcessEnv, uid: number, instanceId: string, uidValidity?: number): AckResult {
+export function ackPending(
+	env: NodeJS.ProcessEnv,
+	uid: number,
+	instanceId: string,
+	uidValidity?: number,
+	liveValidity?: number,
+): AckResult {
 	const items = load(env)
 	const record = items.find((r) => r.uid === uid)
 	if (!record) return { ok: false, reason: "not-found" }
 	// Same rule as claim: an ack from another UID space would journal a UID that now means
 	// something else.
 	if (record.uidValidity !== undefined && uidValidity !== undefined && record.uidValidity !== uidValidity) {
+		return { ok: false, reason: "not-claimed" }
+	}
+	if (record.uidValidity !== undefined && liveValidity !== undefined && record.uidValidity !== liveValidity) {
 		return { ok: false, reason: "not-claimed" }
 	}
 	if (record.claimedBy !== instanceId) return { ok: false, reason: "not-claimed" }

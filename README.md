@@ -204,7 +204,7 @@ Where to look:
 | `…/pending.json` | accepted replies waiting for a session |
 | `…/routes.json` | short routing ids (`security.tokenTtlHours`) |
 | `…/threads.json` | outbound Message-IDs used for threading and the reply chain |
-| `…/journal.json` | acked UIDs (replay protection) |
+| `…/journal.json` | acked UIDs, tagged with the mailbox UIDVALIDITY (replay protection within one numbering) |
 
 `/mailbridge check` validates config and that credentials are present; `/mailbridge smoke`
 is what proves they work. If `/mailbridge status` says the daemon is unreachable, either this session never built a

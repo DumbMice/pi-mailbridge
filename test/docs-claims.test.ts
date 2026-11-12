@@ -709,6 +709,8 @@ test("the /claim and /ack contracts are documented with the UID space", () => {
 	assert.ok(arch.includes("{uid, instanceId, uidValidity?}"), "/claim documents uidValidity")
 	assert.match(arch, /stale-space/, "and the refusal reason")
 	assert.ok(/\/ack`[^|]*\|[^|]*record's/i.test(arch), "/ack says it journals the record's space")
+	assert.ok(/\/ack` \| \{uid, instanceId, uidValidity\?\}/.test(arch), "/ack documents its body")
+	assert.match(arch, /uid-cursor\.ts[^\n]*UID space/i, "the module map describes the cursor's space")
 })
 
 test("the UIDVALIDITY behaviour is in the changelog, not just the architecture", () => {

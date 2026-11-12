@@ -226,7 +226,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					if (!Number.isInteger(uid) || !instanceId) return fail(400, "bad_request")
 					const uidValidity =
 						typeof body?.uidValidity === "number" && Number.isFinite(body.uidValidity) ? body.uidValidity : undefined
-					const result = claimPending(env, uid, instanceId, now(), uidValidity)
+					const result = claimPending(env, uid, instanceId, now(), uidValidity, deps.source.uidValidity?.())
 					if (!result.ok) return fail(result.reason === "not-found" ? 404 : 409, result.reason)
 					return send(200, { ok: true })
 				}
@@ -245,7 +245,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					// is no longer in `pending`, which the scanner never reads again.
 					const uidValidity =
 						typeof body?.uidValidity === "number" && Number.isFinite(body.uidValidity) ? body.uidValidity : undefined
-					const acked = ackPending(env, uid, instanceId, uidValidity)
+					const acked = ackPending(env, uid, instanceId, uidValidity, deps.source.uidValidity?.())
 					if (!acked.ok) return fail(acked.reason === "not-found" ? 404 : 409, acked.reason)
 					// The record's space, never the watcher's: after a renumbering the two differ,
 					// and journaling under the live space would suppress a brand-new message at

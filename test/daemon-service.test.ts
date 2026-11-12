@@ -773,9 +773,10 @@ test("the scan uses the source's UIDVALIDITY, so a renumbered mailbox is not ski
 	assert.equal(r.persisted, 1)
 })
 
-test("/ack journals the record's UID space, not the watcher's", async () => {
-	// After a renumbering the two differ. Journaling under the live space would suppress a
-	// brand-new message that happens to hold that UID.
+test("/ack refuses a record from a space the mailbox has left", async () => {
+	// A caller and a record can agree with each other while both belong to a numbering the
+	// mailbox left. Acking would delete the record, journal a UID that now means something
+	// else, and mark that message \Seen.
 	const { addPending, claimPending } = await import("../src/store/pending-store.ts")
 	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-ackspace-")) }
 	addPending(env, {
@@ -787,7 +788,7 @@ test("/ack journals the record's UID space, not the watcher's", async () => {
 		receivedAt: 1,
 		uidValidity: 1111,
 	})
-	claimPending(env, 5, "inst")
+	claimPending(env, 5, "inst", Date.now(), 1111, 1111)
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
@@ -800,12 +801,11 @@ test("/ack journals the record's UID space, not the watcher's", async () => {
 		const res = await fetch(`http://127.0.0.1:${port}/ack`, {
 			method: "POST",
 			headers: { ...auth(), "content-type": "application/json" },
-			body: JSON.stringify({ uid: 5, instanceId: "inst" }),
+			body: JSON.stringify({ uid: 5, instanceId: "inst", uidValidity: 1111 }),
 		})
-		assert.equal(res.status, 200)
+		assert.equal(res.status, 409, "the record is stale against the mailbox")
 		const { isJournaled } = await import("../src/store/journal.ts")
-		assert.equal(isJournaled(env, 5, 1111), true, "journaled in the record's space")
-		assert.equal(isJournaled(env, 5, 2222), false, "not in the watcher's")
+		assert.equal(isJournaled(env, 5, 2222), false, "nothing journaled in the live space")
 	} finally {
 		await service.close()
 	}

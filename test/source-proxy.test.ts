@@ -51,8 +51,11 @@ test("a UIDVALIDITY change resets the cursor, scopes the journal and drops stale
 		uidValidity: 1111,
 	})
 
-	const outcome = applyUidValidity(e, watcher({ validity: 2222, next: 3 }))
+	const released: string[] = []
+	const outcome = applyUidValidity(e, watcher({ validity: 2222, next: 3 }), (sessionId) => released.push(sessionId))
 	assert.deepEqual(outcome, { reset: true, validity: 2222, dropped: 1 })
+	// A dropped record must not leave its session believing it has an outstanding decision.
+	assert.deepEqual(released, ["s1"])
 	assert.equal(readCursor(e), 0, "cursor reset")
 	assert.equal(pendingSize(e), 0, "old-space queue dropped")
 	// The journal is not cleared, but it no longer speaks for this numbering.
