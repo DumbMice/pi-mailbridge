@@ -125,6 +125,18 @@ IDLE event - the opposite of what ARCHITECTURE.md promises.
 - spawn.ts: a detached daemon now appends to `daemon.log` instead of discarding stdio.
   `stdio: "ignore"` is why this failure was invisible; the log is what found it.
 
+### Tables in mail need inline borders
+
+Reported from a rendered notification: a Markdown table arrived as loose text. markdown-it
+emits a bare <table>, and mail clients default to no borders, while a <style> block is
+stripped by several of them.
+
+The renderer rules for table_open/th_open/td_open now carry inline styles:
+border-collapse, cellspacing/cellpadding attributes, and a 1px border plus padding on
+every cell, with a shaded header row. Fenced blocks and inline code get monospace and a
+background at the same time, since they had the same problem. Markdown column alignment
+is preserved by merging with the attributes markdown-it already set.
+
 ### Fixed: the session name was never read
 
 The notification printed `session:` and `session id:` with the same value, because the

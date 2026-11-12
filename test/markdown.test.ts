@@ -8,16 +8,16 @@ test("emphasis and code render", () => {
 	assert.equal(renderInline("__bold__"), "<strong>bold</strong>")
 	assert.equal(renderInline("*italic*"), "<em>italic</em>")
 	assert.equal(renderInline("~~gone~~"), "<s>gone</s>", "markdown-it uses <s> for strikethrough")
-	assert.equal(renderInline("`x = 1`"), "<code>x = 1</code>")
+	assert.match(renderInline("`x = 1`"), /^<code[^>]*>x = 1<\/code>$/)
 })
 
 test("emphasis inside a code span is not interpreted", () => {
-	assert.equal(renderInline("`**not bold**`"), "<code>**not bold**</code>")
+	assert.match(renderInline("`**not bold**`"), /^<code[^>]*>\*\*not bold\*\*<\/code>$/)
 })
 
 test("a fenced block keeps its content and escapes it", () => {
 	const html = renderMarkdown("```js\nif (a < b && c) {}\n```")
-	assert.match(html, /<pre><code class="language-js">/)
+	assert.match(html, /<pre[^>]*><code class="language-js">/)
 	assert.match(html, /if \(a &lt; b &amp;&amp; c\) \{\}/)
 	assert.doesNotMatch(html, /<code class="language-js">if \(a < b/)
 })
@@ -33,9 +33,9 @@ test("headings, rules, lists and quotes", () => {
 
 test("a table renders with a header row", () => {
 	const html = renderMarkdown("| a | b |\n|---|---|\n| 1 | 2 |")
-	assert.match(html, /<table>/)
-	assert.match(html, /<th>a<\/th>\s*<th>b<\/th>/)
-	assert.match(html, /<td>1<\/td>\s*<td>2<\/td>/)
+	assert.match(html, /<table[^>]*>/)
+	assert.match(html, /<th[^>]*>a<\/th>\s*<th[^>]*>b<\/th>/)
+	assert.match(html, /<td[^>]*>1<\/td>\s*<td[^>]*>2<\/td>/)
 })
 
 test("only safe link schemes become anchors", () => {
@@ -74,4 +74,28 @@ test("empty and whitespace-only input are harmless", () => {
 	assert.equal(renderMarkdown(""), "")
 	assert.equal(renderMarkdown("   \n\n  "), "")
 	assert.equal(renderBody(""), "")
+})
+
+test("table cells carry borders inline, since clients default to none", () => {
+	// markdown-it emits bare <table>; without inline borders a table arrives as loose
+	// text. A <style> block is stripped by several clients, so the styles are inline.
+	const html = renderMarkdown("| a | b |\n|---|---|\n| 1 | 2 |")
+	assert.match(html, /<table[^>]*border-collapse:collapse/)
+	assert.match(html, /<th[^>]*border:1px solid/)
+	assert.match(html, /<td[^>]*border:1px solid/)
+	assert.match(html, /cellspacing="0"/, "table attributes survive sanitising better than CSS")
+})
+
+test("code blocks and inline code are visually distinct", () => {
+	const block = renderMarkdown("```\nplain\n```")
+	assert.match(block, /<pre[^>]*background:/)
+	assert.match(block, /ui-monospace|monospace/)
+	const inline = renderInline("`x`")
+	assert.match(inline, /<code[^>]*background:/)
+})
+
+test("table alignment from Markdown is preserved alongside our style", () => {
+	const html = renderMarkdown("| a | b |\n|:--|--:|\n| 1 | 2 |")
+	assert.match(html, /text-align:left/, "our header alignment default remains")
+	assert.match(html, /text-align:right/, "a right-aligned column keeps its alignment")
 })

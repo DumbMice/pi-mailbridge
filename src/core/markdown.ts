@@ -26,6 +26,50 @@ const md = new MarkdownIt({
 	typographer: false,
 })
 
+// --- email-safe styling ------------------------------------------------------
+//
+// markdown-it emits bare tags. Mail clients default to *no* table borders, so a table
+// arrived as loose text; and a `<style>` block is stripped by several clients. Inline
+// styles on each cell are what survive that, so the rendering rules are overridden
+// rather than the output being post-processed.
+
+const CELL_BORDER = "border:1px solid #c8ccd1"
+
+/**
+ * Merge our style with any attributes markdown-it already set (alignment, mostly).
+ * `attrs` is typed loosely because @types/markdown-it uses its own TokenAttribute
+ * shape; it is always a list of name/value pairs at runtime.
+ */
+function styledTag(name: string, rawAttrs: unknown, extra: string): string {
+	const pairs = Array.isArray(rawAttrs) ? (rawAttrs as [string, string][]) : []
+	const attrs = new Map<string, string>(pairs)
+	const existing = attrs.get("style")
+	attrs.set("style", existing ? `${existing};${extra}` : extra)
+	// cellspacing/cellpadding are attributes, not CSS, and survive sanitising better.
+	const rendered = [...attrs].map(([key, value]) => ` ${key}="${md.utils.escapeHtml(value)}"`).join("")
+	return `<${name}${rendered}>`
+}
+
+md.renderer.rules.table_open = () =>
+	'<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:10px 0;font-size:13px">'
+md.renderer.rules.th_open = (tokens, idx) =>
+	styledTag("th", tokens[idx]?.attrs, `${CELL_BORDER};padding:6px 10px;background:#f2f4f7;text-align:left`)
+md.renderer.rules.td_open = (tokens, idx) => styledTag("td", tokens[idx]?.attrs, `${CELL_BORDER};padding:6px 10px`)
+
+const MONO = "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"
+md.renderer.rules.fence = (tokens, idx) => {
+	const token = tokens[idx]!
+	const language = token.info.trim().split(/\s+/)[0] ?? ""
+	const cls = language ? ` class="language-${md.utils.escapeHtml(language)}"` : ""
+	return (
+		`<pre style="background:#f6f8fa;${CELL_BORDER};border-radius:4px;padding:10px;overflow:auto;${MONO};font-size:13px">` +
+		`<code${cls}>${md.utils.escapeHtml(token.content)}</code></pre>`
+	)
+}
+md.renderer.rules.code_inline = (tokens, idx) =>
+	`<code style="background:#f2f4f7;border-radius:3px;padding:1px 4px;${MONO};font-size:13px">${md.utils.escapeHtml(tokens[idx]!.content)}</code>`
+
+
 /** Inline Markdown (no block structure). */
 export function renderInline(text: string): string {
 	return md.renderInline(text)
