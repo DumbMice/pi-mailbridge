@@ -52,7 +52,12 @@ export interface ExtensionLike {
 
 export interface ExtensionCtxLike {
 	cwd: string
-	sessionManager: { getSessionId(): string; getName?(): string | undefined }
+	sessionManager: {
+		getSessionId(): string
+		getName?(): string | undefined
+		/** Current branch entries; assistant text and turn count come from here. */
+		getBranch?(): unknown[]
+	}
 	ui: { notify(message: string, level?: "info" | "warning" | "error"): void }
 }
 
@@ -97,6 +102,49 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 	const baseUrl = daemonBaseUrl(config.daemon.port, config.daemon.host)
 
+	/**
+	 * Last assistant text and turn count from the session branch.
+	 *
+	 * Without this the notification body is just a placeholder — and the point of the
+	 * email is to read the answer from whatever device you happen to be on. Branch
+	 * entries are `{ type: "message", message: { role, content } }`; assistant
+	 * content is `(TextContent | ThinkingContent | ToolCall)[]`, so only `text`
+	 * parts are joined (thinking and tool calls are not the answer).
+	 */
+	function readSessionSnapshot(manager: ExtensionCtxLike["sessionManager"]): {
+		lastAssistantText?: string
+		turns?: number
+	} {
+		const branch = manager.getBranch?.() ?? []
+		let lastAssistantText: string | undefined
+		let turns = 0
+
+		for (let i = branch.length - 1; i >= 0; i--) {
+			const entry = branch[i] as { type?: string; message?: { role?: string; content?: unknown } } | undefined
+			if (entry?.type !== "message" || entry.message?.role !== "assistant") continue
+			turns++
+			if (lastAssistantText) continue
+
+			const content = entry.message.content
+			if (typeof content === "string" && content.trim()) {
+				lastAssistantText = content.trim()
+				continue
+			}
+			if (!Array.isArray(content)) continue
+			const text = content
+				.filter((part): part is { type: "text"; text: string } => {
+					const p = part as { type?: unknown; text?: unknown }
+					return p?.type === "text" && typeof p.text === "string"
+				})
+				.map((part) => part.text)
+				.join("\n")
+				.trim()
+			if (text) lastAssistantText = text
+		}
+
+		return { ...(lastAssistantText ? { lastAssistantText } : {}), ...(turns > 0 ? { turns } : {}) }
+	}
+
 	function sessionContext(): SettleContext | undefined {
 		if (!ctx) return undefined
 		const sessionId = ctx.sessionManager.getSessionId()
@@ -106,6 +154,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			...(name ? { sessionName: name } : {}),
 			device: config.device.name,
 			cwd: ctx.cwd,
+			...readSessionSnapshot(ctx.sessionManager),
 		}
 	}
 

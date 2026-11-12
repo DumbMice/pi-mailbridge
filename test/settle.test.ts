@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { buildSettleBody, buildSettleSubject, createSettleNotifier, REPLY_HINT, type SettleContext } from "../src/core/settle.ts"
+import { buildSettleBody, buildSettleSubject, createSettleNotifier, MAX_BODY_CHARS, REPLY_HINT, type SettleContext } from "../src/core/settle.ts"
 import { sessionIdFromSubject } from "../src/core/token.ts"
 import type { Mode } from "../src/store/mode-store.ts"
 
@@ -200,4 +200,11 @@ test("the subject degrades cleanly with no device", () => {
 	const subject = buildSettleSubject(context({ device: undefined }), SECRET)
 	assert.match(subject, /fix-login is waiting for you/)
 	assert.ok(!subject.includes("@"))
+})
+
+test("a very long answer is truncated rather than mailed whole", () => {
+	const long = "x".repeat(MAX_BODY_CHARS + 500)
+	const body = buildSettleBody(context({ lastAssistantText: long }))
+	assert.ok(body.length < long.length + 400, "body must be bounded")
+	assert.match(body, /truncated \(500 more characters\)/)
 })

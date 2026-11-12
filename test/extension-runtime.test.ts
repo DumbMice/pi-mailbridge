@@ -336,3 +336,78 @@ test("reply deliveries are injected as follow-ups and acked", async () => {
 	assert.deepEqual(pi.sent, ["go ahead"], "injected into the session")
 	assert.deepEqual(daemon.acked, [7], "acked after injection")
 })
+
+// --- the notification must carry what the agent actually said --------------
+
+function ctxWithBranch(messages: { role: string; content: unknown }[]): ExtensionCtxLike {
+	return {
+		cwd: "/home/ybc/Work/proj",
+		sessionManager: {
+			getSessionId: () => SESSION,
+			getName: () => "fix-login",
+			getBranch: () => messages.map((message) => ({ type: "message", message })),
+		},
+		ui: { notify() {} },
+	}
+}
+
+test("the settle email carries the assistant's last text", async () => {
+	const t = fakeTimers()
+	const daemon = fakeDaemon()
+	const c = ctxWithBranch([
+		{ role: "user", content: [{ type: "text", text: "fix the bug" }] },
+		{
+			role: "assistant",
+			content: [
+				{ type: "thinking", thinking: "internal reasoning" },
+				{ type: "text", text: "Done: the failing test passes now." },
+				{ type: "toolCall", name: "bash" },
+			],
+		},
+	])
+
+	const pi = fakePi(c)
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.filter((q) => q.ms === 10_000)[0]!.handler()
+	await new Promise((r) => setImmediate(r))
+
+	const mail = daemon.sent.filter((m) => /is waiting for you/.test(m.subject))[0]
+	assert.ok(mail, "a notification should have been sent")
+	assert.match(mail.text, /Done: the failing test passes now\./, "the answer is the point of the email")
+	assert.doesNotMatch(mail.text, /internal reasoning/, "thinking is not the answer")
+	assert.doesNotMatch(mail.text, /produced no text/)
+	assert.match(mail.text, /turns: 1/)
+})
+
+test("with no assistant text the placeholder is honest", async () => {
+	const t = fakeTimers()
+	const daemon = fakeDaemon()
+	const pi = fakePi(ctxWithBranch([{ role: "user", content: [{ type: "text", text: "hi" }] }]))
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.filter((q) => q.ms === 10_000)[0]!.handler()
+	await new Promise((r) => setImmediate(r))
+
+	const mail = daemon.sent.filter((m) => /is waiting for you/.test(m.subject))[0]
+	assert.ok(mail, "a notification should have been sent")
+	assert.match(mail.text, /produced no text/)
+})

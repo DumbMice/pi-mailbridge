@@ -81,6 +81,17 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### Fixed: the notification never contained the agent's answer
+
+Every settle email said "(the agent produced no text this turn)". The extension never
+populated `lastAssistantText`, so the body - the whole reason to read the mail from a
+phone - was a placeholder.
+
+It now reads the current session branch: the last assistant message whose `text` parts
+are non-empty, ignoring thinking and tool calls, plus a turn count. Answer text is
+capped at 4000 characters with an explicit truncation note, so a long response cannot
+turn into a 200-line email.
+
 ### Fixed: /mailbridge reported a stale config
 
 The extension loaded config once at startup and every command reused that snapshot.

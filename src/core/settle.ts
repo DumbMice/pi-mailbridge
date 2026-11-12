@@ -39,10 +39,20 @@ export function buildSettleSubject(context: SettleContext, secret: Buffer): stri
 	})
 }
 
+/** Cap on the quoted agent text, so a long answer cannot become a 200-line email. */
+export const MAX_BODY_CHARS = 4_000
+
+function quoteAnswer(text: string | undefined): string {
+	const trimmed = text?.trim()
+	if (!trimmed) return "(the agent produced no text this turn)"
+	if (trimmed.length <= MAX_BODY_CHARS) return trimmed
+	return `${trimmed.slice(0, MAX_BODY_CHARS)}\n\n…truncated (${trimmed.length - MAX_BODY_CHARS} more characters)`
+}
+
 /** Plain-text body. Deliberately boring: it must survive arbitrary mail clients. */
 export function buildSettleBody(context: SettleContext): string {
 	const lines: string[] = []
-	lines.push(context.lastAssistantText?.trim() || "(the agent produced no text this turn)")
+	lines.push(quoteAnswer(context.lastAssistantText))
 	lines.push("")
 	lines.push("--")
 	if (context.device?.trim()) lines.push(`device: ${context.device.trim()}`)
