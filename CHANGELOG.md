@@ -66,6 +66,15 @@ Message-IDs recorded at send time in `store/threads.ts`), then rejected as
 `no-token` and left unread. The chain fallback means editing the subject no longer
 loses a reply; `security.allowHeaderThreading: false` disables it.
 
+### Setup
+
+- `pi-mailbridge --setup <address> [--to <your-address>]`: discovers the
+  provider's IMAP/SMTP endpoints, ports and TLS mode from Thunderbird's
+  autoconfig database, infers `LOGIN` vs `XOAUTH2` from the advertised
+  authentication, attaches the Microsoft/Google OAuth preset when it recognises
+  the provider, and writes `config.json`. Refuses to clobber without `--force`.
+- Single-mailbox mode is chosen automatically when `--to` equals the address.
+
 ### Device identity
 
 An idle notification identifies the machine as well as the session, and the

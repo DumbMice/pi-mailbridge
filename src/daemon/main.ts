@@ -14,7 +14,12 @@
 //   --check         validate config + secrets + token command, touch no mail
 //   --print-token   print the shared secret (for scripts and tests)
 
-import { loadConfig, hasUsableMailConfig, type ResolvedConfig } from "../core/config.ts"
+import { existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { dirname } from "node:path"
+
+import { loadConfig, hasUsableMailConfig, shortHostname, type ResolvedConfig } from "../core/config.ts"
+import { configPath } from "../store/paths.ts"
+import { buildSetupConfig, discoverDomain, domainOf } from "../core/discover.ts"
 import { ensureSecret } from "../store/secret.ts"
 import { sendMail } from "../core/mailer.ts"
 import { createCommandTokenProvider } from "../core/oauth.ts"
@@ -151,6 +156,80 @@ async function smoke(config: ResolvedConfig): Promise<number> {
 	}
 
 	log("smoke ok: both directions work")
+	return 0
+}
+
+/** Value of `--flag <value>`, or undefined. */
+function argValue(argv: string[], flag: string): string | undefined {
+	const index = argv.indexOf(flag)
+	if (index < 0) return undefined
+	const next = argv[index + 1]
+	return next && !next.startsWith("--") ? next : undefined
+}
+
+/**
+ * `--setup <pi-address> [--to <your-address>] [--force]`
+ *
+ * Turns a bare address into a runnable config: discovers the provider's servers
+ * and required auth, then writes config.json. The mailbox itself must already
+ * exist — no provider creates one without a human signup.
+ */
+async function setup(argv: string[]): Promise<number> {
+	const address = argValue(argv, "--setup")
+	if (!address) {
+		log("usage: --setup <pi-address> [--to <your-address>] [--force]")
+		return EXIT_CONFIG
+	}
+
+	const domain = domainOf(address)
+	if (!domain) {
+		log(`not an email address: ${address}`)
+		return EXIT_CONFIG
+	}
+
+	// Default: one mailbox for both roles. Pass --to to keep the loop guard strict.
+	const to = argValue(argv, "--to") ?? address
+	const target = configPath()
+	if (existsSync(target) && !argv.includes("--force")) {
+		log(`${target} already exists — rerun with --force to overwrite`)
+		return EXIT_CONFIG
+	}
+
+	log(`discovering ${domain}…`)
+	const discovered = await discoverDomain(domain)
+	if (!discovered) {
+		log(`could not discover mail settings for ${domain}`)
+		log("the domain is not in the autoconfig database; write config.json by hand (see config.example.json)")
+		return EXIT_CONFIG
+	}
+	log(`imap ${discovered.imap.host}:${discovered.imap.port} (${discovered.imap.secure ? "TLS" : "STARTTLS"})`)
+	log(`smtp ${discovered.smtp.host}:${discovered.smtp.port} (${discovered.smtp.secure ? "TLS" : "STARTTLS"})`)
+	log(`auth ${discovered.authType}${discovered.provider !== "other" ? ` (${discovered.provider})` : ""}`)
+
+	const built = buildSetupConfig(address, to, discovered)
+	const config = {
+		...built,
+		device: { name: shortHostname() },
+		daemon: { host: "127.0.0.1", port: 4177 },
+		notify: { onSettled: true, debounceMs: 10_000, notifyOnAborted: false, subject: "pi" },
+		tuning: { idleRenewMs: 25 * 60 * 1000, autoIdleDelayMs: 1000, backoffInitialMs: 1000, backoffMaxMs: 60_000 },
+	}
+
+	mkdirSync(dirname(target), { recursive: true, mode: 0o700 })
+	writeFileSync(target, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
+	log(`wrote ${target}`)
+
+	// Tell the human exactly what is left, and nothing they have to guess.
+	if (built.security.allowSelfReplies) {
+		log(`note: one mailbox for both roles — replies from ${to} are accepted only when they are real replies`)
+	}
+	if (discovered.authType === "XOAUTH2") {
+		log("next: register an OAuth app (docs/OAUTH.md), put its client id in config.json, then:")
+		log("      pi-mailbridge --auth")
+	} else {
+		log("next: put the account's app password into config.json (mail.imap.password / mail.smtp.password), then:")
+		log("      pi-mailbridge --smoke")
+	}
 	return 0
 }
 
@@ -314,6 +393,10 @@ async function main(): Promise<void> {
 	}
 	if (argv.includes("--check")) {
 		process.exitCode = await check(config)
+		return
+	}
+	if (argv.includes("--setup")) {
+		process.exitCode = await setup(argv)
 		return
 	}
 	if (argv.includes("--auth")) {

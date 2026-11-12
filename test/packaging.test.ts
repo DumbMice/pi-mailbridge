@@ -186,3 +186,8 @@ test("the provider matrix names the risky case honestly", () => {
 	assert.match(readme, /Graph/, "README must name the Graph escape hatch")
 	assert.match(readme, /not\s+\*\*implemented|not implemented/i, "README must admit Graph is not built yet")
 })
+
+test("--setup is documented alongside install", () => {
+	assert.match(readme, /--setup/, "README must document the setup command")
+	assert.match(readme, /--smoke/, "README must document the smoke test")
+})

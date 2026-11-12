@@ -126,8 +126,20 @@ folder, never a mailbox that receives untrusted mail.
 
 ```bash
 pi install npm:pi-mailbridge
-cp ./config.example.json ~/.config/pi-mailbridge/config.json   # then edit
+
+# Turn an address into a working config (discovers servers + required auth):
+pi-mailbridge --setup pi-xyz@outlook.com --to you@outlook.com
+
+# Then, for OAuth providers (Outlook/Microsoft 365/Gmail):
+pi-mailbridge --auth     # approve once on any device
+pi-mailbridge --smoke    # send one real mail, then read the folder back
 ```
+
+`--setup` fetches the provider's published mail settings (Thunderbird's
+autoconfig database), so you never hand-write hosts, ports or TLS modes. It
+refuses to overwrite an existing config without `--force`.
+
+Prefer to write it yourself? Copy [`config.example.json`](./config.example.json).
 
 In pi:
 
@@ -281,7 +293,7 @@ map and the port from `opencode-afk`: [docs/MAPPING.md](./docs/MAPPING.md).
 ## Status
 
 `0.1.0` — feature-complete for the single-user, one-mailbox case, not yet
-battle-tested against a live mailbox. 220 hermetic tests cover the token, authz,
+battle-tested against a live mailbox. 232 hermetic tests cover the token, authz,
 scan pipeline, stores, daemon HTTP surface, lifecycle, extension surface, tools,
 attachments and the full end-to-end loop.
 
