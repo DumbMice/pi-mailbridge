@@ -21,6 +21,7 @@ import { loadConfig, hasUsableMailConfig, shortHostname, type ResolvedConfig } f
 import { configPath } from "../store/paths.ts"
 import { buildSetupConfig, discoverDomain, domainOf } from "../core/discover.ts"
 import { ensureSecret } from "../store/secret.ts"
+import { readMode } from "../store/mode-store.ts"
 import { sendMail } from "../core/mailer.ts"
 import { createCommandTokenProvider } from "../core/oauth.ts"
 import { createOpenidClient } from "../core/oauth-openid.ts"
@@ -266,7 +267,19 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 		},
 	}
 
+	let reportedModeOff = false
 	async function scanOnce(why: string): Promise<void> {
+		// `/back` must actually close the channel, not just stop the mail coming back.
+		// While mode is off nothing is fetched or persisted and the cursor stays put, so
+		// turning /afk back on processes what arrived meanwhile.
+		if (readMode(process.env) !== "on") {
+			if (!reportedModeOff) {
+				reportedModeOff = true
+				log(`${why}: email mode is off - not scanning`)
+			}
+			return
+		}
+		reportedModeOff = false
 		const before = new Set(listPending().map((r) => r.uid))
 		try {
 			const result = await scanAndProcess(currentConfig, { source: sourceProxy, secret: ensureSecret() })

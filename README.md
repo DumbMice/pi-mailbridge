@@ -18,7 +18,9 @@ can read the mailbox. That exact session continues.
   watcher, no polling race.
 - **Reply = resume.** The reply is injected into the session that sent the mail,
   as a follow-up, so it queues correctly if a run is still in flight.
-- **Explicit, not inferred.** `/afk` turns email mode on; `/back` turns it off.
+- **Explicit, not inferred.** `/afk` turns email mode on; `/back` turns it off. Off means
+  off in both directions: no notifications, and replies are not claimed or injected until
+  you turn it back on (they wait in the mailbox).
   No focus heuristics, no "probably idle".
 - **Crash-safe.** Mail is only marked seen *after* the reply is injected and
   acked. A crash leaves it unseen and durable, so nothing is lost.

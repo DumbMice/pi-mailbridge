@@ -124,8 +124,12 @@ A legitimate email can still contain text that reads like instructions
   - `journal.json` — only the ack dedupe. Clearing it re-opens replay of already-acked
     mail, so prefer leaving it unless you also cleared the mailbox.
   Secrets (`secret.key`, `oauth.json`) live beside them; rotating those is covered above.
-- Turn it off with `/back` when you will be at the desk. An idle mailbox should
-  not be a listening control channel.
+- Turn it off with `/back` when you will be at the desk: while mode is off the daemon
+  does not scan and the extension does not claim or inject, so the mailbox is not a
+  listening control channel in either direction. Replies that arrive meanwhile stay in the
+  mailbox and are processed when you `/afk` again — which also means turning it back on can
+  deliver a burst. To stop entirely, stop the daemon (`systemctl --user stop pi-mailbridge`,
+  or let it exit: it quits ~120 s after the last pi session stops pinging).
 - **One mailbox for both roles** (`security.allowSelfReplies`). The loop guard is
   relaxed for self-addressed mail, so the sender allowlist alone no longer
   separates "me" from "not me" — it is the same address. The discriminator is the

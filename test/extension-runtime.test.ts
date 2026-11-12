@@ -554,3 +554,25 @@ test("a refused send is surfaced to the user, not silently dropped", async () =>
 		`the user must be told the notification failed (notifications: ${JSON.stringify(notes)})`,
 	)
 })
+
+test("while email mode is off, a queued reply is not claimed or injected", async () => {
+	// SECURITY.md promised that /back closes the control channel. Mode used to gate only
+	// outbound mail, so a reply sent while "off" was still claimed and injected.
+	const t = fakeTimers()
+	const daemon = fakeDaemon({
+		mode: "off",
+		pending: [
+			{ uid: 7, sessionId: SESSION, from: "you@example.com", subject: "re", body: "do it", receivedAt: 1 },
+		],
+	})
+	const pi = boot(daemon, t.timers)
+	await pi.fire("session_start")
+
+	// Run a poll tick.
+	t.queue.filter((q) => q.ms === 60_000)[0]!.handler()
+	await new Promise((r) => setImmediate(r))
+	await new Promise((r) => setImmediate(r))
+
+	assert.deepEqual(daemon.acked, [], "nothing was claimed-and-acked while off")
+	assert.deepEqual(pi.sent, [], "nothing reached the session")
+})

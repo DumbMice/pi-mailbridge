@@ -199,7 +199,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				} else {
 					const mode = await client?.mode()
 					if (mode?.ok) emailMode = mode.data.mode === "on" ? "on" : "off"
-					await runner?.drain()
+					// `/back` closes the channel: no claim, no injection while it is off.
+					// Anything already queued stays pending and is delivered on the next
+					// /afk, which is why the docs say so explicitly.
+					if (emailMode === "on") await runner?.drain()
 				}
 			} catch {
 				/* drain already swallows; a poll must never throw into the runtime */
@@ -283,7 +286,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			onError: (error) => ctx?.ui.notify(`mailbridge: reply not delivered (${error.message})`, "warning"),
 		})
 
-		await runner.drain()
+		// Catch-up on connect, but only when the channel is actually open: /back must not
+		// be bypassed by a session starting up.
+		if (emailMode === "on") await runner.drain()
 		return true
 	}
 
