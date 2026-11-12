@@ -224,7 +224,9 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					const uid = Number(body?.uid)
 					const instanceId = typeof body?.instanceId === "string" ? body.instanceId : ""
 					if (!Number.isInteger(uid) || !instanceId) return fail(400, "bad_request")
-					const result = claimPending(env, uid, instanceId, now())
+					const uidValidity =
+						typeof body?.uidValidity === "number" && Number.isFinite(body.uidValidity) ? body.uidValidity : undefined
+					const result = claimPending(env, uid, instanceId, now(), uidValidity)
 					if (!result.ok) return fail(result.reason === "not-found" ? 404 : 409, result.reason)
 					return send(200, { ok: true })
 				}
@@ -241,7 +243,9 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					// polling session claims and injects the same reply twice. Losing the
 					// journal write after a successful ack only re-opens dedupe for a UID that
 					// is no longer in `pending`, which the scanner never reads again.
-					const acked = ackPending(env, uid, instanceId)
+					const uidValidity =
+						typeof body?.uidValidity === "number" && Number.isFinite(body.uidValidity) ? body.uidValidity : undefined
+					const acked = ackPending(env, uid, instanceId, uidValidity)
 					if (!acked.ok) return fail(acked.reason === "not-found" ? 404 : 409, acked.reason)
 					// The record's space, not the watcher's: after a renumbering the two can differ,
 					// and journaling in the wrong space suppresses a brand-new message at that UID.

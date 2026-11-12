@@ -251,3 +251,14 @@ test("uid cursor: a first observation resets when the cursor is outside the new 
 	assert.equal(syncUidValidity(e2, 1234, 120), true, "cursor past uidNext: reset")
 	assert.equal(readCursor(e2), 0)
 })
+
+test("a claim from a stale UID space is refused", () => {
+	// After a renumbering, uid 7 is a different message. A runner still holding the old
+	// record must not claim - or ack - whatever now occupies that UID.
+	const e = env()
+	addPending(e, { ...rec(7), uidValidity: 1111 })
+	claimPending(e, 7, "A", Date.now(), 1111)
+	assert.deepEqual(claimPending(e, 7, "B", Date.now(), 2222), { ok: false, reason: "stale-space" })
+	assert.equal(ackPending(e, 7, "B", 2222).ok, false, "and an ack from that space is refused too")
+	assert.equal(pendingSize(e), 1, "the record survives")
+})

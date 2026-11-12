@@ -201,9 +201,19 @@ export function createDaemonClient(options: DaemonClientOptions) {
 		pending: () => call<{ pending: PendingRecord[] }>("GET", "/pending"),
 		mode: () => call<{ mode: string }>("GET", "/mode"),
 		setMode: (mode: "on" | "off") => call<{ mode: string }>("POST", "/mode", { mode }),
-		claim: (uid: number, instanceId: string) => call<{ ok: boolean }>("POST", "/claim", { uid, instanceId }),
-		ack: (uid: number, instanceId: string, sessionId?: string) =>
-			call<{ ok: boolean }>("POST", "/ack", { uid, instanceId, sessionId }),
+		claim: (uid: number, instanceId: string, uidValidity?: number) =>
+			call<{ ok: boolean }>("POST", "/claim", {
+				uid,
+				instanceId,
+				...(uidValidity === undefined ? {} : { uidValidity }),
+			}),
+		ack: (uid: number, instanceId: string, sessionId?: string, uidValidity?: number) =>
+			call<{ ok: boolean }>("POST", "/ack", {
+				uid,
+				instanceId,
+				sessionId,
+				...(uidValidity === undefined ? {} : { uidValidity }),
+			}),
 		register: (sessionId: string) => call<{ alreadyPending: boolean; full: boolean }>("POST", "/register", { sessionId }),
 		release: (sessionId: string) => call<{ ok: boolean }>("DELETE", "/register", { sessionId }),
 		// A notification can carry a few hundred KB of inlined images and the daemon awaits

@@ -20,8 +20,8 @@ import type { PendingRecord } from "../store/pending-store.ts"
 export type ClientResult<T> = { ok: true; data: T } | { ok: false; status: number; code?: string }
 
 export interface DeliveryClient {
-	claim(uid: number, instanceId: string): Promise<ClientResult<{ ok: boolean }>>
-	ack(uid: number, instanceId: string, sessionId?: string): Promise<ClientResult<{ ok: boolean }>>
+	claim(uid: number, instanceId: string, uidValidity?: number): Promise<ClientResult<{ ok: boolean }>>
+	ack(uid: number, instanceId: string, sessionId?: string, uidValidity?: number): Promise<ClientResult<{ ok: boolean }>>
 	pending(): Promise<ClientResult<{ pending: PendingRecord[] }>>
 }
 
@@ -99,7 +99,7 @@ export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 			// the journal unwritten - and after a restart (new pid, new instance) the same
 			// instruction would be injected again. The ack is idempotent, so retry it.
 			try {
-				const retried = await deps.client.ack(record.uid, deps.instanceId, record.sessionId)
+				const retried = await deps.client.ack(record.uid, deps.instanceId, record.sessionId, record.uidValidity)
 				// A retry that keeps failing is the same silent leak as a first ack that
 				// failed: surface it rather than looping quietly.
 				if (!retried.ok && retried.status !== 404) {
@@ -114,7 +114,7 @@ export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 		const mine = deps.sessionId()
 		if (!mine || record.sessionId !== mine) return "foreign-session"
 
-		const claim = await deps.client.claim(record.uid, deps.instanceId)
+		const claim = await deps.client.claim(record.uid, deps.instanceId, record.uidValidity)
 		if (!claim.ok) {
 			// Expected when another instance won the race; the daemon answers 409.
 			if (claim.code === "claimed-by-other") return "claimed-by-other"
@@ -146,7 +146,7 @@ export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 		}
 
 		try {
-			const ackResult = await deps.client.ack(record.uid, deps.instanceId, record.sessionId)
+			const ackResult = await deps.client.ack(record.uid, deps.instanceId, record.sessionId, record.uidValidity)
 			if (!ackResult.ok) {
 				// Injected but not acked: the record will be re-offered on reconnect and
 				// the `injected` set will absorb it. Surface it — a silent ack failure
