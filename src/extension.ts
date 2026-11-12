@@ -26,6 +26,8 @@ import { ensureRouteForSession, registerRoute } from "./store/routes.ts"
 import { fileURLToPath } from "node:url"
 
 const POLL_MS = 10_000
+/** How often the poll may try to start a dead daemon. */
+const RESPAWN_BACKOFF_MS = 60_000
 
 /** The slice of the pi runtime this extension uses. */
 export interface ExtensionLike {
@@ -104,6 +106,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	let emailMode: "on" | "off" = "off"
 	/** Stable id for this pi process, used for claims and for liveness pings. */
 	const instanceId = `pi-${process.pid}`
+	/** Throttle for respawning a daemon that exited for idleness. */
+	let lastRespawnAttempt = 0
 
 	const baseUrl = daemonBaseUrl(config.daemon.port, config.daemon.host)
 
@@ -175,11 +179,25 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		stopPolling()
 		const tick = async () => {
 			try {
-				// Refresh the mode first: /afk may have been toggled from another
-				// session, and the settle gate depends on this mirror.
-				// Heartbeat first: the daemon exits when every session stops pinging, so a
-				// quiet daemon is a stopping daemon.
-				await client?.ping(instanceId)
+				// Heartbeat: the daemon exits when every session stops pinging, so a quiet
+				// daemon is a stopping daemon.
+				const ping = await client?.ping(instanceId)
+				if (ping && !ping.ok) {
+					// The daemon exited for idleness (or crashed). Nothing else would ever
+					// bring it back for this session, so the poll becomes the supervisor.
+					// Throttled: a dead daemon must not cause a spawn attempt every tick.
+					const now = Date.now()
+					if (now - lastRespawnAttempt > RESPAWN_BACKOFF_MS) {
+						lastRespawnAttempt = now
+						const healthy = await ensureDaemonSafe()
+						if (healthy) {
+							notifier?.cancel()
+							await startRuntime()
+						}
+					}
+					return
+				}
+
 				const mode = await client?.mode()
 				if (mode?.ok) emailMode = mode.data.mode === "on" ? "on" : "off"
 				await runner?.drain()
@@ -200,41 +218,20 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 	// ---- lifecycle ---------------------------------------------------------
 
-	pi.on("session_start", async (_event, c) => {
-		ctx = c
+	/**
+	 * Build the client, notifier and delivery runner. Called on session_start and again
+	 * if the poll tick finds the daemon gone, so a session recovers without a reload.
+	 */
+	async function startRuntime(): Promise<boolean> {
+		const current = ctx
+		if (!current) return false
 		const secret = secretFn()
-		if (!secret) {
-			c.ui.notify("mailbridge: no shared secret yet — start the daemon once to create it", "warning")
-			return
-		}
+		if (!secret) return false
 
 		const token = secret.toString("base64url")
 		const makeClient = deps.makeClient ?? ((base, tok) => createDaemonClient({ baseUrl: base, token: tok }))
-
-		// The daemon has to exist before a client can talk to it. Spawning one that is
-		// guaranteed to exit (no mailbox configured) would just cost five seconds on
-		// every session start, so check first and say what to do instead.
-		if (!hasUsableMailConfig(config)) {
-			c.ui.notify(
-				"mailbridge: no mailbox configured — run /mailbridge setup <pi-address> to <your-address>",
-				"warning",
-			)
-			return
-		}
-
-		const ensure =
-			deps.ensureDaemon ??
-			((base: string, script: string) =>
-				ensureDaemon({ baseUrl: base, scriptPath: script, env }).then((result) => result.healthy))
-		const healthy = await ensure(baseUrl, fileURLToPath(new URL("./daemon/main.ts", import.meta.url)))
-		if (!healthy) {
-			c.ui.notify("mailbridge: daemon not reachable; replies will not arrive", "warning")
-			return
-		}
-
 		client = makeClient(baseUrl, token)
 
-		// Seed the mode mirror before anything can settle.
 		const initialMode = await client.mode()
 		emailMode = initialMode.ok && initialMode.data.mode === "on" ? "on" : "off"
 
@@ -250,7 +247,6 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			},
 			secret: () => secret,
 			config: config.notify,
-			// One route per session, so the subject stays identical and clients keep one thread.
 			tagFor: (context) =>
 				ensureRouteForSession({
 					sessionId: context.sessionId,
@@ -264,15 +260,13 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 		runner = createDeliveryRunner({
 			client: {
-				claim: (uid, instanceId) => client!.claim(uid, instanceId),
-				ack: (uid, instanceId, sessionId) => client!.ack(uid, instanceId, sessionId),
+				claim: (uid, id) => client!.claim(uid, id),
+				ack: (uid, id, sessionId) => client!.ack(uid, id, sessionId),
 				pending: () => client!.pending(),
 			},
 			instanceId,
 			sessionId: () => ctx?.sessionManager.getSessionId(),
 			inject: async (body, record) => {
-				// Attachments become image/text content blocks; the text-only case stays a
-				// plain string so it is indistinguishable from a typed message.
 				const content = toUserContent(body, record.attachments ?? [])
 				pi.sendUserMessage(content, { deliverAs: "followUp", expandPromptTemplates: true })
 			},
@@ -280,6 +274,39 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		})
 
 		await runner.drain()
+		return true
+	}
+
+	async function ensureDaemonSafe(): Promise<boolean> {
+		const ensure = deps.ensureDaemon ?? ((base: string, script: string) => ensureDaemon({ baseUrl: base, scriptPath: script, env }).then((r) => r.healthy))
+		return ensure(baseUrl, fileURLToPath(new URL("./daemon/main.ts", import.meta.url)))
+	}
+
+	pi.on("session_start", async (_event, c) => {
+		ctx = c
+
+		if (!secretFn()) {
+			c.ui.notify("mailbridge: no shared secret yet — start the daemon once to create it", "warning")
+			return
+		}
+
+		// Spawning a daemon that is guaranteed to exit (no mailbox configured) would just
+		// cost five seconds on every session start, so check first.
+		if (!hasUsableMailConfig(config)) {
+			c.ui.notify(
+				"mailbridge: no mailbox configured — run /mailbridge setup <pi-address> to <your-address>",
+				"warning",
+			)
+			return
+		}
+
+		const healthy = await ensureDaemonSafe()
+		if (!healthy) {
+			c.ui.notify("mailbridge: daemon not reachable; replies will not arrive", "warning")
+			return
+		}
+
+		if (!(await startRuntime())) return
 		startPolling()
 	})
 

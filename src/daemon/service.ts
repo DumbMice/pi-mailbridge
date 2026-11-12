@@ -152,12 +152,17 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 
 		// Liveness is unauthenticated so a supervisor can probe without a secret.
 		if (url.pathname === "/health") {
+			const newestPing = pings.size > 0 ? Math.max(...pings.values()) : 0
 			return send(200, {
 				ok: true,
 				mode: readMode(env),
 				pending: listPending(env).length,
 				sessions: registry.list().length,
 				sseClients: streams.size,
+				// Liveness: how many sessions are pinging, and how long ago the last one did.
+				clients: pings.size,
+				lastPingAgoMs: newestPing ? Math.max(0, now() - newestPing) : null,
+				idleExitEnabled: deps.exitWhenIdle ? deps.exitWhenIdle() : false,
 			})
 		}
 

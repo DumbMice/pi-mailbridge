@@ -125,6 +125,22 @@ IDLE event - the opposite of what ARCHITECTURE.md promises.
 - spawn.ts: a detached daemon now appends to `daemon.log` instead of discarding stdio.
   `stdio: "ignore"` is why this failure was invisible; the log is what found it.
 
+### Fixed: the daemon could die and nothing brought it back
+
+Live symptom: a reply was received, injected and acked, then the bridge went silent.
+
+The daemon's idle exit (added earlier this session) stopped the process 120s after the last
+ping - correct - but nothing restarts it. The extension's poll tick only talked to a daemon
+it assumed was alive, and `ensureDaemon` runs only on `session_start`. So once the daemon
+exited, the session polled a dead port until a manual reload.
+
+- the poll tick now treats a failed `ping` as "the daemon is gone": it respawns through
+  ensureDaemon, rebuilds the client/notifier/runner, and resumes draining. Throttled to one
+  attempt a minute so a dead daemon cannot cause a spawn storm.
+- `session_start` and the recovery path share one `startRuntime()`, so they cannot drift.
+- `/health` now reports `clients`, `lastPingAgoMs` and `idleExitEnabled`, which is what
+  made this diagnosable: `clients: 0` with a live session proves the poll is not running.
+
 ### All notifications for a session thread into one conversation
 
 Each notification used to be its own thread: the route id changed per message, so no two

@@ -427,3 +427,60 @@ test("with no assistant text the placeholder is honest", async () => {
 	assert.ok(mail, "a notification should have been sent")
 	assert.match(mail.text, /produced no text/)
 })
+
+// --- the poll supervises the daemon ---------------------------------------
+
+test("a poll that finds the daemon gone restarts it instead of idling forever", async () => {
+	const t = fakeTimers()
+	let daemonUp = false
+	let respawns = 0
+	let pings = 0
+
+	// A client that reports the daemon down until it is respawned.
+	const flaky = {
+		health: async () => (daemonUp ? { ok: true as const, data: { ok: true, mode: "on", pending: 0 } } : { ok: false as const, status: 0 }),
+		mode: async () => (daemonUp ? { ok: true as const, data: { mode: "on" as const } } : { ok: false as const, status: 0 }),
+		pending: async () => (daemonUp ? { ok: true as const, data: { pending: [] } } : { ok: false as const, status: 0 }),
+		ping: async () => {
+			pings++
+			return daemonUp ? { ok: true as const, data: { ok: true, clients: 1 } } : { ok: false as const, status: 0, code: "network" }
+		},
+		bye: async () => ({ ok: true as const, data: { ok: true, clients: 0 } }),
+		claim: async () => ({ ok: true as const, data: { ok: true } }),
+		ack: async () => ({ ok: true as const, data: { ok: true } }),
+		register: async () => ({ ok: true as const, data: { alreadyPending: false, full: false } }),
+		release: async () => ({ ok: true as const, data: { ok: true } }),
+		send: async () => ({ ok: true as const, data: { ok: true } }),
+		reload: async () => ({ ok: true as const, data: { ok: true } }),
+		shutdown: async () => ({ ok: true as const, data: { ok: true } }),
+	}
+
+	const pi = fakePi(ctxWithBranch([{ role: "assistant", content: [{ type: "text", text: "done" }] }]))
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => flaky as never,
+		ensureDaemon: async () => {
+			respawns++
+			daemonUp = true
+			return true
+		},
+		timers: t.timers,
+		pollMs: 10_000,
+	})
+
+	await pi.fire("session_start")
+	assert.equal(respawns, 1, "the first start spawns it")
+
+	// The daemon dies; the next poll must notice and bring it back.
+	daemonUp = false
+	const ticks = t.queue.filter((q) => q.ms === 10_000)
+	assert.ok(ticks.length > 0, "a poll is scheduled")
+	ticks[0]!.handler()
+	await new Promise((r) => setImmediate(r))
+	await new Promise((r) => setImmediate(r))
+
+	assert.equal(respawns, 2, "the poll respawned the daemon")
+	assert.ok(pings >= 1)
+})
