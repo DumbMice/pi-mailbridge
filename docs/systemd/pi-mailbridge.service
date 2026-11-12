@@ -6,16 +6,30 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Runs the daemon directly from the package, no build step.
-ExecStart=/usr/bin/node --experimental-strip-types %h/.pi/agent/npm/node_modules/pi-mailbridge/src/daemon/main.ts
+
+# --- adjust these two lines -------------------------------------------------
+# Node: pi normally ships its own, which is why this is not /usr/bin/node.
+# Check yours with `command -v node` and use an absolute path.
+Environment=PI_MAILBRIDGE_NODE=%h/.local/share/pi-node/current/bin/node
+
+# Where the package lives. For `pi install npm:pi-mailbridge` this default is
+# already right; for a local checkout point it at that directory instead.
+Environment=PI_MAILBRIDGE_DIR=%h/.pi/agent/npm/node_modules/pi-mailbridge
+# Environment=PI_MAILBRIDGE_DIR=%h/Work/pi-mailbridge
+# ---------------------------------------------------------------------------
+
+ExecStartPre=${PI_MAILBRIDGE_NODE} --experimental-strip-types ${PI_MAILBRIDGE_DIR}/src/daemon/main.ts --check
+ExecStart=${PI_MAILBRIDGE_NODE} --experimental-strip-types ${PI_MAILBRIDGE_DIR}/src/daemon/main.ts
+
 # The port is the single-instance lock; a duplicate start exits 0 immediately,
 # so Restart=always is safe.
 Restart=always
 RestartSec=5
-# A broken config should be reported, not looped on.
-ExecStartPre=/usr/bin/node --experimental-strip-types %h/.pi/agent/npm/node_modules/pi-mailbridge/src/daemon/main.ts --check
+# Logs go to the journal; the daemon writes its own daemon.log when spawned by pi.
+StandardOutput=journal
+StandardError=journal
 
-# Hardening: the daemon needs loopback, the network, and its own state dir.
+# Hardening: loopback, the network, and its own state dir.
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict

@@ -118,7 +118,18 @@ test("the systemd unit runs the same entry point and self-checks first", () => {
 	const unit = read("../docs/systemd/pi-mailbridge.service")
 	assert.match(unit, /src\/daemon\/main\.ts/)
 	assert.match(unit, /--check/)
-	assert.match(unit, /127\.0\.0\.1|ReadWritePaths/, "unit should be hardened")
+	assert.match(unit, /ReadWritePaths/, "unit should be hardened")
+})
+
+test("the systemd unit does not hardcode paths that may not exist", () => {
+	const unit = read("../docs/systemd/pi-mailbridge.service")
+	// /usr/bin/node is absent on a machine where pi shipped its own Node, and the
+	// npm package path is wrong for a local checkout. Both must be configurable.
+	assert.doesNotMatch(unit, /^ExecStart=\/usr\/bin\/node/m, "node path must be an Environment variable")
+	assert.match(unit, /Environment=PI_MAILBRIDGE_NODE=/)
+	assert.match(unit, /Environment=PI_MAILBRIDGE_DIR=/)
+	assert.match(unit, /ExecStart=\$\{PI_MAILBRIDGE_NODE\}.*\$\{PI_MAILBRIDGE_DIR\}/)
+	assert.match(unit, /local checkout|Work\/pi-mailbridge/, "a local-path variant should be shown")
 })
 
 // --- README integrity ------------------------------------------------------
