@@ -44,7 +44,19 @@ export const MAX_INLINE_BYTES = 128 * 1024
 export const MAX_INLINE_TOTAL_BYTES = 384 * 1024
 export const MAX_INLINE_COUNT = 4
 
-/** Identify an image from its magic bytes rather than trusting the extension. */
+/**
+ * Identify an image from its magic bytes rather than trusting the extension.
+ *
+ * SVG is deliberately absent. Not because email cannot carry it - a linked SVG file
+ * (`<img src="x.svg">` or a cid attachment) is supported by roughly 97% of clients, and
+ * Gmail rasterises it to PNG server-side - but because **Outlook on Windows (2007-2019)
+ * renders nothing at all** for it, with no fallback. Inline `<svg>` markup is the truly
+ * dead form at ~40%, since Gmail deletes the element while sanitising.
+ *
+ * PNG is therefore the one format that renders everywhere, which matters more for a
+ * notification than vector sharpness. SVG could be added behind a flag with an explicit
+ * "invisible in Outlook desktop" caveat.
+ */
 export function sniffImage(buffer: Buffer): { contentType: string; ext: string } | undefined {
 	if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
 		return { contentType: "image/png", ext: "png" }
