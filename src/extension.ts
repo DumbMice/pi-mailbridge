@@ -9,7 +9,7 @@
 
 import { Type } from "@sinclair/typebox"
 
-import { loadConfig, type ResolvedConfig } from "./core/config.ts"
+import { loadConfig, hasUsableMailConfig, type ResolvedConfig } from "./core/config.ts"
 import { readSecret } from "./store/secret.ts"
 import { createSettleNotifier, type SettleContext, type SettleNotifier } from "./core/settle.ts"
 import { createDeliveryRunner, type DeliveryRunner } from "./core/deliveries.ts"
@@ -153,13 +153,25 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		const token = secret.toString("base64url")
 		const makeClient = deps.makeClient ?? ((base, tok) => createDaemonClient({ baseUrl: base, token: tok }))
 
-		const ensure = deps.ensureDaemon
-		if (ensure) {
-			const healthy = await ensure(baseUrl, fileURLToPath(new URL("./daemon/main.ts", import.meta.url)))
-			if (!healthy) {
-				c.ui.notify("mailbridge: daemon not reachable; replies will not arrive", "warning")
-				return
-			}
+		// The daemon has to exist before a client can talk to it. Spawning one that is
+		// guaranteed to exit (no mailbox configured) would just cost five seconds on
+		// every session start, so check first and say what to do instead.
+		if (!hasUsableMailConfig(config)) {
+			c.ui.notify(
+				"mailbridge: no mailbox configured — run /mailbridge setup <pi-address> to <your-address>",
+				"warning",
+			)
+			return
+		}
+
+		const ensure =
+			deps.ensureDaemon ??
+			((base: string, script: string) =>
+				ensureDaemon({ baseUrl: base, scriptPath: script, env }).then((result) => result.healthy))
+		const healthy = await ensure(baseUrl, fileURLToPath(new URL("./daemon/main.ts", import.meta.url)))
+		if (!healthy) {
+			c.ui.notify("mailbridge: daemon not reachable; replies will not arrive", "warning")
+			return
 		}
 
 		client = makeClient(baseUrl, token)

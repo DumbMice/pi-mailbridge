@@ -159,6 +159,7 @@ function boot(daemon: FakeDaemon, timers: SettleTimers, c = ctx()) {
 		loadConfig: config,
 		secret: () => SECRET,
 		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
 		timers,
 		pollMs: 60_000,
 	})
@@ -236,6 +237,7 @@ test("/afk and /back push the mode through the daemon", async () => {
 		loadConfig: config,
 		secret: () => SECRET,
 		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
 		timers: fakeTimers().timers,
 		pollMs: 60_000,
 	})
@@ -261,6 +263,7 @@ test("request_decision refuses when email mode is off", async () => {
 		loadConfig: config,
 		secret: () => SECRET,
 		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
 		timers: fakeTimers().timers,
 	})
 	await pi.fire("session_start")
@@ -283,6 +286,7 @@ test("request_decision reserves, sends, and a second call is refused", async () 
 		loadConfig: config,
 		secret: () => SECRET,
 		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
 		timers: fakeTimers().timers,
 	})
 	await pi.fire("session_start")
@@ -313,6 +317,7 @@ test("request_decision releases the slot when the send fails", async () => {
 		loadConfig: config,
 		secret: () => SECRET,
 		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
 		timers: fakeTimers().timers,
 	})
 	await pi.fire("session_start")

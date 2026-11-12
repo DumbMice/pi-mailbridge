@@ -130,6 +130,7 @@ function harness(
 		loadConfig: () => over.cfg ?? config(),
 		secret: () => SECRET,
 		makeClient: () => client as never,
+		ensureDaemon: async () => true,
 		timers,
 		pollMs: 60_000,
 	})
@@ -342,4 +343,49 @@ test("/mailbridge check flags oauth configured but unused", async () => {
 		ui: { notify: (m: string) => h.notes.push(m) },
 	})
 	assert.match(h.notes.join("\n"), /would be ignored/)
+})
+
+test("an unconfigured mailbox says what to do instead of spawning a doomed daemon", async () => {
+	const cfg = config()
+	cfg.mail.imap.host = ""
+	cfg.mail.to = ""
+	let spawned = 0
+	const h = harness({ cfg })
+	// Override after boot: harness passes ensureDaemon, so count instead.
+	const pi2 = h.pi
+	void pi2
+	const notes: string[] = []
+	const handlers = new Map<string, (e: Record<string, unknown>, c: unknown) => unknown>()
+	const pi: ExtensionLike = {
+		on(event, handler) {
+			handlers.set(event, handler as never)
+		},
+		registerCommand() {},
+		registerTool() {},
+		sendUserMessage() {},
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-tools-test" },
+		loadConfig: () => cfg,
+		secret: () => SECRET,
+		makeClient: () => {
+			throw new Error("must not build a client for an unconfigured mailbox")
+		},
+		ensureDaemon: async () => {
+			spawned++
+			return true
+		},
+		timers: { setTimeout: () => 1, clearTimeout: () => {} },
+	})
+	await handlers.get("session_start")!(
+		{},
+		{
+			cwd: "/home/ybc/Work/proj",
+			sessionManager: { getSessionId: () => SESSION },
+			ui: { notify: (m: string) => notes.push(m) },
+		},
+	)
+
+	assert.equal(spawned, 0, "no daemon spawn for an unconfigured account")
+	assert.match(notes.join("\n"), /\/mailbridge setup/)
 })
