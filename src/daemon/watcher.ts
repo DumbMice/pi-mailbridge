@@ -137,8 +137,14 @@ export function toHeaderLike(extracted: ExtractedHeaders): HeaderLike {
 // ---------------------------------------------------------------------------
 
 export interface BodyParser {
-	/** Decode the plain-text body (and any attachments) from a raw message. */
-	(raw: Buffer): Promise<{ text: string; attachments?: RawAttachment[] }>
+	/**
+	 * Decode the body (and any attachments) from a raw message.
+	 *
+	 * `html` is the fallback for a multipart message whose only body part is text/html -
+	 * mailparser sets `text` to "" for that shape, and such a reply used to be rejected as
+	 * empty-body with the cursor already past it.
+	 */
+	(raw: Buffer): Promise<{ text: string; html?: string; attachments?: RawAttachment[] }>
 }
 
 export const defaultBodyParser: BodyParser = async (raw) => {
@@ -148,12 +154,11 @@ export const defaultBodyParser: BodyParser = async (raw) => {
 		contentType: a.contentType ?? "application/octet-stream",
 		content: a.content,
 	}))
-	// mailparser leaves `text` undefined for a multipart message whose only body part is
-	// text/html, and the scanner rejected such a reply as empty-body - permanently, because the
-	// cursor had advanced. Fall back to the HTML part, tag-stripped.
-	// `text` is often the empty string (not undefined) for that shape, so test for content.
-	const text = parsed.text?.trim() ? parsed.text : parsed.html ? htmlToText(parsed.html) : ""
-	return { text, attachments }
+	return {
+		text: parsed.text ?? "",
+		...(parsed.html ? { html: parsed.html } : {}),
+		attachments,
+	}
 }
 
 /** Coarse HTML → text: enough to keep the human's words, not a renderer. */
@@ -395,6 +400,9 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 
 			const extracted = extractHeaders(fetched.source)
 			const parsed = await parser(fetched.source)
+			// A body with no text content falls back to the HTML part, tag-stripped. Testing for
+			// content, not for undefined: mailparser yields "" for a text/html-only multipart.
+			const bodyText = parsed.text?.trim() ? parsed.text : parsed.html ? htmlToText(parsed.html) : ""
 			const from = extracted.from ?? fetched.envelope?.from?.[0]?.address
 			const subject = extracted.subject ?? fetched.envelope?.subject
 
@@ -402,7 +410,7 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 				uid,
 				from,
 				subject,
-				text: parsed.text,
+				text: bodyText,
 				...(parsed.attachments?.length ? { attachments: parsed.attachments } : {}),
 				headers: toHeaderLike(extracted),
 				receivedAt: Date.now(),
