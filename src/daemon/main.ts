@@ -168,7 +168,7 @@ async function check(config: ResolvedConfig): Promise<number> {
 			if (stored?.refreshToken) {
 				log("oauth: refresh token present")
 			} else {
-				add("oauth is configured but no refresh token yet — run `pi-mailbridge --auth`")
+				add("oauth is configured but no refresh token yet — run `/mailbridge auth` in pi (or `pi-mailbridge --auth`)")
 				code = EXIT_AUTH
 			}
 		} else if (command.length === 0) {
