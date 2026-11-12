@@ -7,11 +7,14 @@
 //     pending.json      durable pending deliveries
 //     journal.json      UIDs already acked (replay protection)
 //     mode.json         global on/off
+//     routes.json       short routing ids (TTL-bounded)
+//     threads.json      outbound Message-IDs: threading + reply chain
+//     oauth.json        refresh token, 0600
 //
 // Config is read from, in order, each deep-merged over the previous:
 //   1. built-in defaults
 //   2. $XDG_CONFIG_HOME/pi-mailbridge/config.json
-//   4. PI_MAILBRIDGE_* environment variables
+//   3. PI_MAILBRIDGE_* environment variables
 
 import { homedir } from "node:os"
 import { join } from "node:path"

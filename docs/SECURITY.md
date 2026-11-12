@@ -136,15 +136,19 @@ A legitimate email can still contain text that reads like instructions
   relaxed for self-addressed mail, so the sender allowlist alone no longer
   separates "me" from "not me" — it is the same address. The discriminator is the
   message's own `Message-ID`: if we recorded it going out, it is our own mail and it is
-  rejected (`self-echo`) before routing. `In-Reply-To` is checked too, but it cannot be
-  the tie-breaker on its own, because threaded notifications carry that header as well.
-  Either signal is trivially forgeable by anyone who can already send from your address.
+  rejected (`self-echo`) before routing. Every notification also carries an
+  `X-Pi-Mailbridge: notification` header, and inbound scanning refuses that marker outright —
+  so the guard does not depend on the id having been recorded, nor on the transport
+  returning one. `In-Reply-To` is checked too, but it cannot be the tie-breaker on its own,
+  because threaded notifications carry that header as well. All of these are forgeable by
+  anyone who can already send from your address; they exist to stop loops, not attackers.
   Prefer a dedicated mailbox.
 - **Multiple machines, one mailbox.** Each daemon only claims replies whose route id, token
-  or chain entry names its own device, so they cannot steal each other's work. They do share
-  one allowlist and one secret — if one machine is compromised, rotate the key and clear that
-  machine's state directory as described above (`routes.json`, `threads.json`, and
-  `pending.json`).
+  or chain entry names its own device, so they cannot steal each other's work. They share
+  the allowlist (one config each), but **each machine has its own `secret.key`** — it is a
+  local file, never synced through the mailbox. So there is no "the key" to rotate: rotate
+  the compromised machine's, clear its state directory as described above (`routes.json`,
+  `threads.json`, `pending.json`), and review the others separately.
 
 ## 6. What this package will never do
 

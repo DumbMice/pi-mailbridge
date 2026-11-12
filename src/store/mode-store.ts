@@ -50,3 +50,11 @@ export function writeMode(env: NodeJS.ProcessEnv, mode: Mode, now: number = Date
 	renameSync(tmp, p)
 	return mode
 }
+
+/**
+ * The single rule for whether the daemon may touch the mailbox. `/back` is documented as
+ * closing the control channel, so this is the gate that makes that true.
+ */
+export function scanningEnabled(mode: Mode): boolean {
+	return mode === "on"
+}

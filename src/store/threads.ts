@@ -142,6 +142,17 @@ export function findOutbound(env: NodeJS.ProcessEnv, id: string): ThreadRecord |
 	return load(env).find((r) => r.messageId === target)
 }
 
+/**
+ * Forget one outbound id. Used when a send fails after the id was recorded ahead of the
+ * transport: leaving it would make the next notification reply to a parent that never
+ * existed, and would make a re-sent copy look like our own mail.
+ */
+export function removeOutbound(env: NodeJS.ProcessEnv, messageId: string): void {
+	const target = normalizeMessageId(messageId)
+	const items = load(env).filter((r) => r.messageId !== target)
+	save(env, items)
+}
+
 export function threadCount(env: NodeJS.ProcessEnv): number {
 	return load(env).length
 }

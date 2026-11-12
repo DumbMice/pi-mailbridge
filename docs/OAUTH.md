@@ -3,8 +3,9 @@
 ## The short version
 
 Bad news only for passwords. **OAuth2 works.** Microsoft retired *Basic
-Authentication* for `outlook.com`/`hotmail.com` on **2024-09-16**, so an app
-password no longer authenticates. The fix is a token, and this package now gets
+Authentication* for `outlook.com`/`hotmail.com` on **2024-09-16**. App passwords can still
+be created in some tenants, but **IMAP rejects them** and SMTP acceptance is inconsistent —
+treat password auth as unusable for personal Microsoft accounts and use OAuth2. The fix is a token, and this package now gets
 one for you with a device-code login.
 
 ```bash

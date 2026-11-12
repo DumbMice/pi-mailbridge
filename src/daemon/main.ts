@@ -25,7 +25,7 @@ import { loadConfig, hasUsableMailConfig, shortHostname, type ResolvedConfig } f
 import { configPath } from "../store/paths.ts"
 import { buildSetupConfig, discoverDomain, domainOf } from "../core/discover.ts"
 import { ensureSecret } from "../store/secret.ts"
-import { readMode } from "../store/mode-store.ts"
+import { readMode, scanningEnabled } from "../store/mode-store.ts"
 import { sendMail } from "../core/mailer.ts"
 import { createCommandTokenProvider } from "../core/oauth.ts"
 import { createOpenidClient } from "../core/oauth-openid.ts"
@@ -287,7 +287,7 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 		// `/back` must actually close the channel, not just stop the mail coming back.
 		// While mode is off nothing is fetched or persisted and the cursor stays put, so
 		// turning /afk back on processes what arrived meanwhile.
-		if (readMode(process.env) !== "on") {
+		if (!scanningEnabled(readMode(process.env))) {
 			if (!reportedModeOff) {
 				reportedModeOff = true
 				log(`${why}: email mode is off - not scanning`)
@@ -306,7 +306,11 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 				reasons: result.reasons,
 			}
 			if (result.persisted > 0) {
-				log(`${why}: persisted ${result.persisted} of ${result.examined} (rejected ${result.rejected})`)
+				// Name the reasons even on a partial success: "rejected 1" alone leaves the user
+				// unable to tell which reply was dropped and why.
+				log(
+					`${why}: persisted ${result.persisted} of ${result.examined} (rejected ${result.rejected}: ${formatReasons(result.reasons)})`,
+				)
 				for (const record of listPending()) {
 					if (!before.has(record.uid)) service.broadcast({ type: "delivery", pending: record })
 				}
@@ -383,6 +387,12 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 		// resident instead, which is what a systemd unit wants.
 		exitWhenIdle: () => currentConfig.daemon.exitWhenIdle !== false,
 		scanSummary: () => lastScan,
+		// Re-open the channel: process what arrived while mode was off, and retry anything a
+		// full queue refused. Safe to call when nothing changed (an empty scan is cheap).
+		onModeChange: (mode) => {
+			// Only "on" needs work; "off" simply stops the next scan from doing anything.
+			if (mode === "on" && currentWatcher) void scanOnce("mode-on")
+		},
 		idleTimeoutMs: (currentConfig.daemon.idleTimeoutSecs ?? 120) * 1000,
 		// `/mailbridge setup` / `auth` write new config or tokens; pick them up here.
 		reload: async () => {

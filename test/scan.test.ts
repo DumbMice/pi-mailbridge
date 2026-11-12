@@ -7,7 +7,7 @@ import { join } from "node:path"
 import type { ResolvedConfig } from "../src/core/config.ts"
 import { signToken } from "../src/core/token.ts"
 import { scanAndProcess, type MailSource, type RawMessage } from "../src/daemon/process.ts"
-import { addPending, PENDING_CAP } from "../src/store/pending-store.ts"
+import { addPending, getPending, PENDING_CAP } from "../src/store/pending-store.ts"
 import { listPending } from "../src/store/pending-store.ts"
 import { journal } from "../src/store/journal.ts"
 import { readCursor } from "../src/store/uid-cursor.ts"
@@ -585,4 +585,24 @@ test("a bounce or postmaster sender is never treated as a reply", async () => {
 		assert.equal(r.reasons["auto-generated"], 1, `${from} must be refused`)
 		assert.equal(r.persisted, 0)
 	}
+})
+
+test("pending-full stops the batch so a later UID cannot advance the cursor past it", async () => {
+	// `continue` looked fine on a single-message batch, but the cursor is monotonic: a later
+	// UID that persists would jump over the refused one, losing it for good.
+	const e = env()
+	for (let uid = 1; uid <= PENDING_CAP; uid++) {
+		addPending(e, { uid, sessionId: "other", from: "you@example.com", subject: "x", body: "y", receivedAt: 1 })
+	}
+	const { readCursor } = await import("../src/store/uid-cursor.ts")
+	const before = readCursor(e)
+	const r = await scanAndProcess(config(), {
+		// The first is refused (full); the second would persist if the loop continued.
+		source: source([msg(PENDING_CAP + 1), msg(PENDING_CAP + 2, { text: "second" })]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.reasons["pending-full"], 1)
+	assert.equal(readCursor(e), before, "the cursor must not move at all")
+	assert.equal(getPending(e, PENDING_CAP + 2), undefined, "and the later UID must not be persisted")
 })

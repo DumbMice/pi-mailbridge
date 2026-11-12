@@ -7,8 +7,8 @@ import { randomUUID } from "node:crypto"
 //
 // Two auth modes, because Outlook has no third option:
 //   LOGIN    — provider app password. Works for Gmail, Fastmail, QQ, 163, …
-//   XOAUTH2  — access token. Mandatory for outlook.com/hotmail (Microsoft
-//              retired SMTP basic auth on 2024-09-16).
+//   XOAUTH2  — access token. Use for outlook.com/hotmail: Microsoft retired SMTP basic
+//              auth on 2024-09-16, and IMAP rejects app passwords outright.
 //
 // Subject stamping is NOT done here. It belongs to core/token so there is exactly
 // one place that mints routing tokens.
@@ -114,6 +114,10 @@ export async function sendMail(
 
 	// withFreshToken hands each attempt its token; use it directly rather than fetching a
 	// second one, or the provider is called twice per attempt and the counts drift.
+	// One id for the header and the return value. Minting twice meant callers that did not
+	// pass one got back an id that was not the one in the message.
+	const stampedId = message.messageId ?? generateMessageId(config.mail.smtp.user)
+
 	const dispatch = async (accessToken?: string) => {
 		const transportOptions = await buildTransportOptions(
 			config,
@@ -125,7 +129,7 @@ export async function sendMail(
 		// Minted here at the latest, so the id is known to the caller before the transport
 		// has spoken. A notification must be recognisable as ours even if the send races an
 		// IMAP exists event.
-		messageId: message.messageId ?? generateMessageId(config.mail.smtp.user),
+		messageId: stampedId,
 		// Belt and braces for single-mailbox mode: the scan refuses any message carrying it.
 		headers: { "X-Pi-Mailbridge": "notification" },
 			to: message.to,
@@ -155,7 +159,7 @@ export async function sendMail(
 			: await dispatch()
 
 	// Ours, not the transport's: it is what was recorded and what threading references.
-	return { messageId: message.messageId ?? generateMessageId(config.mail.smtp.user) }
+	return { messageId: stampedId }
 }
 
 /**

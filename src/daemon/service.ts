@@ -16,7 +16,7 @@ import type { ResolvedConfig } from "../core/config.ts"
 import type { MailSource } from "./process.ts"
 import { ackPending, claimPending, listPending } from "../store/pending-store.ts"
 import { journal } from "../store/journal.ts"
-import { recordOutbound, sessionThread } from "../store/threads.ts"
+import { recordOutbound, removeOutbound, sessionThread } from "../store/threads.ts"
 import { generateMessageId } from "../core/mailer.ts"
 import { readMode, writeMode, isMode, type Mode } from "../store/mode-store.ts"
 import { createRegistry, type Registry } from "../store/registry.ts"
@@ -67,6 +67,12 @@ export interface DaemonDeps {
 	 * client has pinged, so a daemon started by systemd (no pi sessions) never exits.
 	 */
 	exitWhenIdle?: () => boolean
+	/**
+	 * Called after a mode change. Turning mode on must trigger a scan: the only other
+	 * triggers are an IMAP `exists` (a NEW arrival) and reconnect, so without this a reply
+	 * that arrived while the channel was closed would wait for unrelated mail.
+	 */
+	onModeChange?: (mode: Mode) => void
 	/** Outcome of the most recent scan, for diagnostics. */
 	scanSummary?: () => { at: number; examined: number; persisted: number; rejected: number; reasons: Record<string, number> } | undefined
 	/** How long after the last ping to exit. Default 120s. */
@@ -301,6 +307,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					if (!isMode(body?.mode)) return fail(400, "bad_request")
 					const mode = writeMode(env, body.mode, now())
 					broadcast({ type: "mode", mode })
+					deps.onModeChange?.(mode)
 					return send(200, { mode })
 				}
 
@@ -355,6 +362,11 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 							...(sessionId ? { sessionId } : {}),
 						})
 					} catch (error) {
+						// The id was recorded before the send, because the mail can come back
+						// before the transport resolves. It will not come back now, so drop it:
+						// otherwise the next notification threads against a parent that never
+						// existed.
+						removeOutbound(env, messageId)
 						return fail(502, "send_failed", { message: (error as Error).message })
 					}
 					return send(200, { ok: true })

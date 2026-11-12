@@ -129,6 +129,9 @@ function fakeDaemon(over: { mode?: "on" | "off"; pending?: PendingRecord[]; send
 			modes.push(mode)
 			return ok({ mode })
 		},
+		// The tick's first call. Without it the whole tick threw and the swallow-all catch
+		// hid it, so gate tests passed for the wrong reason.
+		ping: async () => ok({ ok: true, clients: 1 }),
 		claim: async () => ok({ ok: true }),
 		ack: async (uid: number) => {
 			acked.push(uid)
@@ -575,4 +578,32 @@ test("while email mode is off, a queued reply is not claimed or injected", async
 
 	assert.deepEqual(daemon.acked, [], "nothing was claimed-and-acked while off")
 	assert.deepEqual(pi.sent, [], "nothing reached the session")
+})
+
+test("with ping present, the per-tick gate still blocks a claim while mode is off", async () => {
+	// The earlier version of the /back test passed because fakeDaemon had no ping(): the
+	// tick threw on its first statement and the swallow-all catch ate it.
+	const t = fakeTimers()
+	const daemon = fakeDaemon({
+		mode: "off",
+		pending: [
+			{ uid: 8, sessionId: SESSION, from: "you@example.com", subject: "re", body: "do it", receivedAt: 1 },
+		],
+	})
+	const pi = boot(daemon, t.timers)
+	await pi.fire("session_start")
+
+	t.queue.filter((q) => q.ms === 60_000)[0]!.handler()
+	await new Promise((r) => setImmediate(r))
+	await new Promise((r) => setImmediate(r))
+
+	assert.deepEqual(daemon.acked, [], "no claim while the channel is closed")
+	assert.deepEqual(pi.sent, [])
+
+	// Turn it on: the next tick delivers.
+	daemon.client.setMode?.("on")
+	t.queue.filter((q) => q.ms === 60_000).at(-1)!.handler()
+	await new Promise((r) => setImmediate(r))
+	await new Promise((r) => setImmediate(r))
+	assert.deepEqual(daemon.acked, [8], "delivered once the channel reopens")
 })

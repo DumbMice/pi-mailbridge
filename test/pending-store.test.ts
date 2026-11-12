@@ -1,8 +1,8 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync } from "node:fs"
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 
 import {
 	CLAIM_TTL_MS,
@@ -16,6 +16,7 @@ import {
 	pendingSize,
 } from "../src/store/pending-store.ts"
 import { advanceCursor, readCursor, resetCursor } from "../src/store/uid-cursor.ts"
+import { statePath } from "../src/store/paths.ts"
 import { isJournaled, journal, journalSize } from "../src/store/journal.ts"
 
 function env(): NodeJS.ProcessEnv {
@@ -164,4 +165,21 @@ test("pending: replaying an existing uid is allowed even at the cap", () => {
 	assert.equal(replaced.ok, true)
 	assert.equal(getPending(e, 5)?.body, "edited")
 	assert.equal(pendingSize(e), PENDING_CAP)
+})
+
+test("an over-cap file on disk is preserved, not trimmed on the next write", () => {
+	// The old save() sliced from the front. addPending now refuses at the cap, so the trim
+	// is unreachable from the public API - which is exactly why the invariant needs a test
+	// that writes the file directly.
+	const e = env()
+	const records = Array.from({ length: PENDING_CAP + 5 }, (_, i) => rec(i + 1))
+	const file = statePath(e, "pending.json")
+	mkdirSync(dirname(file), { recursive: true })
+	writeFileSync(file, JSON.stringify({ items: records }))
+	assert.equal(pendingSize(e), PENDING_CAP + 5, "reading does not trim")
+
+	claimPending(e, 1, "A")
+	ackPending(e, 1, "A")
+	assert.equal(pendingSize(e), PENDING_CAP + 4, "an ack removes exactly one record")
+	assert.ok(getPending(e, 2), "the oldest remaining record is still there")
 })

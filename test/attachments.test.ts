@@ -118,3 +118,12 @@ test("attachments survive the pending store round-trip", () => {
 	assert.ok(Array.isArray(content))
 	assert.equal((content[1] as { type: string }).type, "image")
 })
+
+test("an attachment-only reply does not start with an empty text block", () => {
+	const content = toUserContent("", [
+		{ name: "shot.png", mimeType: "image/png", size: 3, data: "AAAA" },
+	])
+	assert.ok(Array.isArray(content))
+	assert.equal(content.length, 1)
+	assert.equal(content[0]!.type, "image")
+})

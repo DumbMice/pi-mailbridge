@@ -115,7 +115,9 @@ export function selectAttachments(
  */
 export function toUserContent(text: string, attachments: InboundAttachment[] = []): string | UserContent[] {
 	if (attachments.length === 0) return text
-	const content: UserContent[] = [{ type: "text", text }]
+	// An attachment-only reply has no prose; an empty text block ahead of the image is noise
+	// the model has to read past.
+	const content: UserContent[] = text ? [{ type: "text", text }] : []
 	for (const attachment of attachments) {
 		if (isImage(attachment.mimeType)) {
 			content.push({ type: "image", data: attachment.data, mimeType: attachment.mimeType })

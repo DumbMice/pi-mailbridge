@@ -654,3 +654,32 @@ test("/health reports the last scan's rejection reasons", async () => {
 		await service.close()
 	}
 })
+
+test("POST /mode notifies the daemon so turning it on can rescan", async () => {
+	// Without this hook the daemon only scans on a NEW arrival, so a reply that landed
+	// while the channel was closed would wait for unrelated mail.
+	const seen: string[] = []
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-mode-")) },
+		source: { searchAfter: async () => [], fetch: async () => undefined },
+		send: async () => ({ messageId: "<x@qq.com>" }),
+		onModeChange: (mode) => seen.push(mode),
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	const setMode = (mode: string) =>
+		fetch(`http://127.0.0.1:${port}/mode`, {
+			method: "POST",
+			headers: { ...auth(), "content-type": "application/json" },
+			body: JSON.stringify({ mode }),
+		})
+	try {
+		await setMode("on")
+		await setMode("off")
+		await setMode("on")
+		assert.deepEqual(seen, ["on", "off", "on"], "the daemon sees every transition")
+	} finally {
+		await service.close()
+	}
+})

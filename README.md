@@ -135,12 +135,13 @@ Every scan records why each message was refused, so this is answerable:
 ```
 
 ```
-last scan: examined 2, kept 1, rejected 1
+last scan: 14:02:11 — examined 2, kept 1, rejected 1
 rejections: not-allowlisted 1
 ```
 
-A count means mail was seen and dropped; `examined 0` means nothing arrived at all (or
-mode is off, in which case nothing is scanned — `/afk`).
+A rejection count means mail was seen and dropped. `examined 0` means nothing arrived. If
+mode is off nothing is scanned at all, so this panel keeps showing the *previous* scan —
+that is why `/mailbridge status` is not proof the channel is open; the `mode:` line is.
 
 | Reason | What it means | Fix |
 | --- | --- | --- |
@@ -149,6 +150,7 @@ mode is off, in which case nothing is scanned — `/afk`).
 | `dmarc-missing` / `dmarc-failed` | no `Authentication-Results` with `dmarc=pass` from a trusted relay | check `security.requireDmarcPass`; Microsoft consumer accounts need `trustedAuthservId` unset |
 | `no-token` | the subject lost its `[pi:…]` id **and** nothing in `In-Reply-To`/`References` matched | reply to the original mail, or keep the tag |
 | `other-device` | the id names a different `device.name` | reply from the machine that owns the session, or set `device.name` |
+| `self` | single-mailbox mode, but `security.allowSelfReplies` is false, so a reply from your own address is refused | set it `true` (see One mailbox or two?) |
 | `self-echo` | it is our own notification coming back | nothing to do; this is the guard working |
 | `auto-generated` | a robot, a mailing list, or a bounce (`mailer-daemon`, `postmaster`, null sender) | nothing to do |
 | `empty-body` | no prose and no usable attachment | — |
@@ -213,9 +215,10 @@ accounts are the exception — they need OAuth, which means registering an app *
 /mailbridge auth      # after oauth.clientId is real; see docs/OAUTH.md
 ```
 
-`/mailbridge check` validates the config and credentials without sending anything, and
-`/mailbridge smoke` sends one real mail and then opens the folder and counts, which proves
-both directions work.
+`/mailbridge check` validates the config and credentials without sending anything.
+`/mailbridge smoke` reloads the daemon (so it picks up the password you just added), sends
+one real mail and then opens the folder and counts — that proves both directions work, and
+leaves the daemon using the new credentials.
 
 ### Your first notification
 
@@ -241,13 +244,14 @@ inbox, for instance), prime the cursor before starting the daemon:
 ```
 
 That moves the UID cursor to the newest message without fetching anything, so the
-scan begins at the next arrival. Nothing is stored and nothing is marked seen
-either way — priming is about not reading mail that was never addressed to pi.
+scan begins at the next arrival. No mail is read and nothing is marked seen; the only thing
+written is the cursor itself.
 
 ### The headless entry point
 
-There is a CLI, but only for running the daemon where pi cannot: a systemd unit,
-a container, a remote box. It is the same code path, not a second workflow.
+There is a CLI: for running the daemon where pi cannot (a systemd unit, a container, a
+remote box), and for the same first-run and diagnostic steps without pi
+(`--check`, `--smoke`, `--auth`, `--prime`). Same code path, not a second workflow.
 
 ```bash
 # Installed as `pi install npm:pi-mailbridge` (or a checkout: point at its src/).
@@ -296,6 +300,28 @@ systemctl --user enable --now pi-mailbridge
 | `/mailbridge smoke` | Send one real mail, then open the folder and count |
 | `/mailbridge restart` | Replace the daemon process (needed after an update, not just a config change) |
 | `/mailbridge prime` | Set the cursor to now, so existing mail is never read |
+
+## Turning it off for good
+
+`/back` closes the channel but leaves everything installed. To remove it:
+
+```bash
+# 1. the daemon (skip if you never installed the unit)
+systemctl --user disable --now pi-mailbridge
+rm -f ~/.config/systemd/user/pi-mailbridge.service
+systemctl --user daemon-reload
+
+# 2. the package — the same way you installed it
+#    (`pi install npm:pi-mailbridge` has an uninstall counterpart in pi; if you
+#     manage it by hand, remove it from your pi config and delete its directory)
+
+# 3. everything it wrote: credentials, routing ids, queued replies
+rm -rf ~/.local/state/pi-mailbridge ~/.config/pi-mailbridge
+```
+
+Nothing is installed system-wide: the daemon runs as you, binds loopback, and its state is
+the two directories above. If you also created an Entra app or a provider app password for
+this, revoke those too — that is the credential that actually reaches your mailbox.
 
 ## Environment overrides
 

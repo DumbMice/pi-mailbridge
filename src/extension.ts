@@ -375,17 +375,26 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			): string[] => {
 				const summary = health?.ok
 					? (health.data?.lastScan as
-							| { examined: number; persisted: number; rejected: number; reasons: Record<string, number> }
+							| { at: number; examined: number; persisted: number; rejected: number; reasons: Record<string, number> }
 							| null)
 					: null
 				if (!summary) return ["last scan: (none yet)"]
-				const reasons = Object.entries(summary.reasons ?? {})
-					.filter(([, n]) => Number(n) > 0)
+				// The counter map mixes accepted paths (routed, threaded, journaled) with actual
+				// refusals. Showing "rejections: routed 1" after a successful reply read as a
+				// failure and had no row in the troubleshooting table.
+				const accepted = new Set(["routed", "threaded", "journaled", "vanished"])
+				const entries = Object.entries(summary.reasons ?? {}).filter(([, n]) => Number(n) > 0)
+				const refusals = entries
+					.filter(([reason]) => !accepted.has(reason))
 					.map(([reason, n]) => `${reason} ${n}`)
-					.join(", ")
+				const handled = entries
+					.filter(([reason]) => accepted.has(reason))
+					.map(([reason, n]) => `${reason} ${n}`)
+				const when = summary.at ? new Date(summary.at).toLocaleTimeString() : "unknown"
 				return [
-					`last scan: examined ${summary.examined}, kept ${summary.persisted}, rejected ${summary.rejected}`,
-					`rejections: ${reasons || "none"}`,
+					`last scan: ${when} — examined ${summary.examined}, kept ${summary.persisted}, rejected ${summary.rejected}`,
+					`rejections: ${refusals.join(", ") || "none"}`,
+					...(handled.length ? [`handled: ${handled.join(", ")}`] : []),
 				]
 			}
 
@@ -509,6 +518,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 				case "smoke": {
 					try {
+						// Reload first: smoke is the documented "does it work?" step after editing
+						// the password, and the daemon holds the config it started with. Without
+						// this, smoke passes (it reads the file) while /send keeps using the old
+						// empty password and the first notification fails.
+						if (client && (await client.reload())?.ok !== true) {
+							c.ui.notify("daemon did not reload; run /mailbridge restart", "warning")
+						}
+						config = load()
 						const provider = await buildTokenProvider(config, env)
 						const result = await runSmoke(config, {
 							...(provider ? { getAccessToken: () => provider.getToken() } : {}),

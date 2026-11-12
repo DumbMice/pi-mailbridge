@@ -403,7 +403,7 @@ test("the troubleshooting section names the reasons the scanner produces", () =>
 	const emitted = new Set<string>()
 	for (const file of ["src/daemon/process.ts", "src/core/authz.ts"]) {
 		const text = readFileSync(join(root, file), "utf8")
-		for (const m of text.matchAll(/"(not-allowlisted|allowlist-empty|dmarc-[a-z]+|no-token|no-from|other-device|self-echo|empty-body|pending-full|auto-generated)"/g)) {
+		for (const m of text.matchAll(/"(not-allowlisted|allowlist-empty|dmarc-[a-z]+|no-token|no-from|other-device|self-echo|self|empty-body|pending-full|auto-generated)"/g)) {
 			emitted.add(m[1]!)
 		}
 	}
@@ -423,4 +423,31 @@ test("the live-mailbox status is stated the same way in README and CHANGELOG", (
 			`${file} claims the package has never seen a live mailbox`,
 		)
 	}
+})
+
+test("the README says how to remove the package and its state", () => {
+	// A user who tried it and wants it gone needs a path out; there was none.
+	const readme = doc("README.md")
+	const section = /## Turning it off for good[\s\S]*?(?=\n## )/.exec(readme)?.[0]
+	assert.ok(section, "README should have an uninstall section")
+	assert.match(section, /systemctl --user disable/, "stops the unit")
+	assert.match(section, /state\/pi-mailbridge/, "and says where the state lives")
+	assert.match(section, /config\/pi-mailbridge/, "including the credentials")
+})
+
+test("no doc claims the machines share one secret", () => {
+	// secret.key is per machine; there is no shared key to rotate.
+	for (const { file, text } of allProse()) {
+		assert.ok(!/share[^.]*one secret|shared secret/i.test(text), `${file} implies a shared secret`)
+	}
+})
+
+test("the README's status example matches the formatter's shape", () => {
+	const readme = doc("README.md")
+	const sample = /last scan: [^\n]*examined \d+, kept \d+, rejected \d+/.exec(readme)
+	assert.ok(sample, "the example should show the fields status prints")
+	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
+	assert.match(extension, /last scan: .*examined .*kept .*rejected/s, "and the formatter should print them")
+	// Accepted-path counters must not be labelled as rejections (they were).
+	assert.match(extension, /accepted\.has|accepted = new Set/, "status must separate accepted counters from refusals")
 })

@@ -2,13 +2,15 @@
 //
 // THE ORDERING HERE IS THE CORRECTNESS PROPERTY (docs/ARCHITECTURE.md §2):
 //
+//   0. skip everything if mode is off       /back must close the channel, not just mute it
 //   1. search `UID <cursor>+1:*`            UID cursor, never \Seen, never SUBJECT
 //   2. fetch envelope + body
-//   3. authorize (loop → robot → allowlist → DMARC)
-//   4. route: short id, then legacy signed token, then the reply chain             routes, does not authorize
-//   5. strip quoted text
-//   6. persist to the durable pending store  <- nothing is lost after this
-//   7. advance the cursor                     <- only after persist
+//   3. self-echo: marker header, then our own recorded Message-ID
+//   4. authorize (loop → robot → allowlist → DMARC)
+//   5. route: short id, then legacy signed token, then the reply chain  (routes, does not authorize)
+//   6. strip quoted text, then filter attachments
+//   7. persist to the durable pending store  <- nothing is lost after this
+//   8. advance the cursor                     <- only after persist
 //
 // Marking \Seen and journaling happen later, in the daemon's /ack handler, once a
 // session has injected the reply. Doing it here would lose replies on a crash.
@@ -244,11 +246,13 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		// Persist BEFORE the cursor moves. A crash here leaves the mail unseen.
 		const added = addPending(env, record)
 		if (!added.ok) {
-			// The queue is full. Do NOT advance: the mail stays unread and this same UID is
-			// retried once space appears, instead of being silently discarded.
+			// The queue is full. STOP the batch: advancing past this UID would lose it, and
+			// so would processing a later UID (the cursor is monotonic, so it would jump
+			// over this one). The mail stays unread and the whole batch is retried once
+			// space appears.
 			result.rejected++
 			bump(result.reasons, "pending-full")
-			continue
+			break
 		}
 		result.persisted++
 

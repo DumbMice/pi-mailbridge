@@ -152,7 +152,8 @@ pi.registerCommand("mailbridge", { description: "Mailbridge status", handler: (_
    port, `EADDRINUSE` = "already running, exit quietly". This is what makes
    multi-session polling sane: N pi sessions, 1 mailbox connection.
 4. **A routing id in the subject — but no longer a signature.** Shipped as a 6-hex
-   local route id (`[pi:f913c9]`), looked up in `store/routes.ts`. This is the one
+   local route id (`[pi:f913c9]`, six hex, eight on the rare collision), looked up in
+   `store/routes.ts`. This is the one
    deliberate reversal from the baseline: a signed token made every subject preview
    unreadable (a 39-character token, in a subject over 80 characters). HMAC tokens still
    verify for mail already in flight, and
