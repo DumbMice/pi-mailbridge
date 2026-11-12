@@ -248,6 +248,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	pi.registerCommand("mailbridge", {
 		description: "Status, setup, check, auth, smoke, restart",
 		handler: async (args, c) => {
+			// Re-read config on every command. It can change underneath us: `--setup`
+			// run from a shell, or an edit to config.json, would otherwise leave the
+			// command surface reporting stale settings until pi restarts.
+			config = load()
 			const parsed = parseMailbridgeCommand(args)
 
 			const statusReport = async () => {

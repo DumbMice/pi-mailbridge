@@ -389,3 +389,48 @@ test("an unconfigured mailbox says what to do instead of spawning a doomed daemo
 	assert.equal(spawned, 0, "no daemon spawn for an unconfigured account")
 	assert.match(notes.join("\n"), /\/mailbridge setup/)
 })
+
+test("/mailbridge re-reads config instead of trusting the startup snapshot", async () => {
+	let current = config()
+	current.mail.imap.host = ""   // unusable at startup
+	let loads = 0
+	const notes: string[] = []
+	const handlers = new Map<string, (e: Record<string, unknown>, c: unknown) => unknown>()
+	const commands = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+
+	const pi: ExtensionLike = {
+		on(event, handler) {
+			handlers.set(event, handler as never)
+		},
+		registerCommand(name, spec) {
+			commands.set(name, spec.handler)
+		},
+		registerTool() {},
+		sendUserMessage() {},
+	}
+
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-tools-test" },
+		loadConfig: () => {
+			loads++
+			return current
+		},
+		secret: () => SECRET,
+		makeClient: () => ({ health: async () => ({ ok: true, data: { ok: true, mode: "on", pending: 0 } }) }) as never,
+		ensureDaemon: async () => true,
+		timers: { setTimeout: () => 1, clearTimeout: () => {} },
+	})
+
+	const ui = {
+		cwd: "/home/ybc/Work/proj",
+		sessionManager: { getSessionId: () => SESSION },
+		ui: { notify: (m: string) => notes.push(m) },
+	}
+
+	// Config becomes valid after startup (as if --setup ran in a shell).
+	current = config()
+	await commands.get("mailbridge")!("check", ui)
+
+	assert.ok(loads >= 2, "the command must re-read config, not reuse the startup snapshot")
+	assert.match(notes.join("\n"), /config ok|smoke/, `stale config leaked into output: ${notes.join("\n")}`)
+})

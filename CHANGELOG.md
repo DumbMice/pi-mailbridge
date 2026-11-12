@@ -81,6 +81,13 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### Fixed: /mailbridge reported a stale config
+
+The extension loaded config once at startup and every command reused that snapshot.
+A config written by `--setup` from a shell - or any hand edit - was therefore invisible
+to `/mailbridge check` and `/mailbridge smoke`, which would keep reporting the previous
+account. Commands now re-read config first; it is a small synchronous file read.
+
 ### Fixed: replies from real mail clients were rejected as no-token
 
 Found by replying to a live test mail from Outlook. The subject came back as RFC 2047
