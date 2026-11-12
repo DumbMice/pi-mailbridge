@@ -718,3 +718,23 @@ test("/send uses the CURRENT config after a reload, not the snapshot it started 
 		await service.close()
 	}
 })
+
+test("/health reports when the daemon read its config", async () => {
+	// The extension compares this with the file's mtime to decide whether to reload a daemon
+	// that was holding a config older than the file.
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-cfgstamp-")) },
+		source: { searchAfter: async () => [], fetch: async () => undefined },
+		send: async () => ({ messageId: "<x@qq.com>" }),
+		configLoadedAt: () => 1234,
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	try {
+		const body = (await (await fetch(`http://127.0.0.1:${port}/health`)).json()) as { configLoadedAt: number }
+		assert.equal(body.configLoadedAt, 1234)
+	} finally {
+		await service.close()
+	}
+})

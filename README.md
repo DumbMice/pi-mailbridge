@@ -239,7 +239,8 @@ credentials.
 ### Start watching from now, not from history
 
 Do this **before your first `/afk`**, which is when the first scan runs. (The daemon may
-already be running — `setup` starts it — but nothing is read while email mode is off.)
+already be running — in pi, `setup` starts it; headless `--setup` only writes the file — but
+nothing is read while email mode is off.)
 
 If the mailbox already has mail you don't want the agent to read (a personal inbox, for
 instance), prime the cursor first:
@@ -325,7 +326,7 @@ systemctl --user enable --now pi-mailbridge
 | `/mailbridge check` | Validate the config and that credentials are present (in pi: no network; `--check` runs your `tokenCommand` if XOAUTH2 is configured) |
 | `/mailbridge auth` | Start the OAuth2 device login; prints the URL, polls in the background |
 | `/mailbridge smoke` | Reload the daemon, send one real mail, then open the folder and count |
-| `/mailbridge restart` | Replace the daemon process (needed after an update, not just a config change) |
+| `/mailbridge restart` | Replace the daemon process (needed after an update; config edits are picked up by `setup`/`smoke` and at the next session start) |
 | `/mailbridge prime` | Set the cursor to now, so existing mail is never read |
 
 ## Turning it off for good

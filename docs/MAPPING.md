@@ -134,7 +134,7 @@ follow-ups after it.
 ```ts
 pi.registerCommand("afk",  { description: "Email mode ON",  handler: (_, ctx) => setMode("on",  ctx) })
 pi.registerCommand("back", { description: "Email mode OFF", handler: (_, ctx) => setMode("off", ctx) })
-pi.registerCommand("mailbridge", { description: "Mailbridge status", handler: (_, ctx) => status(ctx) })
+pi.registerCommand("mailbridge", { description: "Status, setup, check, auth, smoke, restart", handler: (_, ctx) => status(ctx) })
 ```
 
 ---

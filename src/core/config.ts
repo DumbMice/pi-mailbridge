@@ -33,7 +33,7 @@ export interface SmtpConfig {
 
 export interface ResolvedConfig {
 	mail: { imap: ImapConfig; smtp: SmtpConfig; to: string }
-	/** Who this daemon is. Named in every notification and in the routing token. */
+	/** Who this daemon is: named in settle mails, stored on the routing record. */
 	device: { name: string }
 	/**
 	 * Device-code OAuth2, provider-agnostic. When present it is preferred over

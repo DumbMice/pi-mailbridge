@@ -29,6 +29,11 @@ Outlook.com and QQ mailbox; no automated live-mailbox test exists.
 
 ### Daemon
 
+- A session that attaches to an already-running daemon now reloads it when `config.json` is
+  newer than the config the daemon read (`/health` carries `configLoadedAt`). Without this a
+  hand-edited config or a headless `--setup` kept mailing the replaced address. The reload is
+  fire-and-forget, single-flight, and its failure is reported rather than swallowed.
+
 - `daemon/process.ts` — UID-cursor scan → authorize → route (short id / token / chain) → strip quotes
   → filter attachments → persist → advance. Ordering is the correctness property.
 - `daemon/watcher.ts` — IMAP IDLE over an injectable client factory; renews under

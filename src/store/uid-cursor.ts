@@ -4,8 +4,9 @@
 // shared mutable state: any other mail client can flip it and silently eat a
 // reply. The cursor is ours alone and only ever moves forward.
 //
-// Writes are atomic (tmp + rename) so a crash cannot leave a torn file. The
-// daemon is the sole writer, so no inter-process lock is needed.
+// Writes are atomic (tmp + rename) so a crash cannot leave a torn file. The daemon writes it,
+// and so does `prime` (from the extension or the CLI); the value only moves forward, so two
+// concurrent primes cannot corrupt it and no lock is needed.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"

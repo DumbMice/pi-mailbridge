@@ -307,11 +307,20 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			if (!health.ok) return
 			const loadedAt = (health.data as { configLoadedAt?: number | null }).configLoadedAt
 			const mtime = statSync(configPath(env), { throwIfNoEntry: false })?.mtimeMs ?? null
-			if (shouldReloadConfig({ configLoadedAt: loadedAt, configMtimeMs: mtime })) {
-				await client.reload()
+			if (!shouldReloadConfig({ configLoadedAt: loadedAt, configMtimeMs: mtime })) return
+			const reloaded = await client.reload()
+			// Never silent: this is the path that decides which address the agent's mail goes
+			// to, so a refused reload (daemon kept the old config) must be visible.
+			if (!reloaded.ok) {
+				ctx?.ui.notify(
+					"mailbridge: the daemon could not reload its config — run /mailbridge restart",
+					"warning",
+				)
+			} else if (reloaded.data.warning) {
+				ctx?.ui.notify(`mailbridge: ${reloaded.data.warning}`, "warning")
 			}
 		} catch {
-			/* diagnostics only: never fail a session start over this */
+			/* best effort: a stale config is not a reason to fail the session */
 		}
 	}
 
@@ -356,8 +365,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 		// A daemon that was already running may have read the config before the user edited
 		// it (hand-edited config.json, headless --setup). Re-read it rather than mailing the
-		// address they just replaced.
-		await reloadIfStale()
+		// address they just replaced - but do NOT block the session on an IMAP redial, which
+		// can take imapflow's full connect timeout when the new config is wrong.
+		void reloadIfStale()
 	})
 
 	// The ONLY settle signal. `agent_end` is deliberately not registered: pi may
@@ -500,15 +510,20 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// Mint rather than advise: "start the daemon once" is unfollowable in the only
 					// state where this is missing.
 					let secret = secretFn()
+					let mintedSecret = false
 					if (!secret) {
 						try {
 							secret = ensureSecret(env)
+							mintedSecret = Boolean(secret)
 						} catch {
 							/* reported below */
 						}
 					}
 					const problems = [...config.warnings]
 					if (!secret) problems.push("shared secret missing and could not be created")
+					// A running daemon caches the bearer token from startup, so a freshly minted key
+					// is rejected until it restarts. Say so; "config ok" would be a lie.
+					else if (mintedSecret) problems.push("created a new shared secret — restart the daemon so it uses it")
 					const usesOAuth = config.mail.imap.authType === "XOAUTH2" || config.mail.smtp.authType === "XOAUTH2"
 					if (config.oauth && !usesOAuth) {
 						problems.push("oauth is configured but neither account uses XOAUTH2 — it would be ignored")

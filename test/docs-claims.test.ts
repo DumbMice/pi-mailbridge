@@ -22,6 +22,11 @@ const prose = [
 	...readdirSync(join(root, "docs")).filter((f) => f.endsWith(".md")).map((f) => `docs/${f}`),
 ]
 
+/** Whitespace-collapsed view: sentence claims must not be defeatable by re-wrapping. */
+function flat(text: string): string {
+	return text.replace(/\s+/g, " ")
+}
+
 function allProse(): { file: string; text: string }[] {
 	return prose.map((file) => ({ file, text: doc(file) }))
 }
@@ -503,12 +508,14 @@ test("no doc claims every notification names the device", () => {
 	// Only settle mails carry the device line; the two agent tools build their own subject.
 	// The previous guard pinned one exact phrase and both copies of the false claim survived.
 	for (const { file, text } of allProse()) {
-		for (const line of text.split("\n")) {
-			if (!/every notification/i.test(line)) continue
+		// Collapsed first: the previous version was line-scoped, and the claim it was written
+		// for was wrapped across two lines, so it passed.
+		for (const sentence of flat(text).split(/(?<=[.!?])\s+/)) {
+			if (!/every notification/i.test(sentence)) continue
 			// The marker header genuinely is on every notification; the device line is not.
 			assert.ok(
-				!/device|session name/i.test(line),
-				`${file} claims every notification names the device: ${line.trim()}`,
+				!/device|session name/i.test(sentence),
+				`${file} claims every notification names the device: ${sentence.trim()}`,
 			)
 		}
 	}
@@ -533,4 +540,32 @@ test("prime is advised before the first /afk, not before the daemon", () => {
 	const firstMailIdx = readme.indexOf("Your first notification")
 	assert.ok(primeIdx > -1 && firstMailIdx > -1)
 	assert.ok(primeIdx < firstMailIdx, "prime must be explained before the first /afk")
+})
+
+test("only the settle module puts a device name in a mail", () => {
+	// A structural check rather than a phrase match: the device line belongs to settle.ts,
+	// and the two agent tools build their own subject/body. If a tool ever grows an
+	// equivalent, this fails and the docs get updated on purpose.
+	const settle = readFileSync(join(root, "src/core/settle.ts"), "utf8")
+	assert.match(settle, /@ \$\{.*device|device:/, "settle.ts should build the device line")
+	for (const file of ["src/extension.ts", "src/core/mailer.ts"]) {
+		const text = readFileSync(join(root, file), "utf8")
+		assert.ok(!/`\[pi:\$\{[^}]*\}\] \$\{subject\} @ \$\{/.test(text), `${file} should not add a device to a subject`)
+	}
+})
+
+test("the /health field list matches what the handler returns", () => {
+	// The list is what a debugging reader trusts; it went stale twice (lastScan, configLoadedAt).
+	const arch = flat(doc("docs/ARCHITECTURE.md"))
+	const row = arch.split("| GET | `/health` |")[1]?.split("|")[0] ?? ""
+	const service = readFileSync(join(root, "src/daemon/service.ts"), "utf8")
+	// Field name in code → how the doc may refer to it.
+	const expected: [string, RegExp][] = [
+		["lastScan", /lastScan|last scan/i],
+		["configLoadedAt", /configLoadedAt/],
+	]
+	for (const [field, pattern] of expected) {
+		assert.ok(service.includes(`${field}:`), `handler should return ${field}`)
+		assert.match(row, pattern, `the /health row omits ${field}`)
+	}
 })

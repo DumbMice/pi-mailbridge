@@ -18,7 +18,7 @@
 //   --smoke         send one real mail, then open the folder and count
 //   --print-token   print the shared secret (for scripts and tests)
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 
 import { loadConfig, hasUsableMailConfig, shortHostname, type ResolvedConfig } from "../core/config.ts"
@@ -278,9 +278,18 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 	// When the running config was read. The extension compares this with the config file's
 	// mtime: a session that attaches to an already-running daemon must not inherit a config
 	// the daemon read before the user changed it.
-	let configLoadedAt = Date.now()
+	let configLoadedAt = configStamp()
 	let lastScan: { at: number; examined: number; persisted: number; rejected: number; reasons: Record<string, number> } | undefined
 	const scanOnce = createScanQueue((why) => scanNow(why))
+
+	/** The config file's mtime as the daemon saw it, or 0 when there is no file. */
+	function configStamp(): number {
+		try {
+			return statSync(configPath(process.env), { throwIfNoEntry: false })?.mtimeMs ?? 0
+		} catch {
+			return 0
+		}
+	}
 
 	function formatReasons(reasons: Record<string, number>): string {
 		const parts = Object.entries(reasons)
@@ -329,6 +338,39 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 			// A scan failure must not kill the daemon: the cursor did not advance, so
 			// the next IDLE event or catch-up retries the same UIDs.
 			log(`${why}: scan failed: ${(error as Error).message}`)
+		}
+	}
+
+	let reloadInFlight: Promise<{ ok: boolean; error?: string; warning?: string }> | undefined
+
+	async function doReload(): Promise<{ ok: boolean; error?: string; warning?: string }> {
+		const previous = currentConfig
+		try {
+			await currentWatcher?.stop()
+			configLoadedAt = configStamp()
+			currentConfig = loadConfig()
+			tokenProvider = await buildTokenProvider(currentConfig)
+			const watcher = await startWatcher(currentConfig)
+			// start() does not throw on a refused connect - it arms a reconnect - so ask the
+			// watcher whether it is actually connected before calling the reload a success.
+			if (!watcher.isHealthy()) {
+				// The config was re-read; the connection is what failed, and the watcher is
+				// retrying. Report it rather than calling the reload clean.
+				log("reloaded config, but IMAP did not connect (check the password/host)")
+				return { ok: true, warning: "config reloaded, but IMAP did not connect" }
+			}
+			log("reloaded config and restarted the watcher")
+			return { ok: true }
+		} catch (error) {
+			// Do not leave the daemon holding a config whose watcher never started.
+			currentConfig = previous
+			try {
+				await startWatcher(previous)
+				log(`reload failed (${(error as Error).message}); kept the previous config`)
+			} catch {
+				log(`reload failed (${(error as Error).message}); previous watcher could not restart either`)
+			}
+			return { ok: false, error: (error as Error).message }
 		}
 	}
 
@@ -406,37 +448,9 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 		},
 		idleTimeoutMs: (currentConfig.daemon.idleTimeoutSecs ?? 120) * 1000,
 		// `/mailbridge setup` / `auth` write new config or tokens; pick them up here.
-		reload: async () => {
-			const previous = currentConfig
-			try {
-				await currentWatcher?.stop()
-				currentConfig = loadConfig()
-				configLoadedAt = Date.now()
-				tokenProvider = await buildTokenProvider(currentConfig)
-				const watcher = await startWatcher(currentConfig)
-				// start() does not throw on a refused connect - it arms a reconnect - so ask the
-				// watcher whether it is actually connected before calling the reload a success.
-				if (!watcher.isHealthy()) {
-					// The config was re-read; the connection is the thing that failed, and the
-					// watcher is retrying. Report it rather than calling the reload clean.
-					log("reloaded config, but IMAP did not connect (check the password/host)")
-					return { ok: true, warning: "config reloaded, but IMAP did not connect" }
-				}
-				log("reloaded config and restarted the watcher")
-				return { ok: true }
-			} catch (error) {
-				// Do not leave the daemon holding a config whose watcher never started: that
-				// is a working install turned into a silent one by a diagnostic command.
-				currentConfig = previous
-				try {
-					await startWatcher(previous)
-					log(`reload failed (${(error as Error).message}); kept the previous config`)
-				} catch {
-					log(`reload failed (${(error as Error).message}); previous watcher could not restart either`)
-				}
-				return { ok: false, error: (error as Error).message }
-			}
-		},
+		// One reload at a time: two sessions noticing the same stale config must not each
+		// stop and redial the watcher.
+		reload: () => (reloadInFlight ??= doReload().finally(() => (reloadInFlight = undefined))),
 	})
 
 	service.server.on("error", (error: NodeJS.ErrnoException) => {

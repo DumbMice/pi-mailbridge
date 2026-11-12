@@ -1,0 +1,124 @@
+import { test } from "node:test"
+import assert from "node:assert/strict"
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+
+import mailbridge from "../src/extension.ts"
+import { configPath } from "../src/store/paths.ts"
+import type { ResolvedConfig } from "../src/core/config.ts"
+
+// The extension must not adopt a daemon whose config predates the file: that is how a
+// replaced address keeps receiving the agent's mail.
+
+const SECRET = Buffer.alloc(32, 4)
+
+function config(): ResolvedConfig {
+	return {
+		mail: {
+			imap: { host: "imap.example.com", port: 993, secure: true, user: "pi@example.com", password: "x", folder: "INBOX" },
+			smtp: { host: "smtp.example.com", port: 465, secure: true, user: "pi@example.com", password: "x", authType: "LOGIN" },
+			to: "you@example.com",
+		},
+		security: { allowFrom: ["you@example.com"], requireDmarcPass: true, trustedAuthservId: "mx.example.com", tokenTtlHours: 24 },
+		daemon: { host: "127.0.0.1", port: 4177, exitWhenIdle: true, idleTimeoutSecs: 120 },
+		notify: { onSettled: true, debounceMs: 0, notifyOnAborted: false },
+		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
+		device: { name: "test-device" },
+		warnings: [],
+	}
+}
+
+function harness(configLoadedAt: number, opts: { reloadOk?: boolean } = {}) {
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-stale-")) }
+	const configDirEnv = { ...env, XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "pmb-stale-cfg-")) }
+	const file = configPath(configDirEnv)
+	mkdirSync(dirname(file), { recursive: true })
+	writeFileSync(file, JSON.stringify({ mail: { to: "you@example.com" } }))
+
+	const events = new Map<string, (event: Record<string, unknown>, ctx: unknown) => unknown>()
+	const notes: string[] = []
+	let reloads = 0
+	const client = {
+		health: async () => ({ ok: true as const, data: { ok: true, mode: "on", pending: 0, configLoadedAt } }),
+		mode: async () => ({ ok: true as const, data: { mode: "off" as const } }),
+		pending: async () => ({ ok: true as const, data: { pending: [] } }),
+		ping: async () => ({ ok: true as const, data: { ok: true, clients: 1 } }),
+		bye: async () => ({ ok: true as const, data: { ok: true } }),
+		claim: async () => ({ ok: true as const, data: { ok: true } }),
+		ack: async () => ({ ok: true as const, data: { ok: true } }),
+		register: async () => ({ ok: true as const, data: { alreadyPending: false, full: false } }),
+		release: async () => ({ ok: true as const, data: { ok: true } }),
+		send: async () => ({ ok: true as const, data: { ok: true } }),
+		reload: async () => {
+			reloads++
+			return opts.reloadOk === false
+				? ({ ok: false as const, status: 500, code: "reload_failed" } as const)
+				: ({ ok: true as const, data: { ok: true } } as const)
+		},
+		shutdown: async () => ({ ok: true as const, data: { ok: true } }),
+	}
+
+	const pi = {
+		on(name: string, handler: (event: Record<string, unknown>, ctx: unknown) => unknown) {
+			events.set(name, handler)
+		},
+		registerCommand() {},
+		registerTool() {},
+		sendUserMessage() {},
+	}
+	const ctx = {
+		cwd: "/tmp",
+		sessionManager: { getSessionId: () => "sess-1", getName: () => "x" },
+		ui: { notify: (m: string) => notes.push(m) },
+	}
+	mailbridge(pi as never, {
+		env: configDirEnv,
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => client as never,
+		ensureDaemon: async () => true,
+		timers: { setTimeout: () => 1, clearTimeout: () => {} },
+		pollMs: 60_000,
+	})
+	return { events, ctx, notes, reloadCount: () => reloads }
+}
+
+test("a daemon holding an older config than the file is asked to reload", async () => {
+	// mtime is "now"; the daemon reports having loaded a minute ago.
+	const h = harness(Date.now() - 60_000)
+	await h.events.get("session_start")!({}, h.ctx)
+	// reloadIfStale is fire-and-forget; let it settle.
+	await new Promise((r) => setTimeout(r, 20))
+	assert.equal(h.reloadCount(), 1, "the stale daemon must be reloaded")
+})
+
+test("a daemon that already read the current file is left alone", async () => {
+	const h = harness(Date.now() + 60_000)
+	await h.events.get("session_start")!({}, h.ctx)
+	await new Promise((r) => setTimeout(r, 20))
+	assert.equal(h.reloadCount(), 0)
+})
+
+test("a refused reload is surfaced, not swallowed", async () => {
+	const h = harness(Date.now() - 60_000, { reloadOk: false })
+	await h.events.get("session_start")!({}, h.ctx)
+	await new Promise((r) => setTimeout(r, 20))
+	assert.ok(
+		h.notes.some((n) => /could not reload/.test(n)),
+		`the user must be told (notes: ${JSON.stringify(h.notes)})`,
+	)
+})
+
+test("session_start does not wait for the reload", async () => {
+	// A wrong host can make the daemon's IMAP dial take imapflow's whole connect timeout;
+	// blocking session start on that would freeze pi on the config the user just broke.
+	let finished = false
+	const h = harness(Date.now() - 60_000)
+	const client = h.events.get("session_start")!
+	const result = client({}, h.ctx)
+	await Promise.resolve(result).then(() => {
+		finished = true
+	})
+	assert.equal(finished, true)
+})

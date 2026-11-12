@@ -69,7 +69,7 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/health` | liveness probe; **unauthenticated** by design (mode, pending/session/client counts, last ping, whether idle-exit is armed — no content, no addresses) |
+| GET | `/health` | liveness probe; **unauthenticated** by design (mode, pending/session/client counts, last ping, whether idle-exit is armed, the last scan's summary, and `configLoadedAt` — no content, no addresses) |
 | GET | `/events` | SSE: `delivery`, `mode` (no client uses it; sessions poll) |
 | GET | `/pending` | the delivery channel: polled every 10 s, and replayed on reconnect |
 | POST | `/claim` | `{uid, instanceId}` — atomic claim |
@@ -80,7 +80,7 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 | DELETE | `/register` | release the reservation |
 | GET/POST | `/mode` | global `on`/`off`, persisted + broadcast |
 | POST | `/send` | send mail (the daemon owns SMTP config) |
-| POST | `/reload` | re-read config in place |
+| POST | `/reload` | re-read config: stop the watcher, reload, redial. On failure it restores the previous config and warns; a refused connect returns `ok` with a warning |
 | POST | `/shutdown` | stop the daemon (used by the restart path) |
 
 Bounds: body ≤ 1 MB, registry ≤ 10 000 entries, SSE clients ≤ 100. A second
@@ -145,8 +145,10 @@ SECURITY.md.
 
 ### Device identity
 
-`device.name` defaults to the first label of `os.hostname()` and appears in every
-notification subject and body. It exists for two reasons:
+`device.name` defaults to the first label of `os.hostname()`. It appears in every **settle**
+notification's subject and body, and is stored on the routing record so the daemon that
+minted the reply can claim it. (The two agent tools carry the routing id and their own
+text, not a device line.) It exists for two reasons:
 
 1. **Human routing.** With pi on a laptop, a desktop and a build box, "which
    machine is asking?" must be answerable from a notification preview.
@@ -175,9 +177,13 @@ process topology (an RPC supervisor owning `pi --mode rpc` children).
 
 ## 6a. Lifetime: singleton, and it stops when you do
 
-**Who starts it.** The extension, from `session_start`, via `ensureDaemon()`. It is
-spawned *detached* so closing the terminal does not kill the mailbox watcher, and so a
-second pi session does not have to adopt a child process.
+**Who starts it.** Whichever comes first: the extension on `session_start`; `/mailbridge
+setup` or `/mailbridge restart` when the session has no runtime yet; a supervisor (the
+systemd unit); or the poll tick, which respawns a daemon that exited while the session was
+still alive. It is spawned *detached* so it outlives the process that started it and can
+serve other sessions. When a session finds one already running, it compares `/health`'s
+`configLoadedAt` with `config.json`'s mtime and issues `/reload` if the file is newer, so a
+hand-edited config is not served stale.
 
 **Singleton.** The listening port is the lock. A second daemon fails to bind, logs the
 fact, and exits 0 - so N pi sessions share one watcher with no lock file or PID file to

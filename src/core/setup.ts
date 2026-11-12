@@ -4,7 +4,7 @@
 // entry points cannot drift. It writes the config file and reports what it did;
 // it never starts a process and never prompts.
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 
 import { shortHostname } from "./config.ts"
@@ -82,7 +82,12 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
 	}
 
 	mkdirSync(dirname(target), { recursive: true, mode: 0o700 })
-	writeFileSync(target, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
+	// Written atomically: an automatic reload can read this file at any moment, and a torn
+	// write parses as {} (readJson falls back to defaults), which would silently replace the
+	// user's config with an empty mailbox.
+	const tmp = `${target}.${process.pid}.tmp`
+	writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
+	renameSync(tmp, target)
 	steps.push(`wrote ${target}`)
 
 	if (built.security.allowSelfReplies) {
