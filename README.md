@@ -140,7 +140,8 @@ last scan: 14:02:11 — examined 2, kept 1, rejected 1
 rejections: not-allowlisted 1
 ```
 
-A non-zero `rejected` count means mail was seen and dropped; the reasons below it say why.
+A non-zero `rejected` count means mail was seen and not accepted: dropped, or deferred
+because the queue is full (the line below says which). The reasons say why.
 `handled:` lines are the accepted paths (`route-miss` means the route id had expired or came
 from another machine; if the reply still reached a session it routed by the token or chain), `attachments dropped:` is a
 partial loss, and a full queue defers rather than discards. `examined 0` means nothing
@@ -174,9 +175,10 @@ Where to look:
 | `…/journal.json` | acked UIDs (replay protection) |
 
 `/mailbridge check` validates config and that credentials are present; `/mailbridge smoke`
-is what proves they work. If `/mailbridge status` says the daemon is unreachable, that means *this session has no
-client* — possibly because it started before a config existed. `/mailbridge restart` now
-starts the daemon and wires the session, so run it and check again.
+is what proves they work. If `/mailbridge status` says the daemon is unreachable, either this session never built a
+client (it started before a config existed) or the daemon process is down. `/mailbridge
+restart` fixes both — it starts the daemon and wires the session — so run it and check
+again.
 
 ## Security first
 
@@ -234,6 +236,22 @@ one real mail and then opens the folder and counts. That proves SMTP accepts and
 (it does not correlate the message it sent), and it leaves the daemon using the new
 credentials.
 
+### Start watching from now, not from history
+
+Do this **before your first `/afk`**, which is when the first scan runs. (The daemon may
+already be running — `setup` starts it — but nothing is read while email mode is off.)
+
+If the mailbox already has mail you don't want the agent to read (a personal inbox, for
+instance), prime the cursor first:
+
+```
+/mailbridge prime        # or: pi-mailbridge --prime
+```
+
+That moves the UID cursor to the newest message without fetching anything, so the
+scan begins at the next arrival. No mail is read and nothing is marked seen; the only thing
+written is the cursor itself.
+
 ### Your first notification
 
 Email mode starts **off**. Turn it on, let a turn settle, and the first mail arrives:
@@ -247,19 +265,6 @@ again — in both directions: while it is off nothing is scanned, claimed or inj
 replies wait in the mailbox until you `/afk`.
 
 Prefer to write it yourself? Copy [`config.example.json`](./config.example.json).
-
-### Start watching from now, not from history
-
-If the mailbox already has mail you don't want the agent to read (a personal
-inbox, for instance), prime the cursor before starting the daemon:
-
-```
-/mailbridge prime        # or: pi-mailbridge --prime
-```
-
-That moves the UID cursor to the newest message without fetching anything, so the
-scan begins at the next arrival. No mail is read and nothing is marked seen; the only thing
-written is the cursor itself.
 
 ### The headless entry point
 
@@ -293,9 +298,17 @@ mkdir -p ~/.config/systemd/user
 cp docs/systemd/pi-mailbridge.service ~/.config/systemd/user/
 ```
 
-Check the two lines the unit cannot guess before enabling it: `Environment=PATH` (where
-your Node lives) and `Environment=PI_MAILBRIDGE_DIR` (where this package is installed; the
-default assumes `pi install npm:pi-mailbridge`).
+Three things the unit cannot guess, before enabling it:
+
+1. `Environment=PATH` — where your Node lives (`command -v node`).
+2. `Environment=PI_MAILBRIDGE_DIR` — where this package is installed; the default assumes
+   `pi install npm:pi-mailbridge`.
+3. The state directory must already exist. `ProtectHome=read-only` means the daemon cannot
+   create it, and `ExecStartPre … --check` fails without it:
+
+```bash
+mkdir -p ~/.local/state/pi-mailbridge
+```
 
 ```bash
 systemctl --user enable --now pi-mailbridge
@@ -309,7 +322,7 @@ systemctl --user enable --now pi-mailbridge
 | `/back` | Email mode off: decisions ask in the terminal |
 | `/mailbridge` | Status: daemon health, mode, session, secret, mailbox, allowlist, pending replies |
 | `/mailbridge setup <addr> [to <addr>] [force]` | Discover servers + auth, write the config, and start or reload the daemon |
-| `/mailbridge check` | Validate the config and that credentials are present (no network) |
+| `/mailbridge check` | Validate the config and that credentials are present (in pi: no network; `--check` runs your `tokenCommand` if XOAUTH2 is configured) |
 | `/mailbridge auth` | Start the OAuth2 device login; prints the URL, polls in the background |
 | `/mailbridge smoke` | Reload the daemon, send one real mail, then open the folder and count |
 | `/mailbridge restart` | Replace the daemon process (needed after an update, not just a config change) |
@@ -357,7 +370,7 @@ resident without editing your config file:
 
 | Tool | Behaviour |
 | --- | --- |
-| `request_decision` | Emails a question with optional options and a recommendation, then ends the turn. One outstanding decision per session. |
+| `request_decision` | Emails a question with optional options and a recommendation, then ends the turn. One outstanding decision per session. Ending the turn is a convention the model follows, not an enforced gate — see [docs/SECURITY.md](./docs/SECURITY.md) §3. |
 | `notify_user` | One-way update. Does not reserve a slot and does not wait. |
 
 Both refuse cleanly when email mode is off or the daemon is unreachable.
@@ -387,7 +400,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | `oauth.clientId` | — | your app registration's client id |
 | `oauth.clientSecret` | — | only for confidential clients; omit for device code |
 | `oauth.scope` | — | must include `offline_access` for a refresh token |
-| `device.name` | first label of `os.hostname()` | machine name shown in every notification and carried in the routing id |
+| `device.name` | first label of `os.hostname()` | machine name shown in every settle notification, and stored on the routing record |
 | `security.allowFrom` | `[]` | senders allowed to command the agent; empty denies all |
 | `security.requireDmarcPass` | `true` | require a DMARC pass (pinned to `trustedAuthservId` when that is set) |
 | `security.trustedAuthservId` | unset | pin the trusted `Authentication-Results` host. Leave unset for Microsoft consumer accounts — their relay emits no authserv-id |

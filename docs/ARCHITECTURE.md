@@ -224,6 +224,7 @@ src/
     authz.ts            loop → robot → allowlist → DMARC
     commands.ts         /mailbridge parsing + usage text
     config.ts           layered config, env overrides, type validation
+    config-freshness.ts  is the daemon's config older than the file?
     deliveries.ts       claim → inject → ack, serialized per process
     discover.ts         account autodiscovery
     header-encoding.ts  RFC 2047 decode/encode

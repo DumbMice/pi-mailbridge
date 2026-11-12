@@ -7,9 +7,12 @@
 // commands, which tools) and the settle behaviour can be asserted with a fake
 // `pi`, no daemon and no mailbox.
 
+import { statSync } from "node:fs"
 import { Type } from "@sinclair/typebox"
 
 import { loadConfig, hasUsableMailConfig, type ResolvedConfig } from "./core/config.ts"
+import { shouldReloadConfig } from "./core/config-freshness.ts"
+import { configPath } from "./store/paths.ts"
 import { ensureSecret, readSecret } from "./store/secret.ts"
 import { formatScan, type ScanSummary } from "./core/status.ts"
 import { createSettleNotifier, type SettleContext, type SettleNotifier } from "./core/settle.ts"
@@ -293,6 +296,25 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		return true
 	}
 
+	/**
+	 * Tell a pre-existing daemon to re-read its config when the file is newer than the
+	 * config it loaded. Best-effort: a failure here must not block the session.
+	 */
+	async function reloadIfStale(): Promise<void> {
+		if (!client) return
+		try {
+			const health = await client.health()
+			if (!health.ok) return
+			const loadedAt = (health.data as { configLoadedAt?: number | null }).configLoadedAt
+			const mtime = statSync(configPath(env), { throwIfNoEntry: false })?.mtimeMs ?? null
+			if (shouldReloadConfig({ configLoadedAt: loadedAt, configMtimeMs: mtime })) {
+				await client.reload()
+			}
+		} catch {
+			/* diagnostics only: never fail a session start over this */
+		}
+	}
+
 	async function ensureDaemonSafe(): Promise<boolean> {
 		const ensure = deps.ensureDaemon ?? ((base: string, script: string) => ensureDaemon({ baseUrl: base, scriptPath: script, env }).then((r) => r.healthy))
 		return ensure(baseUrl, fileURLToPath(new URL("./daemon/main.ts", import.meta.url)))
@@ -331,6 +353,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 		if (!(await startRuntime())) return
 		startPolling()
+
+		// A daemon that was already running may have read the config before the user edited
+		// it (hand-edited config.json, headless --setup). Re-read it rather than mailing the
+		// address they just replaced.
+		await reloadIfStale()
 	})
 
 	// The ONLY settle signal. `agent_end` is deliberately not registered: pi may

@@ -275,6 +275,10 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 	let reportedModeOff = false
 	// Last scan outcome, surfaced on /health so `/mailbridge status` can answer "why did my
 	// reply not arrive?" - the reasons were already computed, just never shown.
+	// When the running config was read. The extension compares this with the config file's
+	// mtime: a session that attaches to an already-running daemon must not inherit a config
+	// the daemon read before the user changed it.
+	let configLoadedAt = Date.now()
 	let lastScan: { at: number; examined: number; persisted: number; rejected: number; reasons: Record<string, number> } | undefined
 	const scanOnce = createScanQueue((why) => scanNow(why))
 
@@ -393,6 +397,7 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 		// resident instead, which is what a systemd unit wants.
 		exitWhenIdle: () => currentConfig.daemon.exitWhenIdle !== false,
 		scanSummary: () => lastScan,
+		configLoadedAt: () => configLoadedAt,
 		// Re-open the channel: process what arrived while mode was off, and retry anything a
 		// full queue refused. Safe to call when nothing changed (an empty scan is cheap).
 		onModeChange: (mode) => {
@@ -406,6 +411,7 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 			try {
 				await currentWatcher?.stop()
 				currentConfig = loadConfig()
+				configLoadedAt = Date.now()
 				tokenProvider = await buildTokenProvider(currentConfig)
 				const watcher = await startWatcher(currentConfig)
 				// start() does not throw on a refused connect - it arms a reconnect - so ask the

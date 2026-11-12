@@ -33,7 +33,7 @@ Everything else ports essentially as-is.
 | `opencode-afk` file | Lines | pi-mailbridge target | Change |
 | --- | --- | --- | --- |
 | `index.js` | 391 | `src/extension.ts` | Rewritten: opencode tool/command registration → `pi.registerTool` / `pi.registerCommand` |
-| `daemon.js` | 473 | `src/daemon/main.ts` | Ported: HTTP + SSE + single-instance lock (port **4177**, not 4100) |
+| `daemon.js` | 473 | `src/daemon/main.ts` + `src/daemon/service.ts` | Ported: HTTP surface + SSE in `service.ts`, CLI/lifecycle and single-instance lock in `main.ts` (port **4177**, not 4100) |
 | `core/watcher.js` | 261 | `src/daemon/watcher.ts` | Ported verbatim — `imapflow` IDLE, renew < 29 min, exponential backoff |
 | `core/process.js` | 314 | `src/daemon/process.ts` | Ported — UID-cursor incremental scan → fetch → parse → persist |
 | `core/reply-parse.js` | 265 | `src/core/reply-parse.ts` | Ported — quote stripping, address/AR-header pinning (token verify lives in `core/token.ts`) |

@@ -498,3 +498,39 @@ test("the reload promise matches what setup can do when no daemon is running", (
 	assert.ok(row, "the setup row should describe what it does to the daemon")
 	assert.match(row!, /start or reload the daemon/, "and must say it can start one")
 })
+
+test("no doc claims every notification names the device", () => {
+	// Only settle mails carry the device line; the two agent tools build their own subject.
+	// The previous guard pinned one exact phrase and both copies of the false claim survived.
+	for (const { file, text } of allProse()) {
+		for (const line of text.split("\n")) {
+			if (!/every notification/i.test(line)) continue
+			// The marker header genuinely is on every notification; the device line is not.
+			assert.ok(
+				!/device|session name/i.test(line),
+				`${file} claims every notification names the device: ${line.trim()}`,
+			)
+		}
+	}
+})
+
+test("the systemd checklist includes the state directory", () => {
+	// ProtectHome=read-only + ReadWritePaths=- mean the unit cannot create it, and
+	// ExecStartPre --check fails without it.
+	const readme = doc("README.md")
+	const block = /Three things the unit cannot guess[\s\S]{0,900}/.exec(readme)?.[0]
+	assert.ok(block, "README should list what the unit needs")
+	assert.match(block, /mkdir -p ~\/\.local\/state\/pi-mailbridge/, "and create the state directory")
+})
+
+test("prime is advised before the first /afk, not before the daemon", () => {
+	const readme = doc("README.md")
+	assert.ok(
+		!/prime the cursor before starting the daemon/i.test(readme),
+		"setup starts the daemon now, so that advice is un-followable",
+	)
+	const primeIdx = readme.indexOf("Start watching from now")
+	const firstMailIdx = readme.indexOf("Your first notification")
+	assert.ok(primeIdx > -1 && firstMailIdx > -1)
+	assert.ok(primeIdx < firstMailIdx, "prime must be explained before the first /afk")
+})

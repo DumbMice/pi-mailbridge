@@ -80,6 +80,8 @@ export interface DaemonDeps {
 	 * rather than capture the object this service was built with.
 	 */
 	getConfig?: () => ResolvedConfig
+	/** When the daemon last read its config (ms since epoch). */
+	configLoadedAt?: () => number
 	scanSummary?: () => { at: number; examined: number; persisted: number; rejected: number; reasons: Record<string, number> } | undefined
 	/** How long after the last ping to exit. Default 120s. */
 	idleTimeoutMs?: number
@@ -185,6 +187,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				lastPingAgoMs: newestPing ? Math.max(0, now() - newestPing) : null,
 				idleExitEnabled: deps.exitWhenIdle ? deps.exitWhenIdle() : false,
 				lastScan: deps.scanSummary?.() ?? null,
+				configLoadedAt: deps.configLoadedAt?.() ?? null,
 			})
 		}
 
