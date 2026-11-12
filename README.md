@@ -91,8 +91,9 @@ how you reply:
    inbound scanning refuses that marker before anything else. That is what stops pi
    re-ingesting its own mail.
 2. **Reply evidence is mandatory.** A message from your own address is only considered
-   at all when it carries `In-Reply-To` or `References` — i.e. when it is a *reply* to a
-   notification. **In this layout, Reply (or Forward-then-Reply) is the only supported
+   at all when it carries `In-Reply-To` or `References` — which every reply has, and which our
+   own notifications now carry too, so the marker and registry below are what actually
+   separate them. **In this layout, Reply (or Forward-then-Reply) is the only supported
    way in.** A freshly composed mail from your address, even with the `[pi:…]` tag in the
    subject, is rejected as `self-echo`: the tag advice below applies to layout A.
 3. **The outbound registry.** The scanner also compares the message's own `Message-ID`
@@ -169,8 +170,9 @@ last scan: 14:02:11 — examined 2, kept 1, rejected 1
 rejections: not-allowlisted 1
 ```
 
-A non-zero `rejected` count means mail was seen and not accepted: dropped, or deferred
-because the queue is full (the line below says which). The reasons say why.
+A non-zero `rejected` count means mail was seen and not accepted: dropped, deferred because
+the queue is full, or an echo of our own notification (shown under `handled:` — in the
+single-mailbox layout every notification you send comes back). The reasons say why.
 `handled:` lines are the accepted paths (`route-miss` means the route id had expired or came
 from another machine; if the reply still reached a session it routed by the token or chain), `attachments dropped:` is a
 partial loss, and a full queue defers rather than discards. `examined 0` means nothing
@@ -240,12 +242,16 @@ pi install npm:pi-mailbridge
 Then, inside pi:
 
 ```
-/mailbridge setup you@gmail.com to you@gmail.com   # discovers servers + writes a config
+/mailbridge setup pi-you@gmail.com to you@gmail.com   # discovers servers + writes a config
 ```
 
 `setup` fetches the provider's published mail settings (Thunderbird's autoconfig
 database) and the auth it requires, so you never hand-write hosts, ports or TLS
 modes. It refuses to overwrite an existing config unless you add `force`.
+
+`to` is optional and defaults to the pi address — which selects the **single-mailbox**
+layout (allowlist relaxed, DMARC off). Pass both addresses, as above, unless that is
+what you want; it is the choice described under One mailbox or two?
 
 **Setup cannot invent your password.** It writes the account with an empty password and
 tells you where the file is; add the credential there, then send one real mail:
@@ -306,6 +312,9 @@ Prefer to write it yourself? Copy [`config.example.json`](./config.example.json)
 There is a CLI: for running the daemon where pi cannot (a systemd unit, a container, a
 remote box), and for the same first-run and diagnostic steps without pi
 (`--setup`, `--check`, `--smoke`, `--auth`, `--prime`, `--print-token`).
+
+`--setup <pi-address> [--to <your-address>] [--force]` — omitting `--to` selects the
+single-mailbox layout, exactly as in pi.
 
 `--print-token` prints the bearer/HMAC secret (`secret.key`) to stdout — never paste its
 output into an issue or a log. Same code path, not a second workflow.

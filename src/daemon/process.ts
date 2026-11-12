@@ -5,8 +5,10 @@
 //   0. skip everything if mode is off       /back must close the channel, not just mute it
 //   1. search `UID <cursor>+1:*`            UID cursor, never \Seen, never SUBJECT
 //   2. fetch envelope + body
-//   3. self-echo: marker header, then our own recorded Message-ID
+//   3. self-echo, part 1: the marker header (before authorization, because in single-mailbox
+//      mode the sender IS the human and would otherwise pass every later gate)
 //   4. authorize (loop → robot → allowlist → DMARC)
+//   5. self-echo, part 2: our own recorded Message-ID
 //   5. route: short id, then legacy signed token, then the reply chain  (routes, does not authorize)
 //   6. strip quoted text, then filter attachments
 //   7. persist to the durable pending store  <- nothing is lost after this

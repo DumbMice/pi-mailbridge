@@ -110,8 +110,18 @@ A legitimate email can still contain text that reads like instructions
   mailbox where you receive untrusted mail.
 - The tool marks a delivered message `\Seen` and journals it. It never deletes or moves
   mail, so a shared account keeps its history.
-- Rotate the HMAC key if you suspect exposure, and **restart the daemon**: it caches the
-  bearer token at startup, so a rotation without a restart makes every poll 401 until you do.
+- Rotate the HMAC key if you suspect exposure. The key is `secret.key`, created first-writer-
+  wins, so rotation means **deleting** it while nothing is running:
+
+  ```bash
+  systemctl --user stop pi-mailbridge          # or let the daemon idle-exit
+  rm ~/.local/state/pi-mailbridge/secret.key   # this is the rotation
+  # then restart pi (sessions cache the key in memory) and the daemon
+  ```
+
+  Both the daemon and every pi session cache the bearer token, so a rotation without
+  restarting both makes each poll 401 until you do. Do **not** rotate for a *mail password*
+  change: the daemon's `POST /reload` re-reads that.
   The mail password is different — the daemon's `POST /reload` re-reads it (run it via
   `/mailbridge smoke`), so no restart is needed. Rotating the key
   kills every outstanding **signed token**, but *not* the short route ids: those are

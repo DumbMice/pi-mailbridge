@@ -744,3 +744,34 @@ test("the single-mailbox DMARC advice does not contradict itself", () => {
 	// "Must be false" and "set this back to true" cannot both be unconditional.
 	if (/must be `false`/i.test(table)) assert.match(table, /unless/i, "state the exception")
 })
+
+test("the first-run command does not silently pick the single-mailbox layout", () => {
+	// `setup a to a` sets allowSelfReplies and turns DMARC off. The README's copy-pasteable
+	// command used the same address twice, landing readers in the layout it argues against.
+	const readme = doc("README.md")
+	const setupLine = readme.split("\n").find((l) => /\/mailbridge setup /.test(l) && /to /.test(l))
+	assert.ok(setupLine, "the README should show a setup command")
+	const [, from, to] = /setup (\S+) to (\S+)/.exec(setupLine!) ?? []
+	assert.ok(from && to, `unreadable setup line: ${setupLine}`)
+	assert.notEqual(from, to, "the example must not be the single-mailbox shape by accident")
+	assert.match(flat(readme), /`to` is optional and defaults to the pi address/i, "and the default is documented")
+})
+
+test("rotation says how, not just that", () => {
+	// "Rotate the HMAC key" with no procedure is an instruction nobody can follow.
+	const security = flat(doc("docs/SECURITY.md"))
+	const at = security.indexOf("Rotate the HMAC key")
+	assert.ok(at > -1, "SECURITY should cover rotation")
+	const section = security.slice(at, at + 700)
+	assert.match(section, /rm .*secret\.key/, "the procedure is deleting the key")
+	assert.match(section, /restart/i, "and restarting both the daemon and the sessions")
+})
+
+test("the Outlook config snippet has a security block", () => {
+	// The snippet was layout B with no allowFrom and no allowSelfReplies: following it gives a
+	// mailbox that denies every sender and refuses every reply.
+	const oauth = doc("docs/OAUTH.md")
+	const snippet = /```json\n([\s\S]*?)```/.exec(oauth.slice(oauth.indexOf("## Configuration")))?.[1] ?? ""
+	assert.ok(snippet.includes('"security"'), "the full config snippet must include security")
+	assert.match(snippet, /"allowSelfReplies": true/, "and match its own single-mailbox shape")
+})

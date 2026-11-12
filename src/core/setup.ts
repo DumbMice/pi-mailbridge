@@ -115,6 +115,6 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
 		next:
 			discovered.authType === "XOAUTH2"
 				? "put your app client id in the oauth block, then `/mailbridge auth`"
-				: "put the account app password in the mail block, then `/mailbridge smoke`",
+				: "put the account app password (QQ/163 call it 授权码) in the mail block, then `/mailbridge smoke`",
 	}
 }

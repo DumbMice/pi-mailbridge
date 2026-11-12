@@ -297,6 +297,11 @@ state.
               "user": "you@outlook.com", "password": "", "authType": "XOAUTH2" },
     "to": "you@outlook.com"
   },
+  "security": {
+    "allowFrom": ["you@outlook.com"],
+    "allowSelfReplies": true,
+    "requireDmarcPass": false
+  },
   "oauth": {
     "issuer": "https://login.microsoftonline.com/consumers/v2.0",
     "clientId": "<application (client) id>",
