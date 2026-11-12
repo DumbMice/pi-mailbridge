@@ -11,6 +11,8 @@
 // something that looks like markup — and an unescaped interpolation would inject
 // into the recipient's mail client.
 
+import { renderBody } from "./markdown.ts"
+
 const ENTITIES: Record<string, string> = {
 	"&": "&amp;",
 	"<": "&lt;",
@@ -25,18 +27,17 @@ export function escapeHtml(value: string): string {
 }
 
 /**
- * Render plain text as minimal HTML.
+ * Render a mail body as HTML.
  *
- * Newlines become `<br>`, deliberately: an earlier version relied on
- * `white-space: pre-wrap`, and clients that sanitise inline styles (Outlook web
- * does) collapsed the whole body onto one line. Structure in the markup survives
- * sanitising; CSS does not.
+ * The agent answers in Markdown, so it is rendered (core/markdown.ts) instead of being
+ * shown as literal `**bold**` and fence markers. Structure lives in the markup, not in
+ * CSS: clients that sanitise inline styles (Outlook web does) would collapse anything
+ * that relied on `white-space: pre-wrap`.
  */
 export function textToHtml(text: string): string {
-	const escaped = escapeHtml(text).replace(/\r?\n/g, "<br>\n")
 	return [
 		'<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.45">',
-		escaped,
+		renderBody(text),
 		"</div>",
 	].join("")
 }

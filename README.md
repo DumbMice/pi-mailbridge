@@ -10,7 +10,9 @@ can read the mailbox. That exact session continues.
   If it can read mail — a second laptop, a work desktop, a tablet, a phone, a
   browser — it can drive the session.
 - **Every notification names the device *and* the session**, so with several
-  machines running pi you can tell at a glance which one is asking.
+  machines running pi you can tell at a glance which one is asking. The agent's answer
+  is rendered from Markdown, so headings, lists, tables, code and links look like a real
+  email instead of raw syntax.
 - **One mailbox connection per machine.** A small local daemon owns a single
   IMAP IDLE connection; every Pi session is a thin client. N sessions, one
   watcher, no polling race.

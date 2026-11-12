@@ -58,7 +58,8 @@ export function buildSettleBody(context: SettleContext): string {
 	lines.push("")
 	lines.push("--")
 	if (context.device?.trim()) lines.push(`device: ${context.device.trim()}`)
-	lines.push(`session: ${context.sessionName?.trim() || context.sessionId}`)
+	// Only name the session when it has a name; otherwise this line repeated the id.
+	if (context.sessionName?.trim()) lines.push(`session: ${context.sessionName.trim()}`)
 	lines.push(`session id: ${context.sessionId}`)
 	lines.push(`project: ${context.cwd}`)
 	if (typeof context.turns === "number") lines.push(`turns: ${context.turns}`)

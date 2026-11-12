@@ -36,13 +36,20 @@ test("model output cannot inject markup into the mail body", () => {
 	assert.match(html, /&lt;a href=&quot;javascript:x&quot;&gt;/)
 })
 
-test("line structure survives style sanitising", () => {
+test("line structure lives in the markup, not in CSS", () => {
 	const html = textToHtml("line one\nline two\n\n--\ndevice: x")
-	// A client that strips `style` must still render separate lines, so the line
-	// breaks live in the markup rather than in CSS.
-	assert.equal((html.match(/<br>/g) ?? []).length, 4)
-	assert.match(html, /line one<br>\nline two<br>\n<br>\n--<br>\ndevice: x/)
+	// A client that strips `style` must still render separate lines.
+	assert.match(html, /<p>line one<br>\nline two<\/p>/)
 	assert.ok(!html.includes("white-space"), "no reliance on pre-wrap")
+})
+
+test("the signature block is literal, not Markdown", () => {
+	// `--` after a text line is a setext heading underline; rendering the footer as
+	// Markdown would swallow it into an <h2>.
+	const html = textToHtml("answer\n\n--\ndevice: ybc-linux\nturns: 3")
+	assert.match(html, /<pre class="signature"/)
+	assert.match(html, /--\ndevice: ybc-linux\nturns: 3/)
+	assert.doesNotMatch(html, /<h2>/)
 })
 
 test("the message goes out as text plus html", async () => {

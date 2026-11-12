@@ -55,6 +55,8 @@ export interface ExtensionCtxLike {
 	cwd: string
 	sessionManager: {
 		getSessionId(): string
+		/** The real API. `getName` was a mistake here and always returned undefined. */
+		getSessionName?(): string | undefined
 		getName?(): string | undefined
 		/** Current branch entries; assistant text and turn count come from here. */
 		getBranch?(): unknown[]
@@ -151,7 +153,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	function sessionContext(): SettleContext | undefined {
 		if (!ctx) return undefined
 		const sessionId = ctx.sessionManager.getSessionId()
-		const name = ctx.sessionManager.getName?.()
+		// `getSessionName()` is the documented method; `getName` never existed.
+		const name = ctx.sessionManager.getSessionName?.() ?? ctx.sessionManager.getName?.()
 		return {
 			sessionId,
 			...(name ? { sessionName: name } : {}),

@@ -125,6 +125,14 @@ IDLE event - the opposite of what ARCHITECTURE.md promises.
 - spawn.ts: a detached daemon now appends to `daemon.log` instead of discarding stdio.
   `stdio: "ignore"` is why this failure was invisible; the log is what found it.
 
+### Fixed: the session name was never read
+
+The notification printed `session:` and `session id:` with the same value, because the
+code called `sessionManager.getName()` — which does not exist. The documented method is
+`getSessionName()`, so the name was always undefined and fell back to the id. Naming a
+session had no effect until now. The body also no longer repeats the id when a session is
+unnamed.
+
 ### Fixed: the body collapsed onto one line
 
 Reported after a live notification. The HTML part relied on `white-space: pre-wrap`
@@ -145,7 +153,25 @@ executing the old version after `pi update` until reboot.
 - /mailbridge restart: stop the process, wait for the port, respawn through the
   supervisor, and report whether it came back
 
-### Mail is now multipart: text plus HTML
+### Mail is now multipart: text plus HTML, and the HTML renders Markdown
+
+The agent answers in Markdown, so the HTML part is rendered rather than escaped: the
+reader sees headings, lists, tables, fenced code and clickable links instead of `**bold**`
+and pipe tables.
+
+Rendering is delegated to **markdown-it** (15.0.3) instead of the hand-rolled subset I
+wrote first. The library earns its six small transitive dependencies:
+
+- `html: false` escapes raw HTML by default, so there is no sanitiser to get wrong
+- markdown-it's own `validateLink` refuses `javascript:`, `vbscript:` and `data:` hrefs
+- `linkify` turns bare URLs into links, which is most of the value of a mail
+- `breaks` keeps single newlines, matching how the body is written
+
+The `--` signature block is still rendered as literal text (`<pre>`), because a line of
+`--` after text is a setext heading underline and would swallow our metadata into an
+`<h2>`.
+
+
 
 Reported from a live reply: the quoted original did not fold away, it showed as raw
 repeated text. Cause: every message was text/plain only, and clients collapse quoted

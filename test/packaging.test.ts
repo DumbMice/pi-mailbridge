@@ -56,7 +56,7 @@ test("the published file list excludes tests, state and secrets", () => {
 
 test("runtime deps stay minimal and pi is only a peer dependency", () => {
 	const pkg = JSON.parse(read("../package.json")) as { dependencies: Record<string, string> }
-	assert.deepEqual(Object.keys(pkg.dependencies).sort(), ["imapflow", "mailparser", "nodemailer", "openid-client"])
+	assert.deepEqual(Object.keys(pkg.dependencies).sort(), ["imapflow", "mailparser", "markdown-it", "nodemailer", "openid-client"])
 	assert.ok(packageJson.peerDependencies["@earendil-works/pi-coding-agent"])
 	assert.equal(packageJson.peerDependencies["imapflow"], undefined, "imapflow is a real dependency, not a peer")
 })

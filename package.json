@@ -39,6 +39,7 @@
   "dependencies": {
     "imapflow": "^2.11.0",
     "mailparser": "^3.14.3",
+    "markdown-it": "^15.0.3",
     "nodemailer": "^10.5.0",
     "openid-client": "^6.8.9"
   },
@@ -49,6 +50,7 @@
   },
   "devDependencies": {
     "@types/mailparser": "^3.4.5",
+    "@types/markdown-it": "^14.2.0",
     "@types/node": "^22.10.0",
     "@types/nodemailer": "^6.4.17",
     "typescript": "^5.7.0"
