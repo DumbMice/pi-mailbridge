@@ -195,3 +195,16 @@ test("the in-pi flow is documented first, CLI only as headless", () => {
 	assert.match(readme, /headless/i, "README should label the CLI as headless/systemd only")
 	assert.match(readme, /--check/, "README should keep the ExecStartPre check documented")
 })
+
+test("the extension resolves the daemon script with fileURLToPath", () => {
+	const src = read("../src/extension.ts")
+	assert.match(src, /fileURLToPath\(new URL\(/, "must convert the URL to a filesystem path properly")
+	assert.doesNotMatch(src, /\.pathname/, "URL.pathname breaks on spaces and non-ASCII paths")
+})
+
+test("every parsed subcommand has a handler in the extension", () => {
+	const src = read("../src/extension.ts")
+	for (const sub of ["status", "setup", "check", "auth", "smoke", "restart", "help"]) {
+		assert.ok(src.includes(`case "${sub}":`), `/mailbridge ${sub} is parsed but has no handler`)
+	}
+})

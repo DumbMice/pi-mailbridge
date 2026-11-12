@@ -2,7 +2,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { spawn, type ChildProcess } from "node:child_process"
 import net from "node:net"
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -207,4 +207,32 @@ test("probeHealth treats refused and hanging daemons as unhealthy", async () => 
 		}),
 		false,
 	)
+})
+
+test("POST /reload works on a real daemon and needs the bearer token", { timeout: 45_000 }, async () => {
+	const port = await freePort()
+	const r = rig(port)
+	const child = startDaemon(r)
+	try {
+		await waitForLine(child, /listening on http/, 20_000)
+
+		// The token is the shared secret the daemon wrote on boot.
+		const token = readFileSync(join(r.env.XDG_STATE_HOME!, "pi-mailbridge", "secret.key"), "utf8").trim()
+		assert.ok(token.length > 20)
+
+		const unauthorised = await fetch(`${r.baseUrl}/reload`, { method: "POST" })
+		assert.equal(unauthorised.status, 401, "reload must not be open on loopback")
+
+		const ok = await fetch(`${r.baseUrl}/reload`, {
+			method: "POST",
+			headers: { authorization: `Bearer ${token}` },
+		})
+		assert.equal(ok.status, 200, "reload should succeed: config re-read, watcher restarted")
+
+		// Still alive and serving after the watcher was swapped.
+		assert.equal(await probeHealth({ baseUrl: r.baseUrl, timeoutMs: 2000 }), true)
+	} finally {
+		child.kill("SIGTERM")
+		await waitForExit(child, 10_000).catch(() => child.kill("SIGKILL"))
+	}
 })
