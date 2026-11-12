@@ -216,6 +216,28 @@ export function dropPendingFromOtherSpaces(env: NodeJS.ProcessEnv, uidValidity: 
 	return dropped
 }
 
+/** Records older than this, for sessions that are gone, are expired on connect. */
+export const PENDING_MAX_AGE_MS = 7 * 24 * 3600_000
+
+/**
+ * Drop records nothing can deliver any more.
+ *
+ * A record whose session never comes back is refused by every runner (`foreign-session`) and
+ * removed by nothing else, so a handful of them can fill `PENDING_CAP` - and at the cap the
+ * scanner stops advancing the cursor, which stalls *all* inbound mail. Expiring them is a
+ * deliberate, bounded loss: their mail stays unread in the mailbox, but the cursor has moved
+ * past it, so it will not be re-read.
+ *
+ * @returns the dropped records, so the caller can release their decision slots.
+ */
+export function expirePending(env: NodeJS.ProcessEnv, maxAgeMs = PENDING_MAX_AGE_MS, now = Date.now()): PendingRecord[] {
+	const items = load(env)
+	const expired = items.filter((r) => now - r.receivedAt > maxAgeMs)
+	if (expired.length === 0) return []
+	save(env, items.filter((r) => now - r.receivedAt <= maxAgeMs))
+	return expired
+}
+
 export function pendingSize(env: NodeJS.ProcessEnv): number {
 	return load(env).length
 }

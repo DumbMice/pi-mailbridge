@@ -148,3 +148,33 @@ test("the configured TTL bounds a route as well as a token", async () => {
 	assert.ok(resolveRoute(id, { env: e, now: t0 + 59 * 60_000 }))
 	assert.equal(resolveRoute(id, { env: e, now: t0 + 61 * 60_000 }), undefined)
 })
+
+test("concurrent route minting from separate processes loses nothing", async () => {
+	// routes.json is the one store written by every pi process. Without a lock, two sessions
+	// settling at once each wrote their whole copy and one route vanished - so the reply fell
+	// back to the threading chain, or to no-token. The processes must run concurrently for
+	// this to mean anything.
+	const e = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-routes-lock-")) }
+	const moduleUrl = new URL("../src/store/routes.ts", import.meta.url).href
+	const script = `
+		import { ensureRouteForSession } from ${JSON.stringify(moduleUrl)}
+		const env = { XDG_STATE_HOME: ${JSON.stringify(e.XDG_STATE_HOME)} }
+		const tag = process.argv[process.argv.length - 1]
+		for (let i = 0; i < 60; i++) ensureRouteForSession({ sessionId: tag + "-" + i, subject: "x", env })
+	`
+	const { spawn } = await import("node:child_process")
+	const statuses = await Promise.all(
+		["a", "b", "c", "d"].map(
+			(tag) =>
+				new Promise<number>((resolve) => {
+					const child = spawn(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", script, tag], {
+						stdio: "ignore",
+					})
+					child.on("exit", (code) => resolve(code ?? 1))
+				}),
+		),
+	)
+	assert.deepEqual(statuses, [0, 0, 0, 0], "all four writers succeeded")
+	const { routeCount } = await import("../src/store/routes.ts")
+	assert.equal(routeCount(e), 240, "every route survived")
+})

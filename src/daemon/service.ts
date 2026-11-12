@@ -163,7 +163,11 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 		}
 	}
 
-	const server = http.createServer(async (req, res) => {
+	// The handler is a separate function so a throw anywhere in it - including the URL parse,
+	// which runs before authentication - becomes a 500 rather than an unhandled rejection that
+	// kills the daemon. Node accepts absolute-form request targets, so `new URL` can throw on a
+	// single unauthenticated request.
+	const dispatch = async (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse): Promise<void> => {
 		const url = new URL(req.url ?? "/", "http://127.0.0.1")
 		const send = (status: number, body: unknown) => {
 			const payload = JSON.stringify(body)
@@ -398,6 +402,26 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 			if (message === "request body too large") return fail(413, "body_too_large")
 			return fail(400, "bad_request", { message })
 		}
+	}
+
+	const server = http.createServer((req, res) => {
+		void dispatch(req, res).catch(() => {
+			// A malformed request must not take the process down with it.
+			try {
+				if (!res.headersSent) {
+					res.writeHead(500, { "content-type": "application/json" })
+					res.end(JSON.stringify({ error: { code: "internal" } }))
+				} else {
+					res.destroy()
+				}
+			} catch {
+				/* the socket is already gone */
+			}
+		})
+	})
+	// Unparseable HTTP never reaches the handler at all.
+	server.on("clientError", (_error, socket) => {
+		socket.destroy()
 	})
 
 	return {

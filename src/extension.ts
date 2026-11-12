@@ -710,36 +710,50 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				return { content: [{ type: "text", text: "A decision is already outstanding for this session; not mailing twice." }], details: {} }
 			}
 
-			const secret = secretFn()
-			if (!secret) return { content: [{ type: "text", text: "Mailbridge secret missing." }], details: {} }
+			// The slot is reserved above. Everything from here must either send the mail or free
+			// the reservation: a leaked slot answers "already outstanding" for the rest of the
+			// session, because re-registering refreshes its TTL.
+			let sent = false
+			try {
+				const secret = secretFn()
+				if (!secret) return { content: [{ type: "text", text: "Mailbridge secret missing." }], details: {} }
 
-			const options = (params["options"] as string[] | undefined) ?? []
-			const recommendation = params["recommendation"] as string | undefined
-			const body = [
-				String(params["question"] ?? ""),
-				options.length ? `\noptions:\n${options.map((o) => `- ${o}`).join("\n")}` : "",
-				recommendation ? `\nrecommendation: ${recommendation}` : "",
-				"\n",
-				"--",
-				"Reply above this line with your answer.",
-			].join("\n")
+				const options = (params["options"] as string[] | undefined) ?? []
+				const recommendation = params["recommendation"] as string | undefined
+				const body = [
+					String(params["question"] ?? ""),
+					options.length ? `\noptions:\n${options.map((o) => `- ${o}`).join("\n")}` : "",
+					recommendation ? `\nrecommendation: ${recommendation}` : "",
+					"\n",
+					"--",
+					"Reply above this line with your answer.",
+				].join("\n")
 
-			const tag = ensureRouteForSession({
-				sessionId,
-				device: config.device.name,
-				subject: String(params["subject"] ?? "pi: decision"),
-				ttlHours: config.security.tokenTtlHours,
-				env,
-			})
-			const sent = await client.send({
-				subject: `[pi:${tag}] ${String(params["subject"] ?? "pi: decision")}`,
-				text: body,
-				cwd: c.cwd,
-				sessionId,
-			})
-			if (!sent.ok) {
-				await client.release(sessionId)
-				return { content: [{ type: "text", text: "Could not send the email; ask in the terminal instead." }], details: {} }
+				const tag = ensureRouteForSession({
+					sessionId,
+					device: config.device.name,
+					subject: String(params["subject"] ?? "pi: decision"),
+					ttlHours: config.security.tokenTtlHours,
+					env,
+				})
+				const outcome = await client.send({
+					subject: `[pi:${tag}] ${String(params["subject"] ?? "pi: decision")}`,
+					text: body,
+					cwd: c.cwd,
+					sessionId,
+				})
+				if (!outcome.ok) {
+					return { content: [{ type: "text", text: "Could not send the email; ask in the terminal instead." }], details: {} }
+				}
+				sent = true
+			} catch (error) {
+				return {
+					content: [{ type: "text", text: `Could not email the decision (${(error as Error).message}); ask in the terminal.` }],
+					details: {},
+				}
+			} finally {
+				// Free only a reservation that never produced a mail.
+				if (!sent) await client.release(sessionId).catch(() => undefined)
 			}
 			return { content: [{ type: "text", text: "Emailed the decision. End your turn and wait for the reply." }], details: {} }
 		},

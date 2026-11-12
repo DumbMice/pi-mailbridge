@@ -110,7 +110,7 @@ test("a record with no UID space survives the every-connect drop", async () => {
 		from: "you@qq.com",
 		subject: "x",
 		body: "legacy",
-		receivedAt: 1,
+		receivedAt: Date.now(),
 	})
 	const released: string[] = []
 	const outcome = applyUidValidity(e, watcher({ validity: 2222, next: 50 }), (s) => released.push(s))
@@ -124,11 +124,41 @@ test("a dropped record does not free a slot its session still uses", async () =>
 	// would let a second decision be reserved while the first is unanswered.
 	const e = env()
 	syncUidValidity(e, 2222, 50)
-	addPending(e, { uid: 1, sessionId: "s1", from: "you@qq.com", subject: "x", body: "old", receivedAt: 1, uidValidity: 1111 })
-	addPending(e, { uid: 2, sessionId: "s1", from: "you@qq.com", subject: "y", body: "live", receivedAt: 1, uidValidity: 2222 })
+	addPending(e, { uid: 1, sessionId: "s1", from: "you@qq.com", subject: "x", body: "old", receivedAt: Date.now(), uidValidity: 1111 })
+	addPending(e, { uid: 2, sessionId: "s1", from: "you@qq.com", subject: "y", body: "live", receivedAt: Date.now(), uidValidity: 2222 })
 
 	const released: string[] = []
 	const outcome = applyUidValidity(e, watcher({ validity: 2222, next: 50 }), (s) => released.push(s))
 	assert.equal(outcome.dropped, 1, "the old-space record is gone")
 	assert.deepEqual(released, [], "but s1 still has a live record, so its slot stays")
+})
+
+test("a record whose session is gone is expired, so the queue cannot stall forever", async () => {
+	// Nothing else removes such a record: every runner refuses it as foreign-session. Enough
+	// of them fill the cap, and at the cap the scanner stops advancing for ALL mail.
+	const e = env()
+	syncUidValidity(e, 2222, 50)
+	addPending(e, {
+		uid: 3,
+		sessionId: "gone-session",
+		from: "you@qq.com",
+		subject: "x",
+		body: "orphan",
+		receivedAt: Date.now() - 8 * 24 * 3600_000,
+		uidValidity: 2222,
+	})
+	addPending(e, {
+		uid: 4,
+		sessionId: "live-session",
+		from: "you@qq.com",
+		subject: "y",
+		body: "fresh",
+		receivedAt: Date.now(),
+		uidValidity: 2222,
+	})
+	const released: string[] = []
+	const outcome = applyUidValidity(e, watcher({ validity: 2222, next: 50 }), (s) => released.push(s))
+	assert.equal(outcome.dropped, 1, "the orphan is expired")
+	assert.deepEqual(released, ["gone-session"])
+	assert.equal(pendingSize(e), 1, "the fresh record survives")
 })

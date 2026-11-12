@@ -853,3 +853,38 @@ test("/ack frees the record's decision slot", async () => {
 		await service.close()
 	}
 })
+
+test("a malformed request target does not crash the daemon", async () => {
+	// `new URL` runs before authentication and Node accepts absolute-form targets, so
+	// `GET http://[` threw inside the async handler. Nothing caught it and Node's default is
+	// to exit - one unauthenticated request killed the bridge.
+	const { request } = await import("node:http")
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-url-")) },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
+		send: async () => ({ messageId: "<x@qq.com>" }),
+	})
+	const rejections: unknown[] = []
+	const onRejection = (error: unknown): void => {
+		rejections.push(error)
+	}
+	process.on("unhandledRejection", onRejection)
+	const { port } = await service.listen(0, "127.0.0.1")
+	try {
+		await new Promise<void>((resolve) => {
+			const req = request({ host: "127.0.0.1", port, path: "http://[", method: "GET" }, () => resolve())
+			req.on("error", () => resolve())
+			req.end()
+		})
+		await new Promise((r) => setTimeout(r, 50))
+		assert.deepEqual(rejections, [], "no unhandled rejection")
+		// And the daemon still answers.
+		const health = await fetch(`http://127.0.0.1:${port}/health`)
+		assert.equal(health.status, 200)
+	} finally {
+		process.off("unhandledRejection", onRejection)
+		await service.close()
+	}
+})

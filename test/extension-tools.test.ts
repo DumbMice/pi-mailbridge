@@ -484,3 +484,67 @@ test("/mailbridge check says a minted secret needs a daemon restart", async () =
 		`check must name the consequence (notes: ${JSON.stringify(notes)})`,
 	)
 })
+
+test("request_decision frees its reservation when the route cannot be minted", async () => {
+	// The slot is reserved before the route is minted. A throw there (EACCES/ENOSPC/ENOTDIR on
+	// the state dir) used to escape with the reservation held, and re-registering refreshes its
+	// TTL - so the session was answered "already outstanding" for good, with no mail sent.
+	const { writeFileSync } = await import("node:fs")
+	const tools: Record<string, (id: string, p: Record<string, unknown>, s?: unknown, u?: unknown, c?: unknown) => Promise<{ content: { text: string }[] }>> = {}
+	const released: string[] = []
+	const sent: unknown[] = []
+	const client = {
+		mode: async () => ({ ok: true as const, data: { mode: "on" as const } }),
+		register: async () => ({ ok: true as const, data: { alreadyPending: false, full: false } }),
+		release: async (sessionId: string) => {
+			released.push(sessionId)
+			return { ok: true as const, data: { ok: true } }
+		},
+		send: async (message: unknown) => {
+			sent.push(message)
+			return { ok: true as const, data: { ok: true } }
+		},
+		pending: async () => ({ ok: true as const, data: { pending: [] } }),
+		ping: async () => ({ ok: true as const, data: { ok: true, clients: 1 } }),
+	}
+	// A regular file where the state directory should be: route minting throws.
+	const blocker = join(tmpdir(), `pmb-blocker-${process.pid}-${Date.now()}`)
+	writeFileSync(blocker, "not a directory")
+
+	const handlers = new Map<string, (event: Record<string, unknown>, ctx: unknown) => unknown>()
+	const pi = {
+		on(name: string, handler: (event: Record<string, unknown>, ctx: unknown) => unknown) {
+			handlers.set(name, handler)
+		},
+		registerCommand() {},
+		registerTool(spec: { name: string; execute: unknown }) {
+			tools[spec.name] = spec.execute as never
+		},
+		sendUserMessage() {},
+	}
+	mailbridge(pi as never, {
+		env: { XDG_STATE_HOME: blocker },
+		loadConfig: () => config(),
+		secret: () => SECRET,
+		makeClient: () => client as never,
+		ensureDaemon: async () => true,
+		timers: { setTimeout: () => 1, clearTimeout: () => {} },
+		pollMs: 60_000,
+	})
+
+	const c = {
+		cwd: "/tmp",
+		sessionManager: { getSessionId: () => "sess-leak", getName: () => "x" },
+		ui: { notify: () => {} },
+	}
+	await handlers.get("session_start")!({}, c)
+
+	const result = await tools["request_decision"]!("id", { subject: "s", question: "q" }, undefined, undefined, {
+		cwd: "/tmp",
+		sessionManager: { getSessionId: () => "sess-leak", getName: () => "x" },
+		ui: { notify: () => {} },
+	})
+	assert.match(result.content[0]!.text, /Could not email the decision/)
+	assert.deepEqual(released, ["sess-leak"], "the reservation is freed")
+	assert.deepEqual(sent, [], "and nothing was sent")
+})

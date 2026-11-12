@@ -18,7 +18,17 @@
 //
 // Signed tokens keep working: messages minted before this change still route.
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import {
+	closeSync,
+	existsSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	renameSync,
+	statSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs"
 import { dirname } from "node:path"
 import { randomBytes } from "node:crypto"
 
@@ -65,6 +75,44 @@ function load(env: NodeJS.ProcessEnv): RouteRecord[] {
 	}
 }
 
+/**
+ * Cross-process lock around the read-modify-write.
+ *
+ * routes.json is the one store written by every pi process, not just the daemon. Without a
+ * lock two sessions settling at once each write their whole in-memory copy and one route is
+ * lost - and a lost route means a reply falls back to the threading chain, or to `no-token`.
+ * The lock is an O_EXCL file, removed on release and stolen if a holder died.
+ */
+function withLock<T>(env: NodeJS.ProcessEnv, run: () => T): T {
+	const lock = statePath(env, "routes.lock")
+	mkdirSync(dirname(lock), { recursive: true, mode: 0o700 })
+	for (let attempt = 0; attempt < 200; attempt++) {
+		try {
+			const fd = openSync(lock, "wx", 0o600)
+			try {
+				return run()
+			} finally {
+				closeSync(fd)
+				try {
+					unlinkSync(lock)
+				} catch {
+					/* already gone */
+				}
+			}
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+			// Steal a lock left by a process that died holding it.
+			try {
+				if (Date.now() - statSync(lock).mtimeMs > 5_000) unlinkSync(lock)
+			} catch {
+				/* raced with the holder */
+			}
+			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5)
+		}
+	}
+	throw new Error("pi-mailbridge: routes.json is locked by another process")
+}
+
 function save(env: NodeJS.ProcessEnv, items: RouteRecord[]): void {
 	const p = path(env)
 	mkdirSync(dirname(p), { recursive: true, mode: 0o700 })
@@ -89,6 +137,10 @@ export function registerRoute(options: RegisterRouteOptions): string {
 	const now = options.now ?? Date.now()
 	const ttlHours = options.ttlHours ?? 30 * 24
 
+	return withLock(env, () => registerLocked(options, env, now, ttlHours))
+}
+
+function registerLocked(options: RegisterRouteOptions, env: NodeJS.ProcessEnv, now: number, ttlHours: number): string {
 	const items = load(env).filter((r) => r.expiresAt > now)
 	const taken = new Set(items.map((r) => r.id))
 
@@ -128,6 +180,7 @@ export function ensureRouteForSession(options: RegisterRouteOptions): string {
 	const now = options.now ?? Date.now()
 	const ttlHours = options.ttlHours ?? 30 * 24
 
+	return withLock(env, () => {
 	const items = load(env)
 	const existing = items.find((r) => r.sessionId === options.sessionId && r.expiresAt > now)
 	if (existing) {
@@ -141,8 +194,9 @@ export function ensureRouteForSession(options: RegisterRouteOptions): string {
 		save(env, items)
 		return existing.id
 	}
-
-	return registerRoute({ ...options, env, now, ttlHours })
+	// registerLocked, not registerRoute: the lock is not re-entrant.
+	return registerLocked(options, env, now, ttlHours)
+	})
 }
 
 export interface ResolveRouteOptions {
