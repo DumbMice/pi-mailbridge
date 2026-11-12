@@ -389,7 +389,9 @@ IMAP IDLE ──► scan (UID cursor) ──► authorize ──► route ──
                           └──► inject as followUp ──► ack ──► \Seen + journal
 ```
 
-One daemon per machine owns the mailbox; sessions never touch IMAP. Details and
+One daemon per machine owns the mailbox; the session's delivery path never touches
+IMAP. (`/mailbridge smoke` is the exception: a one-off diagnostic that sends one mail and
+reads it back over its own short-lived connection.) Details and
 the failure-mode table: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md). Module
 map and the port from `opencode-afk`: [docs/MAPPING.md](./docs/MAPPING.md).
 

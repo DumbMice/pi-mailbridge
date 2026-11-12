@@ -151,5 +151,4 @@ A legitimate email can still contain text that reads like instructions
 ## 7. Reporting
 
 Open a private security advisory on the repository (`repository` in `package.json`).
-If that is not available, contact the maintainer named in `package.json`'s `author`
-field. Do not file a public issue for anything in this document.
+Do not file a public issue for anything in this document.

@@ -417,6 +417,7 @@ test("stop() during a dial logs out the connection that just opened", async () =
 		`the connection opened after stop() must be logged out (saw ${JSON.stringify(log)})`,
 	)
 	// The property that actually changed: the watcher must not hand out a dead client.
-	assert.equal(watcher.isHealthy(), false)
+	// (isHealthy() is already false because `stopped` short-circuits it, so asserting that
+	// would pass even on the broken code - the rejects below is what pins the fix.)
 	await assert.rejects(() => watcher.searchAfter(0), /not connected/, "a stopped watcher must fail fast")
 })

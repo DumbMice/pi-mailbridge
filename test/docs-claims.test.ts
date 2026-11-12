@@ -278,15 +278,42 @@ test("no document claims the extension uses SSE", () => {
 
 test("the revocation recipe names every store that can still deliver", () => {
 	// Round 4 blocked on this: the recipe named the routing stores but not the queue, so
-	// following it still injected an already-accepted reply.
+	// following it still injected an already-accepted reply. Round 6 showed the first
+	// version of this test was defeated by a later bullet repeating "pending.json" inside a
+	// 1800-character window, so it now parses the recipe's own bullet list.
 	const security = doc("docs/SECURITY.md")
 	const start = security.search(/To revoke, stop the daemon/i)
 	assert.ok(start > -1, "SECURITY should document how to revoke")
-	const recipe = security.slice(start, start + 1800)
-	for (const store of ["routes.json", "threads.json", "pending.json"]) {
-		assert.ok(recipe.includes(store), `the revocation recipe must name ${store}`)
+
+	const lines = security.slice(start).split("\n")
+	const bullets: string[] = []
+	let entered = false
+	for (const line of lines.slice(1)) {
+		const bullet = /^\s{2}- (.+)$/.exec(line)
+		if (bullet) {
+			entered = true
+			bullets.push(bullet[1]!)
+			continue
+		}
+		// The list ends at the first non-bullet, non-blank, unindented line.
+		if (entered && line.trim() !== "" && !/^\s/.test(line)) break
 	}
-	assert.match(recipe, /journal\.json/, "and must say what the journal is (dedupe, not routing)")
+	assert.ok(bullets.length >= 3, `expected the recipe's bullet list, got ${bullets.length}`)
+
+	for (const store of ["routes.json", "threads.json", "pending.json"]) {
+		assert.ok(
+			bullets.some((b) => b.includes(store)),
+			`the revocation recipe must have its own bullet for ${store} (bullets: ${bullets.length})`,
+		)
+	}
+	assert.ok(
+		bullets.some((b) => /journal\.json/.test(b) && /dedupe/i.test(b)),
+		"and must say the journal is dedupe, not routing",
+	)
+	assert.ok(
+		bullets.some((b) => /pending\.json/.test(b) && /already-accepted/i.test(b)),
+		"and must say why the queue is the one that matters",
+	)
 })
 
 test("SECURITY and README do not describe SSE as the session transport", () => {
@@ -294,8 +321,64 @@ test("SECURITY and README do not describe SSE as the session transport", () => {
 	// mention it (it explains why), these two may not imply it is how replies arrive.
 	// SSE may be mentioned as a bound ("SSE client cap") - it may not be presented as how a
 	// session receives a delivery or a mode change.
-	const transportClaim = /over SSE|SSE client of|subscribe[sd]? .*SSE|SSE: delivery|pushed to every connected session/i
-	for (const name of ["docs/SECURITY.md", "README.md"]) {
-		assert.ok(!transportClaim.test(doc(name)), `${name} presents SSE as the session transport`)
+	// Applied to every doc, not just two: the round-5 major was reintroducible in
+	// ARCHITECTURE's diagrams and §5 with the suite green.
+	const transportClaim =
+		/over SSE|SSE client of|SSE\/poll|subscribe[sd]? .*SSE|SSE: delivery|SSE: \/events|pushed to every connected session|SSE push is the path|sessions? (?:loop|connect)[^.]*\bSSE\b/i
+	for (const { file, text } of allProse()) {
+		assert.ok(!transportClaim.test(text), `${file} presents SSE as the session transport`)
+	}
+})
+
+test("no document claims a routing identifier authenticates", () => {
+	// The id routes; the allowlist and DMARC authorize. This is the single most important
+	// sentence to keep true, and round 6 showed nothing pinned it.
+	for (const { file, text } of allProse()) {
+		assert.ok(
+			!/(routing|subject) (id|token|identifier)\s+(authenticates|authorizes|is authoritative)/i.test(text),
+			`${file} claims a routing identifier authenticates`,
+		)
+		assert.ok(
+			!/the token is authoritative/i.test(text),
+			`${file} calls the token authoritative`,
+		)
+	}
+})
+
+test("the security-relevant invariants in AGENTS are the code's", () => {
+	const agents = doc("AGENTS.md")
+	// Pinning the authserv-id is optional and wrong for consumer accounts; the invariant list
+	// previously read as though it were mandatory.
+	assert.ok(!/pinned DMARC come first/i.test(agents), "AGENTS must not mandate DMARC pinning")
+	// Marking \Seen at parse time is exactly what the invariant forbids.
+	assert.ok(!/mark .*\\?Seen.*(?:at parse|on parse|when parsed)/i.test(agents), "AGENTS must not invite marking \\Seen at parse time")
+	assert.match(
+		agents,
+		/`\\Seen` and the journal append happen only in `\/ack`/,
+		"AGENTS should state the ack-then-Seen rule",
+	)
+})
+
+test("no document implies /claim or /ack is reachable without the bearer token", () => {
+	for (const { file, text } of allProse()) {
+		for (const line of text.split("\n")) {
+			if (!/\/(claim|ack)\b/.test(line)) continue
+			assert.ok(
+				!/(unauthenticated|without (?:the )?(?:bearer|token)|no auth)/i.test(line),
+				`${file}: ${line.trim()}`,
+			)
+		}
+	}
+})
+
+test("/health is documented without claiming it exposes mail content", () => {
+	for (const { file, text } of allProse()) {
+		for (const line of text.split("\n")) {
+			if (!/\/health/.test(line)) continue
+			assert.ok(
+				!/(subjects?|bodies|body|senders?|mail content)\b/i.test(line),
+				`${file} claims /health exposes mail content: ${line.trim()}`,
+			)
+		}
 	}
 })

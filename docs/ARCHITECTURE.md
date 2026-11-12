@@ -26,8 +26,10 @@ push client; nothing uses it today.) This is the same
 topology as `opencode-afk` and it is the reason multi-session works: there is no
 N-way race for mailbox state, because only one process reads the mailbox.
 
-The extension (inside pi) never touches IMAP or SMTP for *reading*. It sends
-mail through the daemon, and receives replies from it.
+The extension (inside pi) never touches IMAP or SMTP on the delivery path: it sends mail
+through the daemon and receives replies from it. The one exception is the `/mailbridge
+smoke` diagnostic, which deliberately sends a real mail and reads it back over its own
+short-lived connection to prove the account works.
 
 ## 2. Delivery pipeline (the part that must not lose mail)
 
