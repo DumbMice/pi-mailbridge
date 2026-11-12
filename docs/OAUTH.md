@@ -221,6 +221,31 @@ its associated directory.
 The thing to keep alive is the *billing account*, not the subscription's resources.
 Nothing in this package consumes Azure resources, so there is nothing to bill.
 
+### You do not need the $200 credit, and nothing must run in 30 days
+
+The free account is the cheapest way to obtain a **directory**. The $200 credit is
+for Azure *resources* — virtual machines, storage, databases — and this package uses
+**none of them**. The whole requirement is the tenant that Azure creates as a side
+effect of the signup.
+
+So:
+
+- **Create no Azure resources.** Not one. There is nothing to deploy; the daemon runs
+  on your own machine.
+- **Losing the unused credit is irrelevant.** It expires after 30 days and you will
+  never miss it, because you were never going to spend it.
+- **You do not have to “use” Azure within 30 days.** Signing up and registering the
+  app is the whole engagement.
+- The card is an identity check, not a purchase. With no resources provisioned there
+  is nothing to charge.
+
+If you want the directory to be maximally durable, the cheap insurance is: at the
+30-day mark, upgrade to **pay-as-you-go** *without creating anything*. A subscription
+with zero resources bills zero, and it removes any doubt about the directory's
+longevity. Doing nothing also works per Microsoft's documentation — the directory
+outlives the subscription — but an active, empty subscription is the less ambiguous
+state.
+
 ## Configuration
 
 ```json
