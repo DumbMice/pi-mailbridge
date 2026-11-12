@@ -76,6 +76,23 @@ export function parseAutoconfig(xml: string): Discovered | undefined {
 	return { imap, smtp, authType, provider }
 }
 
+/**
+ * Provider-specific auth defaults.
+ *
+ * Google advertises OAuth2 in its published settings, but for a personal mailbox
+ * an app password is strictly simpler: Google OAuth for mail scopes is *restricted*
+ * (app verification plus an annual CASA assessment to publish), and a consent
+ * screen left in "Testing" issues refresh tokens that expire after **7 days** —
+ * fatal for a daemon that must run unattended.
+ *
+ * Microsoft has no equivalent: app passwords were retired on 2024-09-16, so XOAUTH2
+ * is the only path there.
+ */
+function applyProviderDefaults(discovered: Discovered): Discovered {
+	if (discovered.provider === "google") return { ...discovered, authType: "LOGIN" }
+	return discovered
+}
+
 export interface DiscoverOptions {
 	/** Injected for tests; defaults to global fetch. */
 	fetchImpl?: typeof fetch
@@ -140,11 +157,14 @@ export async function discoverDomain(domain: string, options: DiscoverOptions = 
 	const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 5_000)
 	try {
 		const response = await doFetch(`${base}/${encodeURIComponent(domain)}`, { signal: controller.signal })
-		if (!response.ok) return KNOWN_PROVIDERS[domain.toLowerCase()]
-		return parseAutoconfig(await response.text()) ?? KNOWN_PROVIDERS[domain.toLowerCase()]
+		const parsed = response.ok
+			? (parseAutoconfig(await response.text()) ?? KNOWN_PROVIDERS[domain.toLowerCase()])
+			: KNOWN_PROVIDERS[domain.toLowerCase()]
+		return parsed ? applyProviderDefaults(parsed) : undefined
 	} catch {
 		// Offline or blocked: fall back to the built-in table before giving up.
-		return KNOWN_PROVIDERS[domain.toLowerCase()]
+		const known = KNOWN_PROVIDERS[domain.toLowerCase()]
+		return known ? applyProviderDefaults(known) : undefined
 	} finally {
 		clearTimeout(timer)
 	}
@@ -182,8 +202,12 @@ export function buildSetupConfig(
 	discovered: Discovered,
 ): Pick<ResolvedConfig, "mail" | "security" | "oauth"> & { oauth?: { issuer: string; clientId: string; scope: string } } {
 	const sameAddress = address.trim().toLowerCase() === to.trim().toLowerCase()
+	// Only attach an OAuth preset when OAuth is actually the chosen mechanism,
+	// otherwise a Gmail app-password setup would ship a clientId nobody needs.
 	const oauthPreset =
-		discovered.provider === "microsoft" || discovered.provider === "google" ? discovered.provider : undefined
+		discovered.authType === "XOAUTH2" && (discovered.provider === "microsoft" || discovered.provider === "google")
+			? discovered.provider
+			: undefined
 
 	return {
 		mail: {

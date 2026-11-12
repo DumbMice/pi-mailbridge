@@ -236,7 +236,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | Provider | Auth | Status |
 | --- | --- | --- |
 | Any IMAP/SMTP host (self-hosted, Posteo, Fastmail, QQ, 163, Zoho…) | `LOGIN` app password | ✅ works |
-| Gmail | `XOAUTH2` or app password | ✅ works |
+| Gmail | app password (`LOGIN`) recommended | ✅ works |
 | Microsoft 365 / work accounts | `XOAUTH2` | ✅ usually works |
 | **Personal** `@outlook.com` / `@hotmail.com` | `XOAUTH2` | ⚠️ two obstacles — see below |
 
@@ -269,14 +269,19 @@ and the Gmail equivalent: **[docs/OAUTH.md](./docs/OAUTH.md)**.
    you already have with *personal accounts* in the supported account types.
 2. **The servers may refuse the token anyway.** See below.
 
-**If you only need a dedicated pi mailbox, use Gmail.** Google Cloud has no tenant
-concept, and Gmail's IMAP/OAuth2 is the most reliable of the three:
+**If you only need a dedicated pi mailbox, use Gmail with an app password.** No
+OAuth app, no tenant, no verification — and no refresh token that dies weekly:
 
-```
-/mailbridge setup pi-yourname@gmail.com to you@hotmail.com force
-```
+1. enable 2-Step Verification, then create an app password at
+   <https://myaccount.google.com/apppasswords>
+2. `/mailbridge setup pi-yourname@gmail.com to you@hotmail.com force`
+3. paste the 16-character passcode into both password fields, then `/mailbridge smoke`
 
-Details: [docs/OAUTH.md](./docs/OAUTH.md).
+`--setup` picks `LOGIN` for Google automatically. Gmail *OAuth* is the harder path,
+not the easier one: mail scopes are restricted (verification + CASA to publish),
+and a consent screen left in Testing expires refresh tokens every 7 days.
+
+Details and the measured comparison: [docs/OAUTH.md](./docs/OAUTH.md).
 
 #### The personal-Outlook caveat
 

@@ -58,3 +58,24 @@ test("an unknown domain still fails clearly", async () => {
 	assert.equal(result.ok, false)
 	assert.match(result.steps.join("\n"), /no published mail settings/)
 })
+
+test("gmail setup chooses an app password, not OAuth", async () => {
+	const e = env()
+	const result = await runSetup({ address: "pi-x@gmail.com", to: "me@hotmail.com", env: e, fetchImpl: offline })
+	assert.equal(result.ok, true, result.steps.join("\n"))
+	assert.match(result.steps.join("\n"), /imap\.gmail\.com:993/)
+
+	const written = JSON.parse(readFileSync(join(e.XDG_CONFIG_HOME!, "pi-mailbridge", "config.json"), "utf8"))
+	assert.equal(written.mail.imap.authType, "LOGIN", "app password, not a 7-day OAuth token")
+	assert.equal(written.oauth, undefined, "no OAuth block: nothing to register")
+	assert.match(String(result.next), /app password/i)
+})
+
+test("outlook setup still requires OAuth", async () => {
+	const e = env()
+	const result = await runSetup({ address: "pi-x@hotmail.com", to: "me@hotmail.com", env: e, fetchImpl: offline })
+	assert.equal(result.ok, true)
+	const written = JSON.parse(readFileSync(join(e.XDG_CONFIG_HOME!, "pi-mailbridge", "config.json"), "utf8"))
+	assert.equal(written.mail.imap.authType, "XOAUTH2", "no app-password path exists for Microsoft any more")
+	assert.ok(written.oauth)
+})

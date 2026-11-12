@@ -58,31 +58,47 @@ Microsoft's own answer says it plainly:
 
 Nothing is wrong with your mailbox. You just do not have a directory to put an app in.
 
-### Your three options
+### Your three options, with the friction measured
 
-**A. Switch the pi mailbox to Gmail (recommended).** Google Cloud has no tenant
-concept — any Google account can create an OAuth client, free, in about two
-minutes:
+|  | Outlook (personal) | Gmail |
+| --- | --- | --- |
+| **App password** | ❌ retired 2024-09-16 | ✅ 16-char passcode, needs 2-Step Verification |
+| **OAuth app needed** | ✅ plus an Entra **tenant** | ✅ plus a GCP project |
+| **OAuth friction** | no tenant → "account does not exist" | mail scopes are **restricted**: verification **+ annual CASA** to publish; a consent screen left in **Testing** expires refresh tokens **every 7 days** (`invalid_grant`) |
+| **Servers** | sometimes refuse IMAP/SMTP OAuth2 outright | reliable |
+
+That table is the whole argument: **Gmail is easier because of app passwords, not
+because of OAuth.** With an app password there is no OAuth app, no tenant, no
+verification, and no token that dies weekly.
+
+**A. Gmail + app password (recommended).**
+
+1. Enable **2-Step Verification** on the Google account (required; app passwords
+   do not exist without it)
+2. <https://myaccount.google.com/apppasswords> → create one → copy the 16 characters
+3. Run setup, then paste the passcode into both password fields:
 
 ```
 /mailbridge setup pi-yourname@gmail.com to you@hotmail.com force
 ```
 
-`--setup` discovers `imap.gmail.com` / `smtp.gmail.com` and attaches the Google
-preset automatically. This also dodges a second, independent problem: personal
-`outlook.com` mailboxes frequently refuse IMAP/SMTP OAuth2 at the server (see the
-caveat below). Two obstacles replaced by zero.
+`--setup` picks `LOGIN` for Google automatically and attaches no OAuth block, so
+there is nothing to register.
 
 **B. Get a free Entra tenant for the Hotmail account.** Sign up for a free Azure
 account with that MSA; Microsoft creates a default directory where you are global
-admin, and app registration then works there. Honest caveats: signup usually asks
-for a card or phone verification, and some new personal accounts are refused
-outright — it is the step people most often get stuck on.
+admin, and app registration works there. Honest caveats: card or phone verification
+is usually required, and some new personal accounts are refused outright.
 
-**C. Use a tenant you already have.** If you have a work/school account with an
-Entra tenant, register the app there instead. Set *Supported account types* to
-include **personal Microsoft accounts**, and the device flow will still accept the
-Hotmail identity. Remember **Allow public client flows → Yes**.
+**C. Use a GCP project for Gmail OAuth.** Only worth it if you object to app
+passwords. You must either accept **7-day refresh tokens** in Testing status (the
+daemon re-authorises weekly) or publish the app — and reading mail needs restricted
+scopes, which means verification plus a recurring CASA assessment.
+
+> Trade-off worth naming: Google calls app passwords "not recommended and
+> unnecessary in most cases" and could retire them. OAuth is the durable path; this
+> package supports both. For a personal mailbox today, the app password is simply
+> the one that works without a week of paperwork.
 
 ### What the app registration needs, wherever it lives
 

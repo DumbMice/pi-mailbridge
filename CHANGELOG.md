@@ -81,6 +81,20 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### Setup: Gmail defaults to an app password
+
+Corrected a wrong recommendation. Gmail *OAuth* is harder than Outlook's, not
+easier: mail scopes are restricted (app verification plus an annual CASA
+assessment to publish) and a consent screen in Testing issues refresh tokens that
+expire after 7 days. Gmail's genuine advantage is the app password, which Microsoft
+retired.
+
+- discover: Google now resolves to `LOGIN`, Microsoft stays `XOAUTH2`
+- buildSetupConfig: an OAuth preset is attached only when `XOAUTH2` is the chosen
+  mode, so a Gmail app-password config no longer ships a clientId nobody needs
+- docs/OAUTH.md and the README provider matrix carry the measured comparison,
+  including the caveat that Google could retire app passwords
+
 ### Docs: personal Outlook needs an Entra tenant
 
 Corrected a misleading instruction. A new Hotmail address is a Microsoft account,

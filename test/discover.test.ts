@@ -168,6 +168,11 @@ test("an offline machine still resolves the common providers", async () => {
 		throw new Error("ENOTFOUND")
 	}) as unknown as typeof fetch
 	assert.equal((await discoverDomain("gmail.com", { fetchImpl }))?.provider, "google")
+	assert.equal(
+		(await discoverDomain("gmail.com", { fetchImpl }))?.authType,
+		"LOGIN",
+		"Google defaults to an app password: publishing OAuth with mail scopes needs verification + CASA, and Testing expires refresh tokens in 7 days",
+	)
 	assert.equal((await discoverDomain("outlook.com", { fetchImpl }))?.provider, "microsoft")
 	// Not a known provider and offline: correctly unknown.
 	assert.equal(await discoverDomain("mail.example.org", { fetchImpl }), undefined)
