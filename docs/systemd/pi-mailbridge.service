@@ -1,6 +1,6 @@
 [Unit]
 Description=pi-mailbridge daemon (IMAP watcher for pi coding-agent sessions)
-Documentation=https://github.com/pi-mailbridge/pi-mailbridge
+Documentation=https://www.npmjs.com/package/pi-mailbridge
 After=network-online.target
 Wants=network-online.target
 

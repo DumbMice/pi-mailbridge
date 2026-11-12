@@ -280,6 +280,11 @@ export function buildSetupConfig(
 			? discovered.provider
 			: undefined
 
+	// QQ rewrites the Message-ID we stamp (measured live), which silently breaks the reply-chain
+	// fallback. Naming the Sent folder makes `setup` record the delivered id instead, so the
+	// documented fallback works out of the box on the provider we know does this.
+	const rewritesMessageId = /(^|\.)(qq|foxmail)\.com$/i.test(discovered.imap.host)
+
 	return {
 		mail: {
 			imap: {
@@ -290,6 +295,7 @@ export function buildSetupConfig(
 				password: "",
 				folder: discovered.folder ?? "INBOX",
 				authType: discovered.authType,
+				...(rewritesMessageId ? { sentFolder: "Sent Messages" } : {}),
 			},
 			smtp: {
 				host: discovered.smtp.host,

@@ -145,7 +145,8 @@ What this means in practice:
 - **Reply normally.** Mail clients set `In-Reply-To` or at least `References`, and either is
   accepted, so a plain Reply works.
 - **Editing the subject is safe** — the chain still routes it, until the TTL expires. On a
-  provider that rewrites `Message-ID` (QQ does), set `mail.imap.sentFolder` or this fallback
+  provider that rewrites `Message-ID` (QQ does; `setup` names `Sent Messages` for `qq.com` and
+  `foxmail.com` automatically), set `mail.imap.sentFolder` or this fallback
   cannot match: the reply references an id the provider invented, not the one we recorded.
 - **Composing a brand-new email** with no id and no reference is *not* identified. In
   layout A, use Reply or keep the `[pi:…]` tag in the subject; in layout B (one address)
@@ -606,12 +607,16 @@ map and the port from `opencode-afk`: [docs/MAPPING.md](./docs/MAPPING.md).
 
 ## Status
 
-`0.1.0` — feature-complete for the single-user, one-mailbox case. Exercised by hand
-against a live Outlook.com and QQ mailbox during development; there is no automated
-live-mailbox test, so treat provider behaviour as observed rather than guaranteed. The
-hermetic suite (`npm test`) covers the token,
-authz, scan pipeline, stores, daemon HTTP surface, lifecycle, extension surface, tools,
-attachments and the full end-to-end loop; it needs no network, no mailbox and no socket.
+`0.1.0` — feature-complete for the single-user, one-mailbox case, and exercised end to end
+against a live QQ mailbox in both layouts: two addresses (QQ for pi, Outlook/Hotmail for the
+human — DMARC verified on the reply) and one address for both roles (self-delivery, the
+self-echo guard, and a human-style reply routed by the reply chain).
+
+What that does *not* buy you: there is **no automated live-mailbox test**. Provider behaviour
+is observed, not guaranteed — a provider can change how it rewrites headers or pushes `EXISTS`.
+The hermetic suite (`npm test`) covers the token, authz, scan pipeline, stores, daemon HTTP
+surface, lifecycle, extension surface, tools, attachments and the full end-to-end loop; it
+needs no network, no mailbox and no socket.
 
 Not implemented: creating a *new* session from mail (`ctx.newSession()` replaces
 the active session, which is a different architecture), and MIME/S-MIME.

@@ -15,10 +15,9 @@
     "afk"
   ],
   "license": "MIT",
-  "author": "pi-mailbridge contributors",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/pi-mailbridge/pi-mailbridge.git"
+  "author": {
+    "name": "Yang Bangcheng",
+    "email": "yangbangcheng@bigai.ai"
   },
   "type": "module",
   "engines": {
@@ -43,7 +42,8 @@
   "scripts": {
     "daemon": "node --experimental-strip-types src/daemon/main.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test test/*.test.ts"
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "prepublishOnly": "npm run typecheck && npm test"
   },
   "dependencies": {
     "imapflow": "^2.11.0",

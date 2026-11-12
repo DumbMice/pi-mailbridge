@@ -257,8 +257,12 @@ test("the documented CLI actually exists and ships", () => {
 		files: string[]
 	}
 	assert.ok(pkg.bin?.["pi-mailbridge"], "package.json must declare the pi-mailbridge bin")
-	assert.ok(pkg.author, "SECURITY.md's disclosure channel needs an author")
-	assert.ok(pkg.repository?.url, "and a repository for the private advisory path")
+	// SECURITY.md's disclosure channel must actually work: an author with an address. This
+	// package publishes no `repository`, so SECURITY leads with the address instead of pointing
+	// at a URL that does not exist.
+	const author = pkg.author as { email?: string } | string | undefined
+	const email = typeof author === "string" ? author : author?.email
+	assert.match(String(email), /@/, "SECURITY.md's disclosure channel needs a reachable address")
 	assert.ok(pkg.files.includes("bin"), "the bin shim must ship in the tarball")
 
 	const shim = read("../bin/pi-mailbridge.mjs")

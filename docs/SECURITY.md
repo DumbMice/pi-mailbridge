@@ -182,5 +182,7 @@ A legitimate email can still contain text that reads like instructions
 
 ## 7. Reporting
 
-Open a private security advisory on the repository (`repository` in `package.json`).
-Do not file a public issue for anything in this document.
+Email the maintainer at the address in `package.json`'s `author`
+(`yangbangcheng@bigai.ai`). If the package is published with a `repository`, a private
+security advisory on that repository is equally good. Do not file a public issue for anything
+in this document.

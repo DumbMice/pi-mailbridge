@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { runSetup } from "../src/core/setup.ts"
+import { buildSetupConfig } from "../src/core/discover.ts"
 
 const env = () => ({ XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "pmb-setup-")) })
 
@@ -140,4 +141,24 @@ test("setup turns DMARC off for one address and on for two", async () => {
 	const two = buildSetupConfig("pi@qq.com", "you@qq.com", base as never)
 	assert.equal(two.security.allowSelfReplies, false)
 	assert.equal(two.security.requireDmarcPass, true, "two addresses keep DMARC")
+})
+
+test("setup names the Sent folder on a provider that rewrites Message-ID", () => {
+	// Measured live: QQ rewrites the Message-ID we stamp, which kills the reply-chain fallback.
+	// Nothing configured the read-back, so the documented fallback silently did not work for the
+	// one provider we know needs it.
+	const discovered = (host: string) => ({
+		provider: "other" as const,
+		imap: { host: `imap.${host}`, port: 993, secure: true },
+		smtp: { host: `smtp.${host}`, port: 465, secure: true },
+		user: `someone@${host}`,
+		folder: "INBOX",
+		authType: "LOGIN" as const,
+	})
+
+	const qq = buildSetupConfig("someone@qq.com", "you@example.com", discovered("qq.com"))
+	assert.equal(qq.mail.imap.sentFolder, "Sent Messages")
+
+	const generic = buildSetupConfig("someone@fastmail.com", "you@example.com", discovered("fastmail.com"))
+	assert.equal(generic.mail.imap.sentFolder, undefined, "only where it is known to be needed")
 })
