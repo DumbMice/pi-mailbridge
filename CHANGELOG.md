@@ -81,6 +81,14 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### Verified: QQ attaches Authentication-Results
+
+Checked a live QQ mailbox: external mail carries `Authentication-Results` with
+authserv-id `mx.qq.com`, so the DMARC gate works there and needs no disabling. Mail
+sent from QQ to QQ carries no header at all (nothing to authenticate on the same
+server), so a self-addressed test never exercises that path - documented, because it
+is an easy way to reach a false conclusion.
+
 ### prime: start watching from now
 
 The first scan walks the entire existing mailbox to look for a routing token. On a

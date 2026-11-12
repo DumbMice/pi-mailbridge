@@ -63,6 +63,19 @@ autoconfig service is slow or blocked:
 
 Then paste the 授权码 into both password fields and run `/mailbridge smoke`.
 
+**`Authentication-Results` on QQ.** Verified against a live mailbox: external mail
+arrives with a header whose authserv-id is **`mx.qq.com`**, e.g.
+
+```
+Authentication-Results: mx.qq.com; spf=pass(...) ...; dkim=pass(...) ...
+```
+
+Mail sent from QQ to QQ gets *no* header (same server, nothing to authenticate), so a
+self-addressed test never exercises the DMARC path — use a reply from an external
+address. If you want to pin the relay exactly, set
+`security.trustedAuthservId: "mx.qq.com"`; leaving it unset uses the topmost header,
+which is the safer default because a provider can change the id.
+
 **One thing to watch:** if every reply is rejected with `dmarc-missing`, the
 provider is not adding an `Authentication-Results` header. Set
 `security.requireDmarcPass: false` — the sender allowlist still applies, so this
