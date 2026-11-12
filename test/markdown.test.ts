@@ -62,12 +62,14 @@ test("single newlines inside a paragraph are preserved", () => {
 	assert.equal(renderMarkdown("a\nb"), "<p>a<br>\nb</p>")
 })
 
-test("the footer after -- is literal text", () => {
-	const html = renderBody("answer **here**\n\n--\ndevice: x")
+test("the footer is literal text with a border, and no repeated --", () => {
+	const html = renderBody("answer **here**\n\n--\ndevice: x\nsession id: y")
 	assert.match(html, /<strong>here<\/strong>/)
-	assert.match(html, /<pre class="signature"/)
-	assert.match(html, /--\ndevice: x/)
-	assert.doesNotMatch(html, /<h2>/)
+	assert.match(html, /<pre class="signature"[^>]*border-top:1px solid/)
+	// The border is the divider in HTML; printing `--` as well reads as a duplicate.
+	assert.doesNotMatch(html, />\s*--\s*</, "the delimiter line must not be rendered")
+	assert.match(html, /device: x\nsession id: y/, "the metadata itself is untouched")
+	assert.doesNotMatch(html, /<h2>/, "and it is not parsed as a setext heading")
 })
 
 test("empty and whitespace-only input are harmless", () => {

@@ -125,7 +125,16 @@ IDLE event - the opposite of what ARCHITECTURE.md promises.
 - spawn.ts: a detached daemon now appends to `daemon.log` instead of discarding stdio.
   `stdio: "ignore"` is why this failure was invisible; the log is what found it.
 
-### Local images are inlined as cid attachments
+### The signature block no longer prints `--` twice
+
+Reported from a rendered notification: the block showed a top border *and* the literal
+`--` line, reading as a duplicate divider.
+
+The `--` line is now dropped from the HTML part only - the border is the divider there.
+It stays in the text part, where RFC 3676 needs it and where quote stripping relies on
+it, and the metadata below it is untouched.
+
+### Local images are inlined as cid attachments### Local images are inlined as cid attachments
 
 A Markdown image pointing at a local file rendered as `<img src="./shot.png">`, which a
 mail client cannot resolve - the reader saw a broken image. Local images are now read and

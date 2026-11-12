@@ -45,10 +45,12 @@ test("line structure lives in the markup, not in CSS", () => {
 
 test("the signature block is literal, not Markdown", () => {
 	// `--` after a text line is a setext heading underline; rendering the footer as
-	// Markdown would swallow it into an <h2>.
+	// Markdown would swallow it into an <h2>. The delimiter line itself is not printed,
+	// because the block's top border is the divider in HTML.
 	const html = textToHtml("answer\n\n--\ndevice: ybc-linux\nturns: 3")
-	assert.match(html, /<pre class="signature"/)
-	assert.match(html, /--\ndevice: ybc-linux\nturns: 3/)
+	assert.match(html, /<pre class="signature"[^>]*border-top/)
+	assert.match(html, /device: ybc-linux\nturns: 3/)
+	assert.doesNotMatch(html, />\s*--\s*</)
 	assert.doesNotMatch(html, /<h2>/)
 })
 

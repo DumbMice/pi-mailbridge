@@ -103,7 +103,10 @@ export function renderBody(text: string): string {
 	if (index === -1) return renderMarkdown(text)
 
 	const head = text.slice(0, index)
-	const tail = text.slice(index)
+	const tailLines = text.slice(index).split("\n")
+	// The `--` line itself is dropped in HTML: the top border is the divider there. It
+	// stays in the text part, where RFC 3676 needs it and quote stripping relies on it.
+	const tail = (tailLines[0]?.trim() === "--" ? tailLines.slice(1) : tailLines).join("\n")
 	// A visible divider, but literal text: rendering `--` as Markdown would make it a
 	// setext heading underline and swallow the body above it.
 	const signatureStyle = "font:inherit;opacity:.75;margin:18px 0 0;padding-top:10px;border-top:1px solid #d8dee4"
