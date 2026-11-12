@@ -829,3 +829,30 @@ test("a reply that merely mentions a command is still a message", async () => {
 	assert.match(pi.sent.at(-1) ?? "", /please stop mailing me/, "the whole reply reaches the agent")
 	assert.notEqual(daemon.modes.at(-1), "off", "and the quoted command did not run")
 })
+
+test("a mail command that throws is acked, not retried forever", async () => {
+	// deliveries retries an inject failure on every poll tick. A command that throws is not a
+	// delivery failure - it ran - and retrying `/mailbridge smoke` would send a real mail each
+	// time. The failure is reported instead, and the delivery is consumed.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({
+		mode: "on",
+		pending: [{ uid: 21, sessionId: SESSION, from: "you@example.com", subject: "re", body: "/mailbridge on", receivedAt: 1 }],
+	})
+	// `/mailbridge on` reaches the daemon; make that call fail, which is the path that throws.
+	;(daemon.client as unknown as { setMode: unknown }).setMode = async () => {
+		throw new Error("network down")
+	}
+	const pi = boot(daemon, t.timers, ctx(notes))
+	await pi.fire("session_start")
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.ok(notes.some((n) => /from mail failed: network down/.test(n)), `the failure was reported: ${JSON.stringify(notes)}`)
+	assert.equal(
+		notes.filter((n) => /from mail failed/.test(n)).length,
+		1,
+		"reported once, not once per poll tick",
+	)
+	assert.equal(pi.sent.length, 0, "and nothing was injected for the agent")
+})

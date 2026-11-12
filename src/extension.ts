@@ -302,7 +302,19 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				if (command) {
 					const handler = commandHandlers.get(command.name)
 					if (handler && ctx) {
-						await handler(command.args, ctx)
+						// A command that throws must NOT propagate: deliveries treats an inject
+						// failure as "retry later" and never acks, so the same command would run
+						// again every poll tick - and `/mailbridge smoke` would send a real mail
+						// each time. The command was handled either way; say it failed and let
+						// the delivery be acked.
+						try {
+							await handler(command.args, ctx)
+						} catch (error) {
+							ctx.ui.notify(
+								`mailbridge: /${command.name} from mail failed: ${(error as Error).message}`,
+								"error",
+							)
+						}
 						return
 					}
 				}
