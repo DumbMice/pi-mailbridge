@@ -22,7 +22,13 @@ import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "no
 import { dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { loadConfig, hasUsableMailConfig, shortHostname, type ResolvedConfig } from "../core/config.ts"
+import {
+	loadConfig,
+	hasUsableMailConfig,
+	shortHostname,
+	REPAIRED_PREFIX,
+	type ResolvedConfig,
+} from "../core/config.ts"
 import { configPath } from "../store/paths.ts"
 import { buildSetupConfig, discoverDomain, domainOf } from "../core/discover.ts"
 import { ensureSecret } from "../store/secret.ts"
@@ -205,8 +211,9 @@ export function checkProblems(config: ResolvedConfig): string[] {
 	const add = (problem: string) => {
 		if (!problems.includes(problem)) problems.push(problem)
 	}
-	// config.warnings already covers missing host/user/to and an empty allowlist.
-	for (const warning of config.warnings) add(warning)
+	// config.warnings already covers missing host/user/to and an empty allowlist. A repaired
+	// malformed section is reported but is not a reason to refuse to start: the daemon runs.
+	for (const warning of config.warnings) if (!warning.startsWith(REPAIRED_PREFIX)) add(warning)
 
 	if (!hasUsableMailConfig(config)) {
 		add("mail.imap.host / mail.imap.user / mail.smtp.host / mail.to must all be set")
@@ -664,7 +671,10 @@ function isEntryPoint(): boolean {
 	if (!invoked) return false
 	try {
 		return realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url))
-	} catch {
+	} catch (error) {
+		// A silent `false` here is a process that does nothing and exits 0 - under the unit's
+		// ExecStartPre that reads as success. Say why instead.
+		log(`cannot resolve the entry point (${(error as Error).message})`)
 		return false
 	}
 }

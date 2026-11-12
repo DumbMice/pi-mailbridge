@@ -81,6 +81,9 @@ export interface ResolvedConfig {
 	warnings: string[]
 }
 
+/** Marks a warning produced by repairing a malformed section: the config still works. */
+export const REPAIRED_PREFIX = "repaired: "
+
 const DEFAULTS: Omit<ResolvedConfig, "warnings"> = {
 	mail: {
 		imap: { host: "", port: 993, secure: true, user: "", password: "", folder: "INBOX" },
@@ -206,7 +209,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 		const section = sections[key]
 		const defaults = DEFAULTS[key] as Record<string, unknown>
 		if (!isRecord(section)) {
-			warnings.push(`${key} must be an object — using the defaults`)
+			warnings.push(`${REPAIRED_PREFIX}${key} must be an object — using the defaults`)
 			sections[key] = structuredClone(defaults)
 			continue
 		}
@@ -216,7 +219,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 			if (!isRecord(subDefaults)) continue
 			const value = section[sub]
 			if (!isRecord(value)) {
-				warnings.push(`${key}.${sub} must be an object — using the defaults`)
+				warnings.push(`${REPAIRED_PREFIX}${key}.${sub} must be an object — using the defaults`)
 				repaired[sub] = structuredClone(subDefaults)
 			} else {
 				repaired[sub] = { ...subDefaults, ...value }
@@ -248,6 +251,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 	if (!Number.isFinite(debounce) || debounce < 0) {
 		if (rawDebounce !== undefined) warnings.push("notify.debounceMs must be a non-negative number — using 10000")
 		resolved.notify = { ...resolved.notify, debounceMs: 10_000 }
+	}
+
+	// `listen("abc")` is a UNIX socket path in Node, and a float is not a port. The env var is
+	// documented, and injected as a string, so coerce it rather than trusting it.
+	const rawPort: unknown = resolved.daemon.port
+	const port = typeof rawPort === "number" ? rawPort : Number(rawPort)
+	if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+		if (rawPort !== undefined) warnings.push("daemon.port must be an integer 1-65535 — using 4177")
+		resolved.daemon = { ...resolved.daemon, port: 4177 }
+	} else {
+		resolved.daemon = { ...resolved.daemon, port }
 	}
 
 	// A negative, null or non-numeric interval would silently disable the safety net.

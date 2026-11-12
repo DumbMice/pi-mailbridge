@@ -102,11 +102,16 @@ await client.session.prompt({
 
 ```ts
 // pi-mailbridge — in-process, cannot "not find" the session
-pi.sendUserMessage(body, { deliverAs: "followUp", expandPromptTemplates: true })
+pi.sendUserMessage(body, { deliverAs: "followUp", expandPromptTemplates: false })
 ```
 
 `deliverAs: "followUp"` queues the reply if a run is in flight — matching afk's
 behaviour when a decision is answered late.
+
+`expandPromptTemplates: false` is not an optimisation, it is a correctness requirement: with
+expansion on, pi dispatches a message starting with `/` to a registered command and never shows
+it to the model, so a reply of `/back` (or `/afk`, or `/mailbridge …`) would execute and return
+without a turn — and this package would ack and \`Seen\` it. Mail text is never a command.
 
 ### Lifecycle signal
 

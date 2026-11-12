@@ -741,7 +741,10 @@ test("a delivered reply is injected as a followUp", async () => {
 	await new Promise((r) => setImmediate(r))
 	await new Promise((r) => setImmediate(r))
 
-	assert.deepEqual(pi.deliveryOptions, [{ deliverAs: "followUp", expandPromptTemplates: true }])
+	// Template expansion must be OFF: with it on, pi dispatches a message starting with "/" as an
+	// extension command and never shows it to the model, so a reply of "/back" would be acked and
+	// \Seen without the agent seeing it.
+	assert.deepEqual(pi.deliveryOptions, [{ deliverAs: "followUp", expandPromptTemplates: false }])
 })
 
 test("a mode change that cannot reach the daemon still updates this session's mirror", async () => {
@@ -781,4 +784,21 @@ test("a mode change that cannot reach the daemon still updates this session's mi
 	await new Promise((r) => setImmediate(r))
 	await new Promise((r) => setImmediate(r))
 	assert.ok(daemon.sent.length > 0, "and it mailed")
+})
+
+test("a mail reply can never be executed as a slash command", async () => {
+	// The regression this guards: the injected text is a human's mail, so pi must treat it as
+	// text. `/afk`, `/back` and `/mailbridge …` are all commands this package registers, and pi's
+	// prompt() dispatches any "/..." message to them instead of the model when expansion is on.
+	const t = fakeTimers()
+	const daemon = fakeDaemon({
+		mode: "on",
+		pending: [{ uid: 9, sessionId: SESSION, from: "you@example.com", subject: "re", body: "/back", receivedAt: 1 }],
+	})
+	const pi = boot(daemon, t.timers)
+	await pi.fire("session_start")
+	await new Promise((r) => setImmediate(r))
+	await new Promise((r) => setImmediate(r))
+	assert.equal(pi.sent.at(-1), "/back", "the text still reaches the agent verbatim")
+	assert.equal(pi.deliveryOptions.at(-1)?.expandPromptTemplates, false)
 })

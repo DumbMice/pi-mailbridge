@@ -673,8 +673,13 @@ test("no doc claims the token provider dies on one failure", () => {
 	for (const { file, text } of allProse()) {
 		const flatText = flat(text)
 		for (const sentence of flatText.split(/(?<=[.!?])\s+/)) {
-			if (!/failing token command|disabled after a failing/i.test(sentence)) continue
-			assert.match(sentence, /three|3|consecutive/, `${file}: ${sentence}`)
+			// The old trigger only matched the test's own phrasing, which no doc uses - so the
+			// loop body never executed. Match the sentences that actually discuss the retry rule.
+			if (!/token command/i.test(sentence)) continue
+			if (!/fail|retry|retries|give up|disable/i.test(sentence)) continue
+			if (!/three|3|consecutive/i.test(sentence)) {
+				assert.fail(`${file}: says a token command fails without the retry rule: ${sentence}`)
+			}
 		}
 	}
 })
@@ -694,17 +699,29 @@ test("the renumbering behaviour is documented, including its cost", () => {
 	assert.match(flat(doc("docs/SECURITY.md")), /uid-cursor\.json/, "SECURITY lists the cursor file")
 })
 
+test("AGENTS.md still states that DMARC is off in the single-mailbox layout", () => {
+	// This clause sat in a sentence the DMARC loop skipped (it says "come first"), so deleting
+	// it left the suite green.
+	assert.match(
+		flat(doc("AGENTS.md")),
+		/DMARC is off in the single-mailbox|off in the single-mailbox layout/i,
+		"the invariant must be stated",
+	)
+})
+
 test("authorization claims name DMARC's exception for one mailbox", () => {
 	// With one address DMARC is off, so a flat "authorization is the allowlist and DMARC"
 	// is false in the layout the README recommends for personal accounts.
 	for (const { file, text } of allProse()) {
 		const flatText = flat(text)
 		for (const sentence of flatText.split(/(?<=[.!?])\s+/)) {
-			if (!/allowlist (?:and|plus) DMARC/i.test(sentence)) continue
+			if (!/allowlist (?:and|plus|\+) DMARC/i.test(sentence)) continue
+			// "come first" is about ordering, not scope, so those sentences are exempt - but the
+			// invariant they used to hide is pinned separately below.
 			if (/routing id authenticates|never authorizes|come first/i.test(sentence)) continue
 			assert.match(
 				sentence,
-				/DMARC is off|off in the single-mailbox|single-mailbox layout/i,
+				/DMARC is off|off in the single-mailbox|single-mailbox layout|off for a single mailbox/i,
 				`${file}: ${sentence}`,
 			)
 		}

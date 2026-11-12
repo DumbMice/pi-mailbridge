@@ -97,7 +97,8 @@ how you reply:
    own notifications now carry too, so the marker and registry below are what actually
    separate them. **In this layout, Reply (or Forward-then-Reply) is the only supported
    way in.** A freshly composed mail from your address, even with the `[pi:…]` tag in the
-   subject, is rejected as `self-echo`: the tag advice below applies to layout A.
+   subject, is rejected as `no-reply-evidence` (not `self-echo` — that is the guard for our own
+   notification looping back): the tag advice below applies to layout A.
 3. **The outbound registry.** The scanner also compares the message's own `Message-ID`
    with the ids it recorded when sending, so a copy of our own mail is recognised even if
    the marker was stripped.
@@ -185,8 +186,8 @@ the queue is full, or an echo of our own notification (shown under `handled:` �
 single-mailbox layout every notification you send comes back). The reasons say why.
 `handled:` lines are the accepted paths (`route-miss` means the route id had expired or came
 from another machine; if the reply still reached a session it routed by the token or chain), `attachments dropped:` is a
-partial loss, and a full queue defers rather than discards. `examined 0` means nothing
-arrived. If mode is off nothing is scanned at all, so this panel keeps showing the
+partial loss, and a full queue defers rather than discards. Counters of zero are simply
+omitted, so a quiet scan prints no scan line at all. If mode is off nothing is scanned at all, so this panel keeps showing the
 *previous* scan — that is why `/mailbridge status` is not proof the channel is open; the
 `mode:` line is.
 

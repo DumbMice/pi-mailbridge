@@ -23,7 +23,11 @@ export async function buildTokenProvider(
 		return createDeviceCodeProvider({ client, store: fileTokenStore(env) })
 	}
 
-	const command = config.mail.smtp.tokenCommand ?? config.mail.imap.tokenCommand ?? []
+	// An empty array is not nullish: the shipped example has `mail.smtp.tokenCommand: []`, so
+	// `??` picked the empty SMTP list and ignored a perfectly good IMAP command - XOAUTH2 then
+	// failed at connect time while `--check` said the config was fine.
+	const smtp = config.mail.smtp.tokenCommand ?? []
+	const command = smtp.length > 0 ? smtp : (config.mail.imap.tokenCommand ?? [])
 	if (command.length > 0) return createCommandTokenProvider({ command })
 
 	return undefined

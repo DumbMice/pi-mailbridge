@@ -74,9 +74,11 @@ test("every section survives a null, not just the ones that were patched", () =>
 		writeFileSync(configPath(env), JSON.stringify(config))
 		const loaded = loadConfig(env)
 		check(loaded)
+		// The old form was `.replace("mail.smtp","mail.smtp")`, a no-op, so `mail` passed on
+		// "mail.to is required" even if the loop never warned about the section.
 		assert.ok(
-			loaded.warnings.some((w) => w.startsWith(name.replace("mail.smtp", "mail.smtp"))),
-			`${name} must warn, got: ${loaded.warnings.join(" | ")}`,
+			loaded.warnings.some((w) => new RegExp(`^repaired: ${name.replace(".", "\\.")} must be an object`).test(w)),
+			`${name} must warn as repaired, got: ${loaded.warnings.join(" | ")}`,
 		)
 	}
 })
@@ -107,4 +109,22 @@ test("scanIntervalSecs: null is refused, because Number(null) is 0", () => {
 	}
 	writeFileSync(configPath(env), JSON.stringify({ daemon: { scanIntervalSecs: 0 } }))
 	assert.equal(loadConfig(env).daemon.scanIntervalSecs, 0, "an explicit 0 still means off")
+})
+
+test("a repaired section does not fail --check, because the daemon still runs", async () => {
+	// --check folds every warning into a problem and exits non-zero; the shipped unit runs it as
+	// ExecStartPre. A repaired config is usable, so refusing to start it is wrong.
+	const { checkProblems } = await import("../src/daemon/main.ts")
+	const dir = mkdtempSync(join(tmpdir(), "cfg-repaired-"))
+	const env = { XDG_CONFIG_HOME: dir }
+	mkdirSync(join(dir, "pi-mailbridge"), { recursive: true })
+	writeFileSync(configPath(env), JSON.stringify({ tuning: null }))
+
+	const config = loadConfig(env)
+	assert.ok(config.warnings.some((w) => w.startsWith("repaired: tuning")))
+	assert.equal(
+		checkProblems(config).some((p) => /tuning must be an object/.test(p)),
+		false,
+		"a repaired section must not block startup",
+	)
 })

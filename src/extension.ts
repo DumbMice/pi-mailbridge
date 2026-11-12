@@ -294,7 +294,12 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			sessionId: () => ctx?.sessionManager.getSessionId(),
 			inject: async (body, record) => {
 				const content = toUserContent(body, record.attachments ?? [])
-				pi.sendUserMessage(content, { deliverAs: "followUp", expandPromptTemplates: true })
+				// A reply is text from a human, never a command. With template expansion on, pi
+				// dispatches a message starting with "/" as an extension command and never gives
+				// it to the model - so a reply of "/back" would run a command, return without a
+				// turn, and the runner would ack and \Seen it. The human would believe the agent
+				// had read it.
+				pi.sendUserMessage(content, { deliverAs: "followUp", expandPromptTemplates: false })
 			},
 			onError: (error) => ctx?.ui.notify(`mailbridge: reply not delivered (${error.message})`, "warning"),
 		})
