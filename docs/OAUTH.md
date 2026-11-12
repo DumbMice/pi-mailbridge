@@ -130,6 +130,17 @@ free, no credit card, gives a sandbox tenant with E5 licences where you are admi
 The app registration step is the same. Slower to provision, but it avoids the billing
 step entirely.
 
+With a developer tenant you get two usable mailboxes, and they are not equivalent:
+
+| pi mailbox | Authority | Risk |
+| --- | --- | --- |
+| `pi-xyz@hotmail.com` (personal) | `consumers/v2.0` | the personal-Outlook IMAP/SMTP refusals below |
+| `pi@yourtenant.onmicrosoft.com` (work) | `organizations/v2.0` | tied to the sandbox, which renews every 90 days |
+
+The app must list **personal Microsoft accounts** in its supported account types for
+the `consumers` row to work; for the `organizations` row, any tenant member will do.
+`--setup` picks the right authority from the address suffix automatically.
+
 > **Do not use Azure China / 21Vianet.** `azure.cn` is a physically and logically
 > isolated sovereign cloud with its own identity endpoints
 > (`login.partner.microsoftonline.cn`). An app registered in a 21Vianet tenant

@@ -28,8 +28,12 @@ export interface Discovered {
 	imap: Endpoint
 	smtp: Endpoint
 	authType: AuthMode
-	/** Which OAuth preset fits, when we can tell. */
-	provider: "microsoft" | "google" | "other"
+	/**
+	 * Which OAuth preset fits, when we can tell.
+	 * `microsoft-365` means a work/school tenant (authority: organizations),
+	 * `microsoft` means consumer outlook.com/hotmail (authority: consumers).
+	 */
+	provider: "microsoft" | "microsoft-365" | "google" | "other"
 	folder?: string
 }
 
@@ -102,6 +106,27 @@ export interface DiscoverOptions {
 }
 
 const ISPDB = "https://autoconfig.thunderbird.net/v1.1"
+
+/**
+ * A work/school Microsoft 365 tenant mailbox. These have no ISPDB entry and an
+ * arbitrary subdomain, so the suffix is the signal: `something.onmicrosoft.com`.
+ * The SMTP host differs from the consumer one (`smtp.office365.com`, not
+ * `smtp-mail.outlook.com`) and the authority is `organizations`.
+ */
+export const M365_PROVIDER: Discovered = {
+	imap: { host: "outlook.office365.com", port: 993, secure: true },
+	smtp: { host: "smtp.office365.com", port: 587, secure: false },
+	authType: "XOAUTH2",
+	provider: "microsoft-365",
+}
+
+/** Built-in fallback lookup, including the Microsoft 365 suffix rule. */
+function knownProvider(domain: string): Discovered | undefined {
+	const exact = KNOWN_PROVIDERS[domain.toLowerCase()]
+	if (exact) return exact
+	if (domain.toLowerCase().endsWith(".onmicrosoft.com")) return M365_PROVIDER
+	return undefined
+}
 
 /**
  * Built-in fallback for the provider families this package is used with.
@@ -185,13 +210,11 @@ export async function discoverDomain(domain: string, options: DiscoverOptions = 
 	const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 5_000)
 	try {
 		const response = await doFetch(`${base}/${encodeURIComponent(domain)}`, { signal: controller.signal })
-		const parsed = response.ok
-			? (parseAutoconfig(await response.text()) ?? KNOWN_PROVIDERS[domain.toLowerCase()])
-			: KNOWN_PROVIDERS[domain.toLowerCase()]
+		const parsed = response.ok ? (parseAutoconfig(await response.text()) ?? knownProvider(domain)) : knownProvider(domain)
 		return parsed ? applyProviderDefaults(parsed) : undefined
 	} catch {
 		// Offline or blocked: fall back to the built-in table before giving up.
-		const known = KNOWN_PROVIDERS[domain.toLowerCase()]
+		const known = knownProvider(domain)
 		return known ? applyProviderDefaults(known) : undefined
 	} finally {
 		clearTimeout(timer)
@@ -209,11 +232,17 @@ export function domainOf(address: string): string | undefined {
 export const OAUTH_SCOPE = {
 	microsoft:
 		"offline_access https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send",
+	/** Same delegated scopes; the tenant, not the resource, is what differs. */
+	"microsoft-365":
+		"offline_access https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send",
 	google: "https://mail.google.com/ offline_access",
 } as const
 
 export const OAUTH_ISSUER = {
+	/** consumer outlook.com / hotmail */
 	microsoft: "https://login.microsoftonline.com/consumers/v2.0",
+	/** work or school tenant, incl. a Developer Program sandbox */
+	"microsoft-365": "https://login.microsoftonline.com/organizations/v2.0",
 	google: "https://accounts.google.com",
 } as const
 
@@ -233,7 +262,8 @@ export function buildSetupConfig(
 	// Only attach an OAuth preset when OAuth is actually the chosen mechanism,
 	// otherwise a Gmail app-password setup would ship a clientId nobody needs.
 	const oauthPreset =
-		discovered.authType === "XOAUTH2" && (discovered.provider === "microsoft" || discovered.provider === "google")
+		discovered.authType === "XOAUTH2" &&
+		(discovered.provider === "microsoft" || discovered.provider === "microsoft-365" || discovered.provider === "google")
 			? discovered.provider
 			: undefined
 

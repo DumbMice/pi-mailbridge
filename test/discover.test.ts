@@ -228,3 +228,24 @@ test("qq.com from the live ISPDB document still yields LOGIN", () => {
 	assert.equal(parsed?.authType, "LOGIN")
 	assert.equal(parsed?.imap.secure, true)
 })
+
+// --- Microsoft 365 work/school tenants (incl. dev sandbox) ----------------
+
+test("a *.onmicrosoft.com mailbox resolves to the work-tenant preset", async () => {
+	const fetchImpl = (async () => new Response("nope", { status: 404 })) as unknown as typeof fetch
+	const found = await discoverDomain("contoso.onmicrosoft.com", { fetchImpl })
+
+	assert.ok(found, "a dev-tenant mailbox has no ISPDB entry but must still work")
+	assert.equal(found.provider, "microsoft-365")
+	assert.deepEqual(found.imap, { host: "outlook.office365.com", port: 993, secure: true })
+	assert.deepEqual(found.smtp, { host: "smtp.office365.com", port: 587, secure: false }, "work tenants use smtp.office365.com")
+	assert.equal(found.authType, "XOAUTH2")
+})
+
+test("a work-tenant config gets the organizations authority, not consumers", () => {
+	const d = parseAutoconfig(MICROSOFT_XML)!
+	const asWork = { ...d, provider: "microsoft-365" as const }
+	const config = buildSetupConfig("pi@contoso.onmicrosoft.com", "me@hotmail.com", asWork)
+	assert.equal(config.oauth?.issuer, "https://login.microsoftonline.com/organizations/v2.0")
+	assert.match(String(config.oauth?.scope), /outlook\.office\.com\/IMAP/)
+})

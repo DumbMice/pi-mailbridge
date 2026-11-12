@@ -81,6 +81,15 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### Microsoft 365 work/school tenants
+
+A developer-sandbox or work mailbox has no ISPDB entry and an arbitrary subdomain.
+ now recognises the  suffix and resolves it to the work
+preset: imap outlook.office365.com:993, smtp smtp.office365.com:587 (note the
+different host from consumer mail), and the organizations authority rather than
+consumers. A dev tenant therefore offers two usable mailboxes with different
+trade-offs, documented in docs/OAUTH.md.
+
 ### China trap: Azure China cannot authenticate global Outlook
 
 `azure.cn` (Azure operated by 21Vianet) is a physically isolated sovereign cloud
