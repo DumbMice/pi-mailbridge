@@ -178,3 +178,20 @@ test("concurrent route minting from separate processes loses nothing", async () 
 	const { routeCount } = await import("../src/store/routes.ts")
 	assert.equal(routeCount(e), 240, "every route survived")
 })
+
+test("a lock left by a dead process is stolen within the retry budget", async () => {
+	// The budget used to be ~1 s while a lock was only stealable after 5 s, so a writer killed
+	// inside the lock made the next notification fail outright for those 5 s.
+	const { statePath } = await import("../src/store/paths.ts")
+	const { mkdirSync, writeFileSync, utimesSync } = await import("node:fs")
+	const e = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-lock-")) }
+	const lock = statePath(e, "routes.lock")
+	mkdirSync(join(e.XDG_STATE_HOME!, "pi-mailbridge"), { recursive: true })
+	writeFileSync(lock, "99999:deadbeef", { mode: 0o600 })
+	const old = new Date(Date.now() - 5_000)
+	utimesSync(lock, old, old)
+
+	const id = ensureRouteForSession({ sessionId: "s1", subject: "x", env: e })
+	assert.match(id, /^[0-9a-f]{6}$/, "minting succeeded despite the stale lock")
+})
+

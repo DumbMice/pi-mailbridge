@@ -271,10 +271,13 @@ accounts are the exception — they need OAuth, which means registering an app *
 `/mailbridge check` validates the config's shape and that credentials are *present* —
 without connecting to anything, so it cannot tell a wrong password from a right one.
 `/mailbridge smoke` reloads the daemon if it is running (so it picks up the password you just
-added), sends
-one real mail and then opens the folder and counts. That proves SMTP accepts and IMAP reads
-(it does not correlate the message it sent), and it leaves the daemon using the new
-credentials.
+added), sends one real mail and then opens the folder and counts. That proves SMTP accepts and
+IMAP reads, and it leaves the daemon using the new credentials.
+
+It also **checks that our own notification survives delivery intact**: the newest message is
+fetched and the report says whether the `X-Pi-Mailbridge` marker and the `Message-ID` we stamped
+are still there. In the one-mailbox layout those two are what stop the agent re-ingesting its
+own mail — if smoke reports that neither survived, do not leave that configuration running.
 
 ### Start watching from now, not from history
 

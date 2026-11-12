@@ -23,6 +23,8 @@ import { createRegistry, type Registry } from "../store/registry.ts"
 
 export const MAX_BODY_BYTES = 1_000_000
 export const MAX_SSE_CLIENTS = 100
+/** Heartbeat entries kept; sessions that vanished are pruned on /health anyway. */
+export const MAX_PINGS = 256
 
 export type DaemonEvent =
 	| { type: "delivery"; pending: ReturnType<typeof listPending>[number] }
@@ -184,7 +186,10 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 			const nowMs = now()
 			const stale = nowMs - (deps.idleTimeoutMs ?? 120_000) * 4
 			for (const [id, at] of pings) if (at < stale) pings.delete(id)
-			const newestPing = pings.size > 0 ? Math.max(...pings.values()) : 0
+			// Track the maximum by iteration: spreading an unbounded map into Math.max throws
+			// RangeError (and kills the daemon) long before the map is "large".
+			let newestPing = 0
+			for (const at of pings.values()) if (at > newestPing) newestPing = at
 			return send(200, {
 				ok: true,
 				mode: readMode(env),
@@ -296,6 +301,13 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					const instanceId = typeof body?.instanceId === "string" ? body.instanceId : ""
 					if (!instanceId) return fail(400, "bad_request")
 					pings.set(instanceId, now())
+					// Bounded: a client that keeps changing its id must not grow this map without
+					// limit. Oldest entries are dropped first.
+					while (pings.size > MAX_PINGS) {
+						const oldest = pings.keys().next().value
+						if (oldest === undefined) break
+						pings.delete(oldest)
+					}
 					sawClient = true
 					return send(200, { ok: true, clients: pings.size })
 				}

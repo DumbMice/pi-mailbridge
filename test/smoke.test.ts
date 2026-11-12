@@ -124,3 +124,46 @@ test("smoke touches no store state", async () => {
 		assert.ok(!imports.includes(forbidden), `smoke must not import ${forbidden}`)
 	}
 })
+
+test("smoke reports whether our own marker survives delivery", async () => {
+	// Single-mailbox mode rests on the provider keeping either the marker header or our
+	// Message-ID. Probing it here turns the package's biggest open question into a step the
+	// user can read.
+	const cfg = config()
+
+	const withMarker = await runSmoke(cfg, {
+		send: async () => ({ messageId: "<abc@example.com>" }),
+		connect: async () => ({
+			count: async () => 1,
+			newestHeaders: async () => Buffer.from("Message-ID: <abc@example.com>\r\nX-Pi-Mailbridge: notification\r\n"),
+			close: async () => {},
+		}),
+	})
+	const marker = withMarker.steps.find((s) => s.step === "echo")
+	assert.equal(marker?.ok, true)
+	assert.match(marker!.detail, /marker header survives/)
+
+	const stripped = await runSmoke(cfg, {
+		send: async () => ({ messageId: "<abc@example.com>" }),
+		connect: async () => ({
+			count: async () => 1,
+			newestHeaders: async () => Buffer.from("Message-ID: <abc@example.com>\r\n"),
+			close: async () => {},
+		}),
+	})
+	const idOnly = stripped.steps.find((s) => s.step === "echo")
+	assert.equal(idOnly?.ok, true, "the Message-ID alone still keeps the guard")
+	assert.match(idOnly!.detail, /Message-ID survives/)
+
+	const both = await runSmoke(cfg, {
+		send: async () => ({ messageId: "<abc@example.com>" }),
+		connect: async () => ({
+			count: async () => 1,
+			newestHeaders: async () => Buffer.from("Message-ID: <other@example.com>\r\n"),
+			close: async () => {},
+		}),
+	})
+	const broken = both.steps.find((s) => s.step === "echo")
+	assert.equal(broken?.ok, false)
+	assert.match(broken!.detail, /may re-ingest/)
+})

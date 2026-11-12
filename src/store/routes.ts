@@ -28,6 +28,7 @@ import {
 	statSync,
 	unlinkSync,
 	writeFileSync,
+	writeSync,
 } from "node:fs"
 import { dirname } from "node:path"
 import { randomBytes } from "node:crypto"
@@ -83,31 +84,53 @@ function load(env: NodeJS.ProcessEnv): RouteRecord[] {
  * lost - and a lost route means a reply falls back to the threading chain, or to `no-token`.
  * The lock is an O_EXCL file, removed on release and stolen if a holder died.
  */
+/**
+ * A lock older than this is treated as abandoned by a process that died holding it.
+ * Legitimate holds are single-digit milliseconds; this is only reached by a dead holder or a
+ * process stalled for seconds, which cannot be told apart without an OS-level flock.
+ */
+const LOCK_STALE_MS = 3_000
+/** Retry budget must exceed the stale threshold, or a stale lock can never be stolen. */
+const LOCK_ATTEMPTS = 900
+const LOCK_SLEEP_MS = 5
+
 function withLock<T>(env: NodeJS.ProcessEnv, run: () => T): T {
 	const lock = statePath(env, "routes.lock")
 	mkdirSync(dirname(lock), { recursive: true, mode: 0o700 })
-	for (let attempt = 0; attempt < 200; attempt++) {
+	// The owner is written into the file so a release only removes a lock it still holds.
+	const owner = `${process.pid}:${randomBytes(6).toString("hex")}`
+	const sleep = (): void => {
+		Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_SLEEP_MS)
+	}
+	for (let attempt = 0; attempt < LOCK_ATTEMPTS; attempt++) {
 		try {
 			const fd = openSync(lock, "wx", 0o600)
+			try {
+				writeSync(fd, owner)
+			} catch {
+				/* the owner tag is a nicety; the lock itself is the guarantee */
+			}
 			try {
 				return run()
 			} finally {
 				closeSync(fd)
+				// Only unlink our own lock: a lock we lost to a steal must not be deleted, or a
+				// third writer walks into a critical section another process is still inside.
 				try {
-					unlinkSync(lock)
+					if (readFileSync(lock, "utf8") === owner) unlinkSync(lock)
 				} catch {
 					/* already gone */
 				}
 			}
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
-			// Steal a lock left by a process that died holding it.
+			// Steal only a lock old enough to belong to a dead holder.
 			try {
-				if (Date.now() - statSync(lock).mtimeMs > 5_000) unlinkSync(lock)
+				if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) unlinkSync(lock)
 			} catch {
-				/* raced with the holder */
+				/* raced with the holder or another stealer */
 			}
-			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5)
+			sleep()
 		}
 	}
 	throw new Error("pi-mailbridge: routes.json is locked by another process")
