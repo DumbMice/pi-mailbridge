@@ -187,6 +187,40 @@ scopes, which means verification plus a recurring CASA assessment.
   mailbox is `@hotmail.com`/`@outlook.com`
 - No client secret, no redirect URI
 
+## Do I need a paid Entra license?
+
+**No.** Entra ID **Free** is what this needs, and it is included with any Azure
+subscription or Microsoft 365 tenant at no charge.
+
+| What | Tier | Cost |
+| --- | --- | --- |
+| App registration (client id) | Free | **$0** |
+| Device-code / PKCE / OAuth2 token issuance | Free | **$0** |
+| Delegated IMAP/SMTP/Graph scopes | Free | **$0** |
+| Conditional Access, PIM, Identity Protection, risk policies | **P1 / P2** | paid — **not needed** |
+
+Microsoft's own answers say it twice: *"Simply registering app registrations in
+Entra ID does not incur any cost … as long as you're within the limits of your
+Entra ID license (Free, P1, or P2)"*, and *"you can continue to use these
+credentials … after your trial ends, as long as the tenant and the app registration
+remain active"*.
+
+So if a portal page offers **"Microsoft Entra ID P2 — one month free, then $10.50
+per user per month"**, decline it. It is a premium add-on for enterprise identity
+features; nothing in this package uses them. If you already activated a P2 trial,
+just let it lapse — the app registration keeps working on Free.
+
+### What happens when the Azure free trial ends
+
+The free account gives 30 days and a credit. If you do **not** upgrade to
+pay-as-you-go, the *subscription* expires — but the **directory survives**, and
+Entra ID Free keeps working, so the app registration and its refresh tokens
+continue to function. That is the documented separation between a subscription and
+its associated directory.
+
+The thing to keep alive is the *billing account*, not the subscription's resources.
+Nothing in this package consumes Azure resources, so there is nothing to bill.
+
 ## Configuration
 
 ```json

@@ -81,6 +81,18 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### Costs: Entra ID Free is enough
+
+Documented that no paid Entra license is required. App registration, device-code
+and PKCE OAuth2, and delegated IMAP/SMTP/Graph scopes all run on **Entra ID Free**,
+included with any Azure subscription or Microsoft 365 tenant. P1/P2 buy Conditional
+Access, PIM and Identity Protection, none of which this package touches - so the
+'Entra ID P2, one month free then $10.50/user/month' offer should be declined.
+
+Also recorded what happens when the Azure free trial ends without upgrading: the
+subscription expires, the directory and app registration survive, and OAuth keeps
+working. Nothing here consumes Azure resources, so there is nothing to bill.
+
 ### Correction: the Developer Program sandbox is gated
 
 The E5 sandbox is only granted to Visual Studio Professional/Enterprise
