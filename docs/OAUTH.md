@@ -339,9 +339,13 @@ That is the point of device code: no browser, no redirect listener, no port on t
 daemon's machine.
 
 The refresh token is stored in `$XDG_STATE_HOME/pi-mailbridge/oauth.json` (default `~/.local/state/…`) at mode
-`0600`. Access tokens are cached in memory and refreshed shortly before expiry;
-one 401 from the mail server triggers exactly one refresh, then the daemon stops
-rather than hammering the provider.
+`0600`. Access tokens are cached in memory and refreshed shortly before expiry.
+
+On the SMTP side, one 401 triggers exactly one token refresh and one retry. On the IMAP
+side there is no such invalidation: a rejected token fails the dial and the watcher
+re-dials on the normal backoff (capped at 60 s), so a revoked grant shows up as repeating
+auth errors in `daemon.log` rather than a single failure - and the daemon does not stop.
+The remedy is `/mailbridge auth` (re-authorise) followed by `/mailbridge restart`.
 
 ## When IMAP/SMTP OAuth2 still fails
 

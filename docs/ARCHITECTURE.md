@@ -132,7 +132,8 @@ An inbound message is matched to a session by the first rule that succeeds:
    subject or a client rewriting it. The chain is searched newest-first, so the
    closest ancestor wins, and entries age out with `security.tokenTtlHours` so the chain
    cannot route mail forever.
-4. Otherwise the message is rejected (`no-token`) and left unread.
+4. Otherwise the message is rejected (`no-token`) and left unread - the cursor has moved
+   past it, so the retry is a new reply, not an edited subject.
 
 None of these is authentication: they route, they do not authorize. Authorization is the
 allowlist plus DMARC, and it happens before any of this (§2). A signed token is not

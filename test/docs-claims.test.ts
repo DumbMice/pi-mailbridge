@@ -599,3 +599,15 @@ test("SECURITY's /health list matches ARCHITECTURE's", () => {
 		assert.ok(security.includes(field), `SECURITY's /health list omits ${field}`)
 	}
 })
+
+test("no doc claims the daemon stops when a token is rejected", () => {
+	// Only SMTP retries once. On IMAP a rejected token re-dials on backoff, so "the daemon
+	// stops" would tell a user with a revoked grant to expect silence while it actually
+	// re-authenticates every minute.
+	for (const { file, text } of allProse()) {
+		assert.ok(
+			!/then the daemon stops|daemon stops rather than/i.test(text),
+			`${file} claims the daemon stops after a rejected token`,
+		)
+	}
+})

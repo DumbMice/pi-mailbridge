@@ -89,7 +89,10 @@ function harness(configLoadedAt: number, opts: { reloadOk?: boolean; reloadHangs
 			dialled.push(base)
 			return client as never
 		},
-		ensureDaemon: async () => true,
+		ensureDaemon: async (base: string) => {
+			dialled.push(base)
+			return true
+		},
 		timers: { setTimeout: () => 1, clearTimeout: () => {} },
 		pollMs: 60_000,
 	})
@@ -155,12 +158,11 @@ test("the daemon URL follows the config, so a changed port is dialled", async ()
 	await h.events.get("session_start")!({}, h.ctx)
 	assert.deepEqual(h.dialledAt().slice(0, 1), ["http://127.0.0.1:4177"], `starts on the configured port (dialled: ${JSON.stringify(h.dialledAt())})`)
 
-	// A command reloads the config; the next dial must use the new port.
+	// A command reloads the config; the next daemon dial must use the new port.
 	h.setPort(4199)
-	await h.runCommand("status")
-	// status prints the URL it would use; the dial happens on the next client build.
+	await h.runCommand("restart")
 	assert.ok(
-		h.notes.some((n) => n.includes(":4199")),
-		`the daemon URL must follow the config (notes: ${JSON.stringify(h.notes)})`,
+		h.dialledAt().some((url) => url.endsWith(":4199")),
+		`the daemon URL must follow the config (dialled: ${JSON.stringify(h.dialledAt())})`,
 	)
 })

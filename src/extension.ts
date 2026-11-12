@@ -97,6 +97,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	const env = deps.env ?? process.env
 	const load = deps.loadConfig ?? (() => loadConfig(env))
 	let config: ResolvedConfig = load()
+	/** The address the current client was built with; may lag `config` after a port edit. */
+	let clientBase: string | undefined
 	const secretFn = deps.secret ?? (() => readSecret(env))
 	const timers = deps.timers ?? defaultTimers
 	const pollMs = deps.pollMs ?? POLL_MS
@@ -243,7 +245,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 		const token = secret.toString("base64url")
 		const makeClient = deps.makeClient ?? ((base, tok) => createDaemonClient({ baseUrl: base, token: tok }))
-		client = makeClient(currentBaseUrl(), token)
+		clientBase = currentBaseUrl()
+		client = makeClient(clientBase, token)
 
 		const initialMode = await client.mode()
 		emailMode = initialMode.ok && initialMode.data.mode === "on" ? "on" : "off"
@@ -451,7 +454,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				const pending = client ? await client.pending() : undefined
 				c.ui.notify(
 					[
-						`daemon: ${health?.ok ? "healthy" : "unreachable"} (${currentBaseUrl()})`,
+						`daemon: ${health?.ok ? "healthy" : "unreachable"} (${clientBase ?? currentBaseUrl()})`,
 						`device: ${config.device.name}`,
 						`mode: ${health?.ok ? health.data.mode : "(unknown)"}`,
 						`session: ${ctx?.sessionManager.getSessionId() ?? "(none)"}`,
