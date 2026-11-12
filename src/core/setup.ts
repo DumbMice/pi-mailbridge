@@ -1,0 +1,95 @@
+// Setup: address in, runnable config out.
+//
+// Shared by `/mailbridge setup` (inside pi) and `--setup` (headless), so the two
+// entry points cannot drift. It writes the config file and reports what it did;
+// it never starts a process and never prompts.
+
+import { existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { dirname } from "node:path"
+
+import { shortHostname } from "./config.ts"
+import { buildSetupConfig, discoverDomain, domainOf, type Discovered } from "./discover.ts"
+import { configPath } from "../store/paths.ts"
+
+export interface SetupOptions {
+	address: string
+	/** Where the human reads mail. Defaults to `address` (single-mailbox mode). */
+	to?: string
+	/** Overwrite an existing config. */
+	force?: boolean
+	env?: NodeJS.ProcessEnv
+	fetchImpl?: typeof fetch
+}
+
+export interface SetupResult {
+	ok: boolean
+	/** Human-readable progress, in order. */
+	steps: string[]
+	/** Where the config was written, when it was. */
+	path?: string
+	discovered?: Discovered
+	/** The exact next action, or the reason it failed. */
+	next?: string
+}
+
+export async function runSetup(options: SetupOptions): Promise<SetupResult> {
+	const env = options.env ?? process.env
+	const steps: string[] = []
+	const address = options.address.trim()
+	const to = (options.to ?? address).trim()
+
+	const domain = domainOf(address)
+	if (!domain) return { ok: false, steps: [`not an email address: ${address}`] }
+
+	const target = configPath(env)
+	if (existsSync(target) && !options.force) {
+		return {
+			ok: false,
+			steps: [`${target} already exists`],
+			path: target,
+			next: "run `/mailbridge setup … force` to overwrite",
+		}
+	}
+
+	steps.push(`discovering ${domain}…`)
+	const discovered = await discoverDomain(domain, options.fetchImpl ? { fetchImpl: options.fetchImpl } : {})
+	if (!discovered) {
+		return {
+			ok: false,
+			steps: [...steps, `no published mail settings for ${domain}`],
+			next: "the domain is not in the autoconfig database; write config.json by hand (config.example.json)",
+		}
+	}
+
+	steps.push(`imap ${discovered.imap.host}:${discovered.imap.port} (${discovered.imap.secure ? "TLS" : "STARTTLS"})`)
+	steps.push(`smtp ${discovered.smtp.host}:${discovered.smtp.port} (${discovered.smtp.secure ? "TLS" : "STARTTLS"})`)
+	steps.push(`auth ${discovered.authType}${discovered.provider !== "other" ? ` (${discovered.provider})` : ""}`)
+
+	const built = buildSetupConfig(address, to, discovered)
+	const config = {
+		...built,
+		device: { name: shortHostname() },
+		daemon: { host: "127.0.0.1", port: 4177 },
+		notify: { onSettled: true, debounceMs: 10_000, notifyOnAborted: false, subject: "pi" },
+		tuning: { idleRenewMs: 25 * 60 * 1000, autoIdleDelayMs: 1000, backoffInitialMs: 1000, backoffMaxMs: 60_000 },
+	}
+
+	mkdirSync(dirname(target), { recursive: true, mode: 0o700 })
+	writeFileSync(target, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
+	steps.push(`wrote ${target}`)
+
+	if (built.security.allowSelfReplies) {
+		steps.push(`one mailbox for both roles — replies from ${to} are accepted only when they are real replies`)
+	}
+
+	return {
+		ok: true,
+		steps,
+		path: target,
+		discovered,
+		next:
+			discovered.authType === "XOAUTH2"
+				? "put your app client id in the oauth block, then `/mailbridge auth`"
+				: "put the account app password in the mail block, then `/mailbridge smoke`",
+	}
+}

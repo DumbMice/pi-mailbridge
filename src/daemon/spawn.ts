@@ -146,6 +146,8 @@ export function createDaemonClient(options: DaemonClientOptions) {
 		register: (sessionId: string) => call<{ alreadyPending: boolean; full: boolean }>("POST", "/register", { sessionId }),
 		release: (sessionId: string) => call<{ ok: boolean }>("DELETE", "/register", { sessionId }),
 		send: (message: { to?: string; subject: string; text: string }) => call<{ ok: boolean }>("POST", "/send", message),
+		/** Re-read config and restart the watcher (after setup or auth). */
+		reload: () => call<{ ok: boolean }>("POST", "/reload"),
 	}
 }
 

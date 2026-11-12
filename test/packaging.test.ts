@@ -187,7 +187,11 @@ test("the provider matrix names the risky case honestly", () => {
 	assert.match(readme, /not\s+\*\*implemented|not implemented/i, "README must admit Graph is not built yet")
 })
 
-test("--setup is documented alongside install", () => {
-	assert.match(readme, /--setup/, "README must document the setup command")
-	assert.match(readme, /--smoke/, "README must document the smoke test")
+test("the in-pi flow is documented first, CLI only as headless", () => {
+	for (const sub of ["setup", "auth", "smoke"]) {
+		assert.match(readme, new RegExp(`/mailbridge ${sub}`), `README must document /mailbridge ${sub}`)
+	}
+	// The CLI must be framed as the daemon/systemd entry point, not the normal path.
+	assert.match(readme, /headless/i, "README should label the CLI as headless/systemd only")
+	assert.match(readme, /--check/, "README should keep the ExecStartPre check documented")
 })

@@ -66,6 +66,21 @@ Message-IDs recorded at send time in `store/threads.ts`), then rejected as
 `no-token` and left unread. The chain fallback means editing the subject no longer
 loses a reply; `security.allowHeaderThreading: false` disables it.
 
+### In-pi commands
+
+`/mailbridge` now takes subcommands, so the whole user-facing flow is inside pi:
+`setup`, `check`, `auth`, `smoke`, `restart`, plus the existing status. Only the
+daemon itself stays a process (it must outlive pi); its CLI entry is documented as
+the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
+`core/token-source.ts` with the commands so behaviour cannot drift.
+
+- daemon: `POST /reload` re-reads config and restarts the watcher, so `setup` and
+  `auth` take effect without killing anything by hand.
+- fixed: the extension resolved the daemon script with `URL.pathname` instead of
+  `fileURLToPath`, which mangles paths containing spaces or non-ASCII.
+- `/mailbridge check` now warns when `oauth` is configured but neither account
+  uses `XOAUTH2`, which would otherwise be silently ignored.
+
 ### Setup
 
 - `pi-mailbridge --setup <address> [--to <your-address>]`: discovers the

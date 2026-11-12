@@ -336,3 +336,51 @@ test("/send reports the Message-ID to the caller so it can be recorded", async (
 		await service.close()
 	}
 })
+
+test("POST /reload restarts the watcher and requires auth", async () => {
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-daemon-")) }
+	let reloads = 0
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env,
+		source: { searchAfter: async () => [], fetch: async () => undefined },
+		send: async () => {},
+		reload: async () => {
+			reloads++
+			return { ok: true }
+		},
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	const base = `http://127.0.0.1:${port}`
+	try {
+		assert.equal((await fetch(`${base}/reload`, { method: "POST" })).status, 401)
+		assert.equal(reloads, 0, "unauthenticated reload must not run")
+
+		const ok = await fetch(`${base}/reload`, { method: "POST", headers: auth() })
+		assert.equal(ok.status, 200)
+		assert.equal(reloads, 1)
+	} finally {
+		await service.close()
+	}
+})
+
+test("a failed reload surfaces as 500 with the reason", async () => {
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-daemon-")) }
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env,
+		source: { searchAfter: async () => [], fetch: async () => undefined },
+		send: async () => {},
+		reload: async () => ({ ok: false, error: "bad config" }),
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	try {
+		const res = await fetch(`http://127.0.0.1:${port}/reload`, { method: "POST", headers: auth() })
+		assert.equal(res.status, 500)
+		assert.match(await res.text(), /bad config/)
+	} finally {
+		await service.close()
+	}
+})

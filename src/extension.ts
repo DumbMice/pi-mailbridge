@@ -15,6 +15,14 @@ import { createSettleNotifier, type SettleContext, type SettleNotifier } from ".
 import { createDeliveryRunner, type DeliveryRunner } from "./core/deliveries.ts"
 import { toUserContent, type UserContent } from "./core/attachments.ts"
 import { daemonBaseUrl, ensureDaemon, createDaemonClient, type DaemonClient } from "./daemon/spawn.ts"
+import { parseMailbridgeCommand, USAGE } from "./core/commands.ts"
+import { runSetup } from "./core/setup.ts"
+import { runSmoke } from "./core/smoke.ts"
+import { buildTokenProvider } from "./core/token-source.ts"
+import { createOpenidClient } from "./core/oauth-openid.ts"
+import { createDeviceCodeProvider } from "./core/oauth-device.ts"
+import { fileTokenStore } from "./store/oauth-store.ts"
+import { fileURLToPath } from "node:url"
 
 const POLL_MS = 10_000
 
@@ -73,7 +81,8 @@ const defaultTimers: SettleTimers = {
 
 export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {}): void {
 	const env = deps.env ?? process.env
-	const config: ResolvedConfig = (deps.loadConfig ?? (() => loadConfig(env)))()
+	const load = deps.loadConfig ?? (() => loadConfig(env))
+	let config: ResolvedConfig = load()
 	const secretFn = deps.secret ?? (() => readSecret(env))
 	const timers = deps.timers ?? defaultTimers
 	const pollMs = deps.pollMs ?? POLL_MS
@@ -146,7 +155,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 		const ensure = deps.ensureDaemon
 		if (ensure) {
-			const healthy = await ensure(baseUrl, new URL("../../src/daemon/main.ts", import.meta.url).pathname)
+			const healthy = await ensure(baseUrl, fileURLToPath(new URL("./daemon/main.ts", import.meta.url)))
 			if (!healthy) {
 				c.ui.notify("mailbridge: daemon not reachable; replies will not arrive", "warning")
 				return
@@ -225,24 +234,153 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	pi.registerCommand("back", { description: "Email mode OFF: decisions ask in the terminal", handler: (_a, c) => setMode("off", c) })
 
 	pi.registerCommand("mailbridge", {
-		description: "Mailbridge status",
-		handler: async (_a, c) => {
-			const secret = secretFn()
-			const health = client ? await client.health() : undefined
-			const pending = client ? await client.pending() : undefined
-			c.ui.notify(
-				[
-					`daemon: ${health?.ok ? "healthy" : "unreachable"} (${baseUrl})`,
-					`device: ${config.device.name}`,
-					`mode: ${health?.ok ? health.data.mode : "(unknown)"}`,
-					`session: ${ctx?.sessionManager.getSessionId() ?? "(none)"}`,
-					`secret: ${secret ? "present" : "missing"}`,
-					`mailbox: ${config.mail.to || "(unset)"}`,
-					`allowlist: ${config.security.allowFrom.join(", ") || "(empty — denies all)"}`,
-					`pending replies: ${pending?.ok ? pending.data.pending.length : "?"}`,
-				].join("\n"),
-				"info",
-			)
+		description: "Status, setup, check, auth, smoke, restart",
+		handler: async (args, c) => {
+			const parsed = parseMailbridgeCommand(args)
+
+			const statusReport = async () => {
+				const secret = secretFn()
+				const health = client ? await client.health() : undefined
+				const pending = client ? await client.pending() : undefined
+				c.ui.notify(
+					[
+						`daemon: ${health?.ok ? "healthy" : "unreachable"} (${baseUrl})`,
+						`device: ${config.device.name}`,
+						`mode: ${health?.ok ? health.data.mode : "(unknown)"}`,
+						`session: ${ctx?.sessionManager.getSessionId() ?? "(none)"}`,
+						`secret: ${secret ? "present" : "missing"}`,
+						`mailbox: ${config.mail.to || "(unset)"}`,
+						`allowlist: ${config.security.allowFrom.join(", ") || "(empty — denies all)"}`,
+						`pending replies: ${pending?.ok ? pending.data.pending.length : "?"}`,
+					].join("\n"),
+					"info",
+				)
+			}
+
+			switch (parsed.sub) {
+				case "help":
+					return void c.ui.notify(USAGE, "info")
+
+				case "status":
+					return void (await statusReport())
+
+				case "setup": {
+					if (!parsed.address) return void c.ui.notify(`setup needs an address\n\n${USAGE}`, "warning")
+					const result = await runSetup({
+						address: parsed.address,
+						...(parsed.to ? { to: parsed.to } : {}),
+						force: parsed.force,
+						env,
+					})
+					config = load() // pick up what was just written
+					const reloaded = client ? await client.reload() : undefined
+					c.ui.notify(
+						[
+							...result.steps,
+							result.next ? `next: ${result.next}` : "",
+							client ? (reloaded?.ok ? "daemon reloaded" : "daemon did not reload — run /mailbridge restart") : "",
+						]
+							.filter(Boolean)
+							.join("\n"),
+						result.ok ? "info" : "error",
+					)
+					return
+				}
+
+				case "check": {
+					const secret = secretFn()
+					const problems = [...config.warnings]
+					if (!secret) problems.push("shared secret missing — start the daemon once")
+					const usesOAuth = config.mail.imap.authType === "XOAUTH2" || config.mail.smtp.authType === "XOAUTH2"
+					if (config.oauth && !usesOAuth) {
+						problems.push("oauth is configured but neither account uses XOAUTH2 — it would be ignored")
+					}
+					if (usesOAuth) {
+						const oauthConfigured = Boolean(config.oauth?.issuer && config.oauth.clientId)
+						const hasToken = Boolean(fileTokenStore(env).read()?.refreshToken)
+						const hasCommand = Boolean((config.mail.smtp.tokenCommand ?? config.mail.imap.tokenCommand ?? []).length)
+						if (oauthConfigured && !hasToken) problems.push("oauth configured but not authorised — /mailbridge auth")
+						if (!oauthConfigured && !hasCommand) problems.push("XOAUTH2 needs oauth.* or a tokenCommand")
+					}
+					c.ui.notify(
+						problems.length ? problems.map((p) => `! ${p}`).join("\n") : "config ok — run /mailbridge smoke to prove it",
+						problems.length ? "warning" : "info",
+					)
+					return
+				}
+
+				case "auth": {
+					if (!config.oauth?.issuer || !config.oauth.clientId) {
+						return void c.ui.notify("oauth.issuer and oauth.clientId are required — run /mailbridge setup first", "error")
+					}
+					if (config.oauth.clientId.startsWith("<")) {
+						return void c.ui.notify("oauth.clientId is still the placeholder — register an app (docs/OAUTH.md)", "error")
+					}
+					try {
+						const oauthClient = await createOpenidClient(config.oauth)
+						const authorization = await oauthClient.deviceAuthorization()
+						c.ui.notify(
+							[
+								"Approve this login on any device, then wait here:",
+								authorization.verificationUri,
+								authorization.userCode ? `code: ${authorization.userCode}` : "",
+							]
+								.filter(Boolean)
+								.join("\n"),
+							"info",
+						)
+						// Poll in the background so the TUI stays usable.
+						void oauthClient
+							.pollDeviceAuthorization()
+							.then(async (tokens) => {
+								if (!tokens.refreshToken) {
+									c.ui.notify("no refresh_token returned — add offline_access to oauth.scope", "error")
+									return
+								}
+								fileTokenStore(env).write({
+									refreshToken: tokens.refreshToken,
+									accessToken: tokens.accessToken,
+									expiresAt: tokens.expiresAt,
+								})
+								const reloaded = client ? await client.reload() : undefined
+								c.ui.notify(
+									`authorised; refresh token stored${reloaded?.ok ? ", daemon reloaded" : ""}`,
+									"info",
+								)
+							})
+							.catch((error: Error) => c.ui.notify(`login failed: ${error.message}`, "error"))
+					} catch (error) {
+						c.ui.notify(`login failed: ${(error as Error).message}`, "error")
+					}
+					return
+				}
+
+				case "smoke": {
+					try {
+						const provider = await buildTokenProvider(config, env)
+						const result = await runSmoke(config, {
+							...(provider ? { getAccessToken: () => provider.getToken() } : {}),
+						})
+						c.ui.notify(
+							[
+								...result.steps.map((s) => `${s.step} ${s.ok ? "ok" : "FAILED"}: ${s.detail}`),
+								...result.steps.filter((s) => s.hint).map((s) => `hint: ${s.hint}`),
+							].join("\n"),
+							result.ok ? "info" : "error",
+						)
+					} catch (error) {
+						c.ui.notify(`smoke failed: ${(error as Error).message}`, "error")
+					}
+					return
+				}
+
+				case "restart": {
+					if (!client) return void c.ui.notify("daemon is not reachable — nothing to restart", "warning")
+					const reloaded = await client.reload()
+					c.ui.notify(reloaded?.ok ? "daemon reloaded" : "reload failed", reloaded?.ok ? "info" : "error")
+					return
+				}
+			}
 		},
 	})
 

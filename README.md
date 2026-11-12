@@ -126,20 +126,32 @@ folder, never a mailbox that receives untrusted mail.
 
 ```bash
 pi install npm:pi-mailbridge
-
-# Turn an address into a working config (discovers servers + required auth):
-pi-mailbridge --setup pi-xyz@outlook.com --to you@outlook.com
-
-# Then, for OAuth providers (Outlook/Microsoft 365/Gmail):
-pi-mailbridge --auth     # approve once on any device
-pi-mailbridge --smoke    # send one real mail, then read the folder back
 ```
 
-`--setup` fetches the provider's published mail settings (Thunderbird's
-autoconfig database), so you never hand-write hosts, ports or TLS modes. It
-refuses to overwrite an existing config without `--force`.
+Then do everything from inside pi — no shell required:
+
+```
+/mailbridge setup pi-xyz@outlook.com to you@outlook.com   # discovers servers + auth
+/mailbridge auth                                          # approve once, on any device
+/mailbridge smoke                                         # send one real mail, then read it back
+```
+
+`setup` fetches the provider's published mail settings (Thunderbird's
+autoconfig database) and the auth it requires, so you never hand-write hosts,
+ports or TLS modes. It refuses to overwrite an existing config unless you add
+`force`.
 
 Prefer to write it yourself? Copy [`config.example.json`](./config.example.json).
+
+### The headless entry point
+
+There is a CLI, but only for running the daemon where pi cannot: a systemd unit,
+a container, a remote box. It is the same code path, not a second workflow.
+
+```bash
+node src/daemon/main.ts            # run the daemon
+node src/daemon/main.ts --check    # for ExecStartPre
+```
 
 In pi:
 
@@ -164,6 +176,11 @@ systemctl --user enable --now pi-mailbridge
 | `/afk` | Email mode on: decisions mail you and end the turn |
 | `/back` | Email mode off: decisions ask in the terminal |
 | `/mailbridge` | Status: daemon health, mode, session, secret, mailbox, allowlist, pending replies |
+| `/mailbridge setup <addr> [to <addr>] [force]` | Discover servers + auth, write the config, reload the daemon |
+| `/mailbridge check` | Validate config and credentials; says what is missing |
+| `/mailbridge auth` | Start the OAuth2 device login; prints the URL, polls in the background |
+| `/mailbridge smoke` | Send one real mail, then read the folder back |
+| `/mailbridge restart` | Re-read config and restart the daemon's watcher |
 
 ## Agent tools
 
@@ -293,7 +310,7 @@ map and the port from `opencode-afk`: [docs/MAPPING.md](./docs/MAPPING.md).
 ## Status
 
 `0.1.0` — feature-complete for the single-user, one-mailbox case, not yet
-battle-tested against a live mailbox. 232 hermetic tests cover the token, authz,
+battle-tested against a live mailbox. 247 hermetic tests cover the token, authz,
 scan pipeline, stores, daemon HTTP surface, lifecycle, extension surface, tools,
 attachments and the full end-to-end loop.
 

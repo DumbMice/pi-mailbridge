@@ -39,6 +39,7 @@ interface Harness {
 	registered: string[]
 	released: string[]
 	modes: string[]
+	reloads: number[]
 	start(): Promise<void>
 }
 
@@ -57,6 +58,7 @@ function harness(
 	const registered: string[] = []
 	const released: string[] = []
 	const modes: string[] = []
+	const reloads: number[] = []
 	let currentMode = over.mode ?? "on"
 
 	const ok = <T>(data: T): DaemonResult<T> => ({ ok: true, data })
@@ -81,6 +83,10 @@ function harness(
 		},
 		release: async (sessionId: string) => {
 			released.push(sessionId)
+			return ok({ ok: true })
+		},
+		reload: async () => {
+			reloads.push(1)
 			return ok({ ok: true })
 		},
 		send: async (message: { to?: string; subject: string; text: string }) => {
@@ -137,6 +143,7 @@ function harness(
 		registered,
 		released,
 		modes,
+		reloads,
 		start: async () => {
 			await handlers.get("session_start")?.({}, ui)
 		},
@@ -266,4 +273,73 @@ test("/mailbridge names the device", async () => {
 		ui: { notify: (m: string) => h.notes.push(m) },
 	})
 	assert.match(h.notes.join("\n"), /device: test-device/)
+})
+
+// --- in-pi command surface ------------------------------------------------
+
+test("/mailbridge help prints the usage", async () => {
+	const h = harness()
+	await h.start()
+	await h.commands.get("mailbridge")!("help", {
+		cwd: "/home/ybc/Work/proj",
+		sessionManager: { getSessionId: () => SESSION },
+		ui: { notify: (m: string) => h.notes.push(m) },
+	})
+	const out = h.notes.join("\n")
+	for (const sub of ["setup", "check", "auth", "smoke", "restart"]) {
+		assert.ok(out.includes(sub), `help should mention ${sub}: ${out}`)
+	}
+})
+
+test("/mailbridge restart asks the daemon to reload", async () => {
+	const h = harness()
+	await h.start()
+	await h.commands.get("mailbridge")!("restart", {
+		cwd: "/home/ybc/Work/proj",
+		sessionManager: { getSessionId: () => SESSION },
+		ui: { notify: (m: string) => h.notes.push(m) },
+	})
+	assert.equal(h.reloads.length, 1)
+	assert.match(h.notes.join("\n"), /reloaded/)
+})
+
+test("/mailbridge auth refuses a placeholder client id", async () => {
+	const cfg = config()
+	cfg.oauth = { issuer: "https://login.microsoftonline.com/consumers/v2.0", clientId: "<your app client id>", scope: "offline_access" }
+	const h = harness({ cfg })
+	await h.start()
+	await h.commands.get("mailbridge")!("auth", {
+		cwd: "/home/ybc/Work/proj",
+		sessionManager: { getSessionId: () => SESSION },
+		ui: { notify: (m: string) => h.notes.push(m) },
+	})
+	assert.match(h.notes.join("\n"), /placeholder/)
+})
+
+test("/mailbridge check reports an unauthorised oauth setup", async () => {
+	const cfg = config()
+	cfg.mail.imap.authType = "XOAUTH2"
+	cfg.mail.smtp.authType = "XOAUTH2"
+	cfg.oauth = { issuer: "https://login.microsoftonline.com/consumers/v2.0", clientId: "real-id", scope: "offline_access" }
+	const h = harness({ cfg })
+	await h.start()
+	await h.commands.get("mailbridge")!("check", {
+		cwd: "/home/ybc/Work/proj",
+		sessionManager: { getSessionId: () => SESSION },
+		ui: { notify: (m: string) => h.notes.push(m) },
+	})
+	assert.match(h.notes.join("\n"), /not authorised|\/mailbridge auth/)
+})
+
+test("/mailbridge check flags oauth configured but unused", async () => {
+	const cfg = config()
+	cfg.oauth = { issuer: "https://login.microsoftonline.com/consumers/v2.0", clientId: "real-id", scope: "offline_access" }
+	const h = harness({ cfg })
+	await h.start()
+	await h.commands.get("mailbridge")!("check", {
+		cwd: "/home/ybc/Work/proj",
+		sessionManager: { getSessionId: () => SESSION },
+		ui: { notify: (m: string) => h.notes.push(m) },
+	})
+	assert.match(h.notes.join("\n"), /would be ignored/)
 })

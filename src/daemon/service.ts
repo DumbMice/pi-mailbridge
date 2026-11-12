@@ -38,6 +38,11 @@ export interface DaemonDeps {
 	 * not need the routing secret.
 	 */
 	onSent?: (info: { messageId?: string; subject: string }) => void
+	/**
+	 * Re-read config and restart the watcher. Called after `/mailbridge setup` or
+	 * `auth` so a fresh config or token takes effect without killing the daemon.
+	 */
+	reload?: () => Promise<{ ok: boolean; error?: string }>
 	env?: NodeJS.ProcessEnv
 	now?: () => number
 	registry?: Registry
@@ -194,6 +199,17 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					const sessionId = typeof body?.sessionId === "string" ? body.sessionId : ""
 					if (!sessionId) return fail(400, "bad_request")
 					registry.release(sessionId)
+					return send(200, { ok: true })
+				}
+
+				case "POST /reload": {
+					if (!deps.reload) return fail(501, "not_supported")
+					try {
+						const result = await deps.reload()
+						if (!result.ok) return fail(500, "reload_failed", { message: result.error ?? "unknown" })
+					} catch (error) {
+						return fail(500, "reload_failed", { message: (error as Error).message })
+					}
 					return send(200, { ok: true })
 				}
 

@@ -23,13 +23,16 @@ import { buildSetupConfig, discoverDomain, domainOf } from "../core/discover.ts"
 import { ensureSecret } from "../store/secret.ts"
 import { sendMail } from "../core/mailer.ts"
 import { createCommandTokenProvider } from "../core/oauth.ts"
-import { createDeviceCodeProvider } from "../core/oauth-device.ts"
 import { createOpenidClient } from "../core/oauth-openid.ts"
+import { buildTokenProvider } from "../core/token-source.ts"
 import { fileTokenStore } from "../store/oauth-store.ts"
 import { scanAndProcess } from "./process.ts"
 import { createImapWatcher, type ImapWatcher } from "./watcher.ts"
 import { createImapflowFactory } from "./imapflow.ts"
 import { createDaemonService, type DaemonService } from "./service.ts"
+import type { MailSource } from "./process.ts"
+import { runSmoke } from "../core/smoke.ts"
+import { runSetup } from "../core/setup.ts"
 import { listPending } from "../store/pending-store.ts"
 import { recordOutbound } from "../store/threads.ts"
 import { tokenFromSubject } from "../core/token.ts"
@@ -49,18 +52,6 @@ const EXIT_NETWORK = 4
  * command -> none (LOGIN auth). Returning `undefined` is not an error: it means
  * the account does not use XOAUTH2.
  */
-async function buildTokenProvider(config: ResolvedConfig) {
-	if (config.oauth?.issuer && config.oauth.clientId) {
-		const client = await createOpenidClient(config.oauth)
-		return createDeviceCodeProvider({ client, store: fileTokenStore() })
-	}
-
-	const command = config.mail.smtp.tokenCommand ?? config.mail.imap.tokenCommand ?? []
-	if (command.length > 0) return createCommandTokenProvider({ command })
-
-	return undefined
-}
-
 /**
  * `--auth`: approve the device grant once and persist the refresh token.
  * Prints the URL and code, waits for approval, then exits.
@@ -111,50 +102,14 @@ async function login(config: ResolvedConfig): Promise<number> {
  */
 async function smoke(config: ResolvedConfig): Promise<number> {
 	const tokenProvider = await buildTokenProvider(config)
-	const getAccessToken = tokenProvider ? () => tokenProvider.getToken() : undefined
-
-	// --- SMTP ---
-	try {
-		const stamp = new Date().toISOString()
-		const sent = await sendMail(
-			config,
-			{
-				to: config.mail.to,
-				subject: `pi-mailbridge smoke test ${stamp}`,
-				text: `This is a smoke test from ${config.device.name}.\n\nIf you can read this, SMTP works.\n`,
-			},
-			{ getAccessToken },
-		)
-		log(`smtp ok: sent to ${config.mail.to}${sent.messageId ? ` (${sent.messageId})` : ""}`)
-	} catch (error) {
-		log(`smtp FAILED: ${(error as Error).message}`)
-		return EXIT_AUTH
+	const result = await runSmoke(config, {
+		...(tokenProvider ? { getAccessToken: () => tokenProvider.getToken() } : {}),
+	})
+	for (const step of result.steps) {
+		log(`${step.step} ${step.ok ? "ok" : "FAILED"}: ${step.detail}`)
+		if (step.hint) log(`  hint: ${step.hint}`)
 	}
-
-	// --- IMAP ---
-	let client: Awaited<ReturnType<ReturnType<typeof createImapflowFactory>>> | undefined
-	try {
-		const factory = createImapflowFactory({ getAccessToken })
-		client = await factory(config, { idleRenewMs: config.tuning.idleRenewMs })
-		await client.connect()
-		await client.mailboxOpen(config.mail.imap.folder || "INBOX")
-		const uids = await client.search({ uid: "1:*" }, { uid: true })
-		log(`imap ok: ${uids.length} message(s) visible in ${config.mail.imap.folder || "INBOX"}`)
-	} catch (error) {
-		const message = (error as Error).message
-		log(`imap FAILED: ${message}`)
-		if (/auth|login|535|AUTHENTICATIONFAILED|authenticated but not connected/i.test(message)) {
-			log("if the token is valid but IMAP rejects it, the account may need the Graph transport — see docs/OAUTH.md")
-		}
-		return EXIT_AUTH
-	} finally {
-		try {
-			await client?.logout()
-		} catch {
-			/* already gone */
-		}
-	}
-
+	if (!result.ok) return EXIT_AUTH
 	log("smoke ok: both directions work")
 	return 0
 }
@@ -168,11 +123,8 @@ function argValue(argv: string[], flag: string): string | undefined {
 }
 
 /**
- * `--setup <pi-address> [--to <your-address>] [--force]`
- *
- * Turns a bare address into a runnable config: discovers the provider's servers
- * and required auth, then writes config.json. The mailbox itself must already
- * exist — no provider creates one without a human signup.
+ * `--setup <pi-address> [--to <your-address>] [--force]` — the headless twin of
+ * `/mailbridge setup`. Shares core/setup.ts, so behaviour cannot drift.
  */
 async function setup(argv: string[]): Promise<number> {
 	const address = argValue(argv, "--setup")
@@ -180,57 +132,11 @@ async function setup(argv: string[]): Promise<number> {
 		log("usage: --setup <pi-address> [--to <your-address>] [--force]")
 		return EXIT_CONFIG
 	}
-
-	const domain = domainOf(address)
-	if (!domain) {
-		log(`not an email address: ${address}`)
-		return EXIT_CONFIG
-	}
-
-	// Default: one mailbox for both roles. Pass --to to keep the loop guard strict.
-	const to = argValue(argv, "--to") ?? address
-	const target = configPath()
-	if (existsSync(target) && !argv.includes("--force")) {
-		log(`${target} already exists — rerun with --force to overwrite`)
-		return EXIT_CONFIG
-	}
-
-	log(`discovering ${domain}…`)
-	const discovered = await discoverDomain(domain)
-	if (!discovered) {
-		log(`could not discover mail settings for ${domain}`)
-		log("the domain is not in the autoconfig database; write config.json by hand (see config.example.json)")
-		return EXIT_CONFIG
-	}
-	log(`imap ${discovered.imap.host}:${discovered.imap.port} (${discovered.imap.secure ? "TLS" : "STARTTLS"})`)
-	log(`smtp ${discovered.smtp.host}:${discovered.smtp.port} (${discovered.smtp.secure ? "TLS" : "STARTTLS"})`)
-	log(`auth ${discovered.authType}${discovered.provider !== "other" ? ` (${discovered.provider})` : ""}`)
-
-	const built = buildSetupConfig(address, to, discovered)
-	const config = {
-		...built,
-		device: { name: shortHostname() },
-		daemon: { host: "127.0.0.1", port: 4177 },
-		notify: { onSettled: true, debounceMs: 10_000, notifyOnAborted: false, subject: "pi" },
-		tuning: { idleRenewMs: 25 * 60 * 1000, autoIdleDelayMs: 1000, backoffInitialMs: 1000, backoffMaxMs: 60_000 },
-	}
-
-	mkdirSync(dirname(target), { recursive: true, mode: 0o700 })
-	writeFileSync(target, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
-	log(`wrote ${target}`)
-
-	// Tell the human exactly what is left, and nothing they have to guess.
-	if (built.security.allowSelfReplies) {
-		log(`note: one mailbox for both roles — replies from ${to} are accepted only when they are real replies`)
-	}
-	if (discovered.authType === "XOAUTH2") {
-		log("next: register an OAuth app (docs/OAUTH.md), put its client id in config.json, then:")
-		log("      pi-mailbridge --auth")
-	} else {
-		log("next: put the account's app password into config.json (mail.imap.password / mail.smtp.password), then:")
-		log("      pi-mailbridge --smoke")
-	}
-	return 0
+	const to = argValue(argv, "--to")
+	const result = await runSetup({ address, ...(to ? { to } : {}), force: argv.includes("--force") })
+	for (const step of result.steps) log(step)
+	if (result.next) log(`next: ${result.next}`)
+	return result.ok ? 0 : EXIT_CONFIG
 }
 
 function log(message: string): void {
@@ -293,34 +199,79 @@ async function check(config: ResolvedConfig): Promise<number> {
 	return code || (problems.length > 0 ? EXIT_CONFIG : 0)
 }
 
-async function run(config: ResolvedConfig): Promise<void> {
+async function run(initialConfig: ResolvedConfig): Promise<void> {
 	const token = ensureSecret().toString("base64url")
 
-	// One token provider per process, shared by IMAP and SMTP XOAUTH2.
-	const tokenProvider = await buildTokenProvider(config)
+	// Mutable refs: /reload swaps both without recreating the HTTP service.
+	let currentConfig = initialConfig
+	let currentWatcher: ImapWatcher | undefined
+	let tokenProvider: Awaited<ReturnType<typeof buildTokenProvider>>
+	let service: DaemonService
 
-	const watcher: ImapWatcher = createImapWatcher(config, {
-		factory: createImapflowFactory({ getAccessToken: tokenProvider ? () => tokenProvider.getToken() : undefined }),
-		callbacks: {
-			onReady: () => {
-				log("imap ready; running catch-up scan")
-				void scanOnce("catch-up")
-			},
-			onMail: () => {
-				void scanOnce("idle")
-			},
-			onError: (error, delay) => log(`imap error (${error.message}); reconnecting in ${delay}ms`),
+	const getAccessToken = () => (tokenProvider ? tokenProvider.getToken() : Promise.reject(new Error("no token provider")))
+
+	// A stable MailSource the service can hold across reloads.
+	const sourceProxy: MailSource = {
+		searchAfter: (uid) => {
+			if (!currentWatcher) throw new Error("pi-mailbridge: imap watcher not started")
+			return currentWatcher.searchAfter(uid)
 		},
-	})
+		fetch: (uid) => {
+			if (!currentWatcher) throw new Error("pi-mailbridge: imap watcher not started")
+			return currentWatcher.fetch(uid)
+		},
+		markSeen: async (uid) => {
+			await currentWatcher?.markSeen?.(uid)
+		},
+	}
 
-	const service: DaemonService = createDaemonService({
-		config,
+	async function scanOnce(why: string): Promise<void> {
+		const before = new Set(listPending().map((r) => r.uid))
+		try {
+			const result = await scanAndProcess(currentConfig, { source: sourceProxy, secret: ensureSecret() })
+			if (result.persisted > 0) {
+				log(`${why}: persisted ${result.persisted} of ${result.examined} (rejected ${result.rejected})`)
+				for (const record of listPending()) {
+					if (!before.has(record.uid)) service.broadcast({ type: "delivery", pending: record })
+				}
+			} else if (result.examined > 0) {
+				log(`${why}: examined ${result.examined}, nothing for us`)
+			}
+		} catch (error) {
+			// A scan failure must not kill the daemon: the cursor did not advance, so
+			// the next IDLE event or catch-up retries the same UIDs.
+			log(`${why}: scan failed: ${(error as Error).message}`)
+		}
+	}
+
+	async function startWatcher(config: ResolvedConfig): Promise<ImapWatcher> {
+		const watcher = createImapWatcher(config, {
+			factory: createImapflowFactory({ getAccessToken: tokenProvider ? getAccessToken : undefined }),
+			callbacks: {
+				onReady: () => {
+					log("imap ready; running catch-up scan")
+					void scanOnce("catch-up")
+				},
+				onMail: () => {
+					void scanOnce("idle")
+				},
+				onError: (error, delay) => log(`imap error (${error.message}); reconnecting in ${delay}ms`),
+			},
+		})
+		await watcher.start()
+		return watcher
+	}
+
+	tokenProvider = await buildTokenProvider(initialConfig)
+
+	service = createDaemonService({
+		config: initialConfig,
 		token,
-		source: watcher,
-		send: (message) =>
-			sendMail(config, message, { getAccessToken: tokenProvider ? () => tokenProvider.getToken() : undefined }),
-		// Record the outbound Message-ID so a reply still routes when the subject
-		// token is missing (client rewrite, human edit).
+		source: sourceProxy,
+		send: (message) => {
+			const provider = tokenProvider
+			return sendMail(currentConfig, message, { ...(provider ? { getAccessToken } : {}) })
+		},
 		onSent: ({ messageId, subject }) => {
 			if (!messageId) return
 			const parsed = tokenFromSubject(subject, ensureSecret())
@@ -332,30 +283,24 @@ async function run(config: ResolvedConfig): Promise<void> {
 				subject,
 			})
 		},
-	})
-
-	async function scanOnce(why: string): Promise<void> {
-		const before = new Set(listPending().map((r) => r.uid))
-		try {
-			const result = await scanAndProcess(config, { source: watcher, secret: ensureSecret() })
-			if (result.persisted > 0) {
-				log(`${why}: persisted ${result.persisted} of ${result.examined} (rejected ${result.rejected})`)
-				for (const record of listPending()) {
-					if (!before.has(record.uid)) service.broadcast({ type: "delivery", pending: record })
-				}
-			} else if (result.examined > 0) {
-				log(`${why}: examined ${result.examined}, nothing for us`)
+		// `/mailbridge setup` / `auth` write new config or tokens; pick them up here.
+		reload: async () => {
+			try {
+				await currentWatcher?.stop()
+				currentConfig = loadConfig()
+				tokenProvider = await buildTokenProvider(currentConfig)
+				currentWatcher = await startWatcher(currentConfig)
+				log("reloaded config and restarted the watcher")
+				return { ok: true }
+			} catch (error) {
+				return { ok: false, error: (error as Error).message }
 			}
-		} catch (error) {
-			// A scan failure must not kill the daemon: the cursor did not advance,
-			// so the next IDLE event or catch-up retries the same UIDs.
-			log(`${why}: scan failed: ${(error as Error).message}`)
-		}
-	}
+		},
+	})
 
 	service.server.on("error", (error: NodeJS.ErrnoException) => {
 		if (error.code === "EADDRINUSE") {
-			log(`another daemon already owns port ${config.daemon.port}; exiting`)
+			log(`another daemon already owns port ${currentConfig.daemon.port}; exiting`)
 			process.exit(0)
 		}
 		log(`http server failed: ${error.message}`)
@@ -365,22 +310,21 @@ async function run(config: ResolvedConfig): Promise<void> {
 	const { port, host } = await service.listen()
 	log(`listening on http://${host}:${port}`)
 
-	// Register shutdown handlers BEFORE dialling IMAP: a SIGTERM arriving during a
-	// slow DNS/TLS dial must still shut down cleanly rather than killing the
-	// process with the default handler.
+	// Register shutdown handlers BEFORE dialling IMAP: a SIGTERM during a slow
+	// DNS/TLS dial must still shut down cleanly.
 	let stopping = false
 	const shutdown = async (signal: string) => {
 		if (stopping) return
 		stopping = true
 		log(`${signal}: shutting down`)
-		await watcher.stop()
+		await currentWatcher?.stop()
 		await service.close()
 		process.exit(0)
 	}
 	process.on("SIGTERM", () => void shutdown("SIGTERM"))
 	process.on("SIGINT", () => void shutdown("SIGINT"))
 
-	await watcher.start()
+	currentWatcher = await startWatcher(currentConfig)
 }
 
 async function main(): Promise<void> {
