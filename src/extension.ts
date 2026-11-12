@@ -522,6 +522,12 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						}
 					}
 					const problems = [...config.warnings]
+					if (config.security.allowSelfReplies && config.security.requireDmarcPass) {
+						problems.push(
+							"allowSelfReplies is on but requireDmarcPass is too: providers that do not stamp " +
+								"Authentication-Results on self-addressed mail will reject every reply (dmarc-missing)",
+						)
+					}
 					if (!secret) problems.push("shared secret missing and could not be created")
 					// A running daemon caches the bearer token from startup, so a freshly minted key
 					// is rejected until it restarts. Say so; "config ok" would be a lie.

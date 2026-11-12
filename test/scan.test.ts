@@ -606,3 +606,34 @@ test("pending-full stops the batch so a later UID cannot advance the cursor past
 	assert.equal(readCursor(e), before, "the cursor must not move at all")
 	assert.equal(getPending(e, PENDING_CAP + 2), undefined, "and the later UID must not be persisted")
 })
+
+test("single-mailbox QQ: a self-addressed reply with no Authentication-Results is accepted", async () => {
+	// QQ does not stamp Authentication-Results on QQ->QQ mail (docs/OAUTH.md). With the old
+	// setup default (requireDmarcPass always true) every genuine reply was rejected
+	// dmarc-missing and the cursor moved past it - a lost reply per turn.
+	const e = env()
+	const cfg = config()
+	cfg.mail.smtp.user = "you@qq.com"
+	cfg.mail.imap.user = "you@qq.com"
+	cfg.mail.to = "you@qq.com"
+	cfg.security.allowFrom = ["you@qq.com"]
+	cfg.security.allowSelfReplies = true
+	cfg.security.requireDmarcPass = false // what setup now writes for one address
+	recordOutbound(e, { messageId: "<root@qq.com>", sessionId: SESSION, device: "test-device", subject: "x" })
+
+	const r = await scanAndProcess(cfg, {
+		source: source([
+			msg(1, {
+				from: "you@qq.com",
+				subject: "Re: [pi:abcdef] pi: x",
+				text: "yes ship it",
+				// No authResults at all - exactly what QQ delivers for self-mail.
+				headers: { inReplyTo: "<root@qq.com>" },
+			}),
+		]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.persisted, 1, `the reply must be delivered (reasons: ${JSON.stringify(r.reasons)})`)
+	assert.equal(listPending(e)[0]?.sessionId, SESSION)
+})

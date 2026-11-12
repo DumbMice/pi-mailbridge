@@ -303,7 +303,13 @@ export function buildSetupConfig(
 		},
 		security: {
 			allowFrom: [to],
-			requireDmarcPass: true,
+			// Single-mailbox mode sends and receives from one address, so the human's reply
+			// is a self-addressed message the provider may deliver without an
+			// Authentication-Results header at all (QQ does not add one to QQ->QQ mail).
+			// Requiring DMARC there rejects every genuine reply, so it is off for that shape
+			// and on everywhere else. The allowlist, loop guard and two self-echo guards
+			// still apply; setup says so and `--check` warns if both are set.
+			requireDmarcPass: !sameAddress,
 			allowHeaderThreading: true,
 			allowSelfReplies: sameAddress,
 			tokenTtlHours: 30 * 24,

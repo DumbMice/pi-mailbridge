@@ -121,3 +121,23 @@ test("no empty-password warning once a password is set", async () => {
 	)
 	assert.doesNotMatch(loadConfig(e).warnings.join("\n"), /password is empty/)
 })
+
+test("setup turns DMARC off for one address and on for two", async () => {
+	// The two settings are written together, so they must agree: requiring DMARC on a
+	// self-addressed mailbox rejects every reply on providers that stamp no header.
+	const { buildSetupConfig } = await import("../src/core/discover.ts")
+	const base = {
+		imap: { host: "imap.qq.com", port: 993, secure: true },
+		smtp: { host: "smtp.qq.com", port: 465, secure: true },
+		authType: "LOGIN" as const,
+		provider: "other" as const,
+		folder: "INBOX",
+	}
+	const single = buildSetupConfig("you@qq.com", "you@qq.com", base as never)
+	assert.equal(single.security.allowSelfReplies, true)
+	assert.equal(single.security.requireDmarcPass, false, "one address cannot require DMARC")
+
+	const two = buildSetupConfig("pi@qq.com", "you@qq.com", base as never)
+	assert.equal(two.security.allowSelfReplies, false)
+	assert.equal(two.security.requireDmarcPass, true, "two addresses keep DMARC")
+})

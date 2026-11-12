@@ -92,6 +92,11 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
 
 	if (built.security.allowSelfReplies) {
 		steps.push(`one mailbox for both roles — replies from ${to} are accepted only when they are real replies`)
+		steps.push(
+			"DMARC checks are off for this shape: a message from your address to the same address is " +
+				"delivered by your own provider and may carry no Authentication-Results header, so requiring " +
+				"one rejects every reply. The sender allowlist and the self-echo guards still apply.",
+		)
 	}
 
 	return {
