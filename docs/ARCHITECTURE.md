@@ -167,8 +167,10 @@ future message, with `examined 0` as the only symptom.
 
 The daemon records the mailbox's `UIDVALIDITY` beside the cursor and compares it on every
 connect. On a change it resets the cursor (except the first observation after an upgrade, unless the
-cursor has fallen outside the new range), ignores `journal.json` entries from the old
-numbering (they describe a space that no longer exists), and drops queued records from it.
+cursor has fallen outside the new range) and ignores `journal.json` entries from the old
+numbering (they describe a space that no longer exists). Queued records from another numbering
+are dropped on **every** connect, not only on a change - a crash between the cursor write and
+the drop would otherwise leave a record that nothing can claim and nothing ever removes.
 The cost is explicit: **a renumbering can re-deliver replies that were acked inside the
 route TTL**, because the only durable dedupe is UID-based. Nothing is lost; recent mail may
 arrive once more. The daemon logs the change, the reset and how many records it dropped.

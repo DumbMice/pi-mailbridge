@@ -804,6 +804,8 @@ test("/ack refuses a record from a space the mailbox has left", async () => {
 			body: JSON.stringify({ uid: 5, instanceId: "inst", uidValidity: 1111 }),
 		})
 		assert.equal(res.status, 409, "the record is stale against the mailbox")
+		const body = (await res.json()) as { error?: { code?: string } }
+		assert.equal(body.error?.code, "stale-space", "and the code names the reason")
 		const { isJournaled } = await import("../src/store/journal.ts")
 		assert.equal(isJournaled(env, 5, 2222), false, "nothing journaled in the live space")
 	} finally {

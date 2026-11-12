@@ -98,3 +98,23 @@ test("stale records are dropped on every connect, not only when the cursor reset
 	assert.equal(outcome.dropped, 1, "but the stale record is still removed")
 	assert.deepEqual(released, ["stale-sess"])
 })
+
+test("a record with no UID space survives the every-connect drop", async () => {
+	// Records written before the field existed (or while the watcher could not report one) must
+	// stay claimable: dropping them would discard a queued reply with nothing to re-read.
+	const e = env()
+	syncUidValidity(e, 2222, 50)
+	addPending(e, {
+		uid: 4,
+		sessionId: "legacy-sess",
+		from: "you@qq.com",
+		subject: "x",
+		body: "legacy",
+		receivedAt: 1,
+	})
+	const released: string[] = []
+	const outcome = applyUidValidity(e, watcher({ validity: 2222, next: 50 }), (s) => released.push(s))
+	assert.equal(outcome.dropped, 0, "an unknown-space record is kept")
+	assert.equal(pendingSize(e), 1)
+	assert.deepEqual(released, [])
+})

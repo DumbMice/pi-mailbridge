@@ -417,6 +417,10 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 						log(
 							`mailbox UIDVALIDITY changed to ${outcome.validity}; cursor reset and ${outcome.dropped} queued record(s) dropped - re-reading from the start`,
 						)
+					} else if (outcome.dropped > 0) {
+						// No reset needed, but records from a previous numbering were still stuck in
+						// the queue (a crash between the cursor write and the drop). Say so.
+						log(`${outcome.dropped} queued record(s) from an earlier UID space dropped`)
 					}
 					log("imap ready; running catch-up scan")
 					void scanOnce("catch-up")
