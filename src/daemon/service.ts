@@ -13,6 +13,9 @@ import http from "node:http"
 import { timingSafeEqual } from "node:crypto"
 
 import type { ResolvedConfig } from "../core/config.ts"
+import type { ScanSummary } from "../core/status.ts"
+
+type ScanSummaryLike = ScanSummary
 import type { MailSource } from "./process.ts"
 import { ackPending, claimPending, listPending } from "../store/pending-store.ts"
 import { journal } from "../store/journal.ts"
@@ -94,7 +97,7 @@ export interface DaemonDeps {
 	 */
 	getConfig?: () => ResolvedConfig
 	/** Outcome of the most recent scan, for diagnostics. */
-	scanSummary?: () => { at: number; examined: number; persisted: number; rejected: number; reasons: Record<string, number> } | undefined
+	scanSummary?: () => ScanSummaryLike | undefined
 	/** mtime of the config file the daemon is running on (0 when there was no file). */
 	configLoadedAt?: () => number
 	/** Is the IMAP watcher connected? A revoked credential shows here, not in the process. */

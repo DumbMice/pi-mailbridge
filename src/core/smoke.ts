@@ -7,7 +7,7 @@
 import type { ResolvedConfig } from "./config.ts"
 import { sendMail } from "./mailer.ts"
 import { createImapflowFactory } from "../daemon/imapflow.ts"
-import { stampedIdFromHeaders } from "./sent-index.ts"
+import { messageIdFromHeaders, stampedIdFromHeaders } from "./sent-index.ts"
 
 export interface SmokeStep {
 	ok: boolean
@@ -136,33 +136,53 @@ export async function runSmoke(config: ResolvedConfig, deps: SmokeDeps = {}): Pr
 			const delays = deps.echoRetryDelaysMs ?? [2_000, 5_000, 15_000, 30_000]
 			const wanted = lastMessageId.replace(/[<>]/g, "")
 			const since = Date.now() - 15 * 60_000
-			let seen: "none" | "marker" | "id" = "none"
+			let seen: "none" | "marker" | "id" | "rewritten" = "none"
 			for (const delay of delays) {
 				await sleep(delay)
 				for (const source of await connection.recentSources(since)) {
 					const head = (source.toString("utf8").split(/\r?\n\r?\n/)[0] ?? "").replace(/\r?\n[ \t]+/g, " ")
 					if (stampedIdFromHeaders(head) !== wanted) continue
-					seen = /^x-pi-mailbridge:\s*notification/im.test(head) ? "marker" : "id"
+					// Classify on what the scanner actually uses: the marker, then our
+					// Message-ID. Claiming the Message-ID survived without checking it was the
+					// bug the live account exposed.
+					if (/^x-pi-mailbridge:\s*notification/im.test(head)) seen = "marker"
+					else if (messageIdFromHeaders(head) === wanted) seen = "id"
+					else seen = "rewritten"
 					break
 				}
 				if (seen !== "none") break
 			}
 			steps.push(
-				seen === "none"
-					? {
+				(() => {
+					if (seen === "none") {
+						return {
 							ok: false,
-							step: "echo",
+							step: "echo" as const,
 							detail:
-								"our notification did not come back to this folder with either header — single-mailbox mode relies on the marker or the Message-ID to recognise its own mail",
+								"our notification did not come back to this folder — single-mailbox mode relies on it returning with a header it can recognise",
 						}
-					: {
+					}
+					if (seen === "marker") {
+						return { ok: true, step: "echo" as const, detail: "our marker header survives delivery" }
+					}
+					if (seen === "id") {
+						return {
 							ok: true,
-							step: "echo",
-							detail:
-								seen === "marker"
-									? "our marker header survives delivery"
-									: "marker header was stripped, but our Message-ID survived — the guard still holds",
-						},
+							step: "echo" as const,
+							detail: "marker header was stripped, but our Message-ID survived — the guard still holds",
+						}
+					}
+					// The provider rewrote both. Whether that is safe depends entirely on the
+					// sent-copy read-back, which is what then records the delivered id.
+					const covered = Boolean(config.mail.imap.sentFolder)
+					return {
+						ok: covered,
+						step: "echo" as const,
+						detail: covered
+							? "the provider rewrote both our headers; the sentFolder read-back records the delivered id, so the registry still catches our own mail"
+							: "the provider rewrote both our headers and mail.imap.sentFolder is not set — our own mail is not recognisable; set it",
+					}
+				})(),
 			)
 		}
 

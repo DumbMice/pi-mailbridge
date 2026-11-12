@@ -220,6 +220,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 		resolved.notify = { ...resolved.notify, debounceMs: 10_000 }
 	}
 
+	// A negative or non-numeric interval would silently disable the safety net.
+	if (resolved.daemon.scanIntervalSecs !== undefined) {
+		const n = Number(resolved.daemon.scanIntervalSecs)
+		if (!Number.isFinite(n) || n < 0) {
+			warnings.push("daemon.scanIntervalSecs must be a non-negative number — using 60")
+			resolved.daemon = { ...resolved.daemon, scanIntervalSecs: 60 }
+		} else {
+			resolved.daemon = { ...resolved.daemon, scanIntervalSecs: n }
+		}
+	}
+
 	const imap = resolved.mail.imap
 	if (!imap.host || !imap.user) warnings.push("mail.imap.host and mail.imap.user are required")
 	if (!resolved.mail.to) warnings.push("mail.to is required")

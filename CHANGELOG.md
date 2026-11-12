@@ -50,6 +50,16 @@ for new configs; it never rewrites an existing one. `/mailbridge check` and
 as `ExecStartPre`, that combination stops the unit from starting rather than starting a
 daemon that rejects every reply.
 
+### A reply can no longer sit unscanned behind a silent IDLE
+
+Live: a reply sat in INBOX for minutes while `/health` reported `imap: connected`. The daemon
+only scanned on connect, on an IMAP `EXISTS` event, and on mode-on — and the provider stopped
+pushing `EXISTS`. `daemon.scanIntervalSecs` (default 60, `0` disables) sweeps on a timer while
+mode is on, and `/mailbridge status` now distinguishes "no mail yet — last checked …" from a
+dead daemon. The smoke echo probe was fixed in the same pass: it identifies the delivered copy
+by the stamped id and retries, instead of reading "the newest message" once (which reported a
+false alarm on a live account).
+
 ### The reply chain can match providers that rewrite Message-ID (opt-in)
 
 A live test against QQ showed our stamped `<uuid@qq.com>` replaced by `<tencent_…@qq.com>` on

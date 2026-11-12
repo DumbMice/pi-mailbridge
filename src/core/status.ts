@@ -5,13 +5,14 @@
 // line shipped in its first version.
 
 export interface ScanSummary {
-	at: number
-	/** When the daemon last *checked*, which may be later than the last scan that saw mail. */
+	/** When the last scan that saw mail ran; absent until one has. */
+	at?: number
+	/** When the daemon last *checked*, which is later than `at` on a quiet mailbox. */
 	checkedAt?: number
-	examined: number
-	persisted: number
-	rejected: number
-	reasons: Record<string, number>
+	examined?: number
+	persisted?: number
+	rejected?: number
+	reasons?: Record<string, number>
 }
 
 /**
@@ -36,7 +37,13 @@ const HANDLED = new Set([
 const DEFERRED = new Set(["pending-full"])
 
 export function formatScan(summary: ScanSummary | null | undefined): string[] {
-	if (!summary) return ["last scan: (none yet)"]
+	if (!summary) return ["last scan: (never — is the daemon running?)"]
+	if (summary.at === undefined) {
+		// No scan has seen mail yet. Say when we last looked: otherwise a healthy quiet
+		// mailbox is indistinguishable from a dead poll loop.
+		const checked = summary.checkedAt ? new Date(summary.checkedAt).toLocaleTimeString() : "unknown"
+		return [`no mail yet — last checked ${checked}`]
+	}
 
 	const entries = Object.entries(summary.reasons ?? {}).filter(([, n]) => Number(n) > 0)
 	const list = (pick: (reason: string) => boolean): string =>

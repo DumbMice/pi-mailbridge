@@ -244,6 +244,7 @@ systemd-started daemon never exits just because pi happens to be closed.
 | Failure | Behaviour |
 | --- | --- |
 | IMAP drops | exponential backoff 1 s → 60 s; IDLE renews at 25 min |
+| IDLE `EXISTS` never fires | a catch-up scan runs every `daemon.scanIntervalSecs` (default 60, `0` disables) while mode is on and the watcher is healthy — observed live after a reply sat unscanned |
 | Daemon dies | sessions keep working; extension reconnects; missed mail recovered from `/pending` |
 | Session exits before ack | mail stays unseen, pending durable → redelivered |
 | SMTP fails | decision is *not* reserved as outstanding; error surfaces to the tool |

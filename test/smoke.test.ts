@@ -150,9 +150,11 @@ test("smoke reports whether our own headers survive delivery", async () => {
 	assert.equal(marker?.ok, true)
 	assert.match(marker!.detail, /marker header survives/)
 
-	const idOnly = (await run([copy(["X-Pi-Mailbridge-Id: <ours@qq.com>"])])).steps.find((s) => s.step === "echo")
-	assert.equal(idOnly?.ok, true, "the stamped id alone keeps the guard")
-	assert.match(idOnly!.detail, /Message-ID survived/)
+	// Our stamped id is how the probe *finds* the copy, not a guard the scanner uses: with no
+	// marker and a rewritten Message-ID there is nothing left for it to match.
+	const stampedOnly = (await run([copy(["X-Pi-Mailbridge-Id: <ours@qq.com>"])])).steps.find((s) => s.step === "echo")
+	assert.equal(stampedOnly?.ok, false, "the stamped id alone does not keep the guard")
+	assert.match(stampedOnly!.detail, /rewrote both/)
 
 	// An unrelated message is not ours: the probe must not judge our headers by it.
 	const unrelated = (await run([copy(["X-Pi-Mailbridge-Id: <theirs@qq.com>", "X-Pi-Mailbridge: notification"])])).steps.find(
@@ -181,4 +183,46 @@ test("the echo probe only runs when the notification lands in the watched mailbo
 	})
 	assert.equal(probed, 0, "no probe for two mailboxes")
 	assert.equal(result.steps.some((s) => s.step === "echo"), false, "and no echo step")
+})
+
+test("the echo step reports what actually survived, including a rewritten Message-ID", async () => {
+	// QQ rewrites Message-ID and keeps the stamped id. The probe used to claim "our Message-ID
+	// survived" in that case without ever comparing Message-ID.
+	const cfg = config()
+	const single = { ...cfg, mail: { ...cfg.mail, to: cfg.mail.imap.user } }
+	const run = (lines: string[], sentFolder?: string) => {
+		const c = sentFolder
+			? { ...single, mail: { ...single.mail, imap: { ...single.mail.imap, sentFolder } } }
+			: single
+		return runSmoke(c, {
+			send: async () => ({ messageId: "<ours@qq.com>" }),
+			echoRetryDelaysMs: [0],
+			sleep: async () => {},
+			connect: async () => ({
+				count: async () => 1,
+				recentSources: async () => [Buffer.from(lines.join("\r\n"))],
+				close: async () => {},
+			}),
+		})
+	}
+
+	// Both rewritten, no sentFolder: our own mail is not recognisable.
+	const bare = (await run(["X-Pi-Mailbridge-Id: <ours@qq.com>", "Message-ID: <tencent_x@qq.com>"])).steps.find(
+		(s) => s.step === "echo",
+	)
+	assert.equal(bare?.ok, false, "must not claim the Message-ID survived")
+	assert.match(bare!.detail, /rewrote both/)
+
+	// Both rewritten but the read-back covers it: safe, and said so.
+	const covered = (
+		await run(["X-Pi-Mailbridge-Id: <ours@qq.com>", "Message-ID: <tencent_x@qq.com>"], "Sent Messages")
+	).steps.find((s) => s.step === "echo")
+	assert.equal(covered?.ok, true)
+	assert.match(covered!.detail, /sentFolder/)
+
+	// Our own Message-ID really surviving is the "id" case.
+	const kept = (
+		await run(["X-Pi-Mailbridge-Id: <ours@qq.com>", "Message-ID: <ours@qq.com>"])).steps.find((s) => s.step === "echo")
+	assert.equal(kept?.ok, true)
+	assert.match(kept!.detail, /Message-ID survived/)
 })

@@ -172,7 +172,7 @@ Every scan records why each message was refused, so this is answerable:
 ```
 mode: on
 imap: connected
-last scan: 14:02:11 — examined 2, kept 1, rejected 1
+last scan with mail: 14:02:11 — examined 2, kept 1, rejected 1
 rejections: not-allowlisted 1
 ```
 
@@ -218,6 +218,11 @@ Where to look:
 `/mailbridge check` validates config and that credentials are present; `/mailbridge smoke`
 is what proves they work. If `imap:` says `disconnected`, the credentials or the host are wrong even though the daemon
 itself is up — that is the state a revoked app password leaves you in.
+
+If a reply seems not to have arrived, allow up to a minute: the daemon sweeps on a timer
+(`daemon.scanIntervalSecs`, default 60) as well as on IMAP events, because a provider can stop
+pushing them. `no mail yet — last checked …` means the daemon is polling and has seen nothing;
+`mode: off` means it is not scanning at all.
 
 If `/mailbridge status` says the daemon is unreachable, either this session never built a
 client (it started before a config existed) or the daemon process is down. `/mailbridge
@@ -283,10 +288,12 @@ without connecting to anything, so it cannot tell a wrong password from a right 
 added), sends one real mail and then opens the folder and counts. That proves SMTP accepts and
 IMAP reads, and it leaves the daemon using the new credentials.
 
-It also **checks that our own notification survives delivery intact**: the newest message is
-fetched and the report says whether the `X-Pi-Mailbridge` marker and the `Message-ID` we stamped
-are still there. In the one-mailbox layout those two are what stop the agent re-ingesting its
-own mail — if smoke reports that neither survived, do not leave that configuration running.
+In the **single-mailbox** layout it also checks that our own notification comes back in a form
+the scanner can recognise: it finds the copy by the `X-Pi-Mailbridge-Id` we stamped (retrying
+for about a minute, because providers deliver asynchronously) and says which of the two guards
+survived — the `X-Pi-Mailbridge` marker, or our `Message-ID`. If the provider rewrote both, the
+report says whether `mail.imap.sentFolder` covers it; with neither guard and no read-back, do not
+leave that configuration running.
 
 ### Start watching from now, not from history
 
@@ -470,6 +477,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | `daemon.host` / `.port` | `127.0.0.1` / `4177` | loopback HTTP for the extension; the port is the instance lock |
 | `daemon.exitWhenIdle` | `true` | exit once no pi session is pinging; set `false` for a systemd-owned daemon |
 | `daemon.idleTimeoutSecs` | `120` | grace period after the last ping |
+| `daemon.scanIntervalSecs` | `60` | periodic catch-up scan while mode is on, so a silent IDLE cannot strand a reply; `0` disables |
 | `notify.onSettled` | `true` | email when an agent settles |
 | `notify.debounceMs` | `10000` | quiet period before the settle mail |
 | `notify.notifyOnAborted` | `false` | also mail when you hit Escape |

@@ -506,7 +506,9 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		// Stop when the last pi session goes away. `daemon.exitWhenIdle: false` keeps it
 		// resident instead, which is what a systemd unit wants.
 		exitWhenIdle: () => currentConfig.daemon.exitWhenIdle !== false,
-		scanSummary: () => (lastScan ? { ...lastScan, checkedAt: lastCheckedAt } : undefined),
+		// Always carry the freshness stamp: on a quiet mailbox `lastScan` is absent, and the
+		// panel then said "(none yet)" while the daemon was happily polling.
+		scanSummary: () => ({ ...(lastScan ?? {}), ...(lastCheckedAt ? { checkedAt: lastCheckedAt } : {}) }),
 		// The file's mtime, not a clock reading: comparing mtime to mtime has no clock coupling.
 		configLoadedAt: () => configLoadedAt,
 		imapHealthy: () => currentWatcher?.isHealthy() ?? false,
@@ -556,18 +558,19 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 	// silently stopped idling) would strand every reply until something else triggered a scan.
 	// A catch-up sweep costs one SEARCH that usually returns nothing. Observed live: a Hotmail
 	// reply sat unseen while the daemon reported "imap: connected".
-	const scanEveryMs = Math.max(0, currentConfig.daemon.scanIntervalSecs ?? 60) * 1000
-	if (scanEveryMs > 0) {
-		const armPoll = (): void => {
-			pollHandle = setTimeout(() => {
-				pollHandle = undefined
-				if (readMode(process.env) === "on" && currentWatcher?.isHealthy()) void scanOnce("poll")
-				armPoll()
-			}, scanEveryMs)
-			pollHandle.unref?.()
-		}
-		armPoll()
+	const armPoll = (): void => {
+		// Read the interval on every tick so `/reload` can change it, and reuse the same mode
+		// rule the scanner uses rather than spelling it out again.
+		const scanEveryMs = Math.max(0, currentConfig.daemon.scanIntervalSecs ?? 60) * 1000
+		if (scanEveryMs === 0) return
+		pollHandle = setTimeout(() => {
+			pollHandle = undefined
+			if (scanningEnabled(readMode(process.env)) && currentWatcher?.isHealthy()) void scanOnce("poll")
+			armPoll()
+		}, scanEveryMs)
+		pollHandle.unref?.()
 	}
+	armPoll()
 }
 
 /**
@@ -594,7 +597,7 @@ export async function sendWithCapture<M extends { messageId?: string; sessionId?
 			.then((id) => {
 				if (!id) deps.onMissed?.()
 			})
-			.catch(() => undefined)
+			.catch(() => deps.onMissed?.())
 	}
 	return sent
 }

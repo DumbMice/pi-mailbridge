@@ -36,7 +36,9 @@ test("the queue-full line only appears when the queue actually refused something
 })
 
 test("no summary yet is distinct from an empty one", () => {
-	assert.deepEqual(formatScan(null), ["last scan: (none yet)"])
+	// A daemon that has never scanned is a different state from a quiet one.
+	assert.match(formatScan(null)[0]!, /never/i)
+	assert.match(formatScan({ checkedAt: Date.UTC(2026, 0, 1) })[0]!, /last checked/i)
 })
 
 test("our own echo is handled, not a rejection", () => {

@@ -449,10 +449,12 @@ test("no doc claims the machines share one secret", () => {
 
 test("the README's status example matches the formatter's shape", () => {
 	const readme = doc("README.md")
-	const sample = /last scan: [^\n]*examined \d+, kept \d+, rejected \d+/.exec(readme)
+	// The label changed to "last scan with mail"; the pattern follows the formatter, so keep the
+	// two in step by deriving it from status.ts rather than hardcoding the wording twice.
+	const sample = /last scan(?: with mail)?: [^\n]*examined \d+, kept \d+, rejected \d+/.exec(readme)
 	assert.ok(sample, "the example should show the fields status prints")
 	const status = readFileSync(join(root, "src/core/status.ts"), "utf8")
-	assert.match(status, /last scan: .*examined .*kept .*rejected/s, "and the formatter should print them")
+	assert.match(status, /last scan with mail: .*examined .*kept .*rejected/s, "and the formatter should print them")
 	// Accepted-path counters must not be labelled as rejections (they were).
 	assert.match(status, /HANDLED/, "status must separate accepted counters from refusals")
 })
@@ -793,4 +795,25 @@ test("the sentFolder caveat is stated where the reply chain is explained", () =>
 	assert.ok(at > -1, "the chain advice should exist")
 	const paragraph = readme.slice(at, at + 400)
 	assert.match(paragraph, /sentFolder/, "it must name the option that makes it work")
+})
+
+test("every daemon config key is documented where users look", () => {
+	// The example and README missed scanIntervalSecs entirely when it was added; the packaging
+	// test only checks example -> config.ts, so nothing caught the reverse.
+	const config = readFileSync(join(root, "src/core/config.ts"), "utf8")
+	const daemonBlock = /daemon: \{([\s\S]*?)\n\t\}/.exec(config)?.[1] ?? ""
+	const keys = [...daemonBlock.matchAll(/^\t\t([a-zA-Z]+)\??:/gm)].map((m) => m[1]!)
+	assert.ok(keys.length >= 3, `expected the daemon keys, got ${keys.length}`)
+	const readme = doc("README.md")
+	const example = JSON.parse(readFileSync(join(root, "config.example.json"), "utf8")) as {
+		daemon: Record<string, unknown>
+	}
+	for (const key of keys) {
+		// The table row, not just any mention: prose elsewhere named the key and hid the gap.
+		assert.ok(
+			readme.split("\n").some((line) => line.startsWith("| `daemon.") && line.includes(`daemon.${key}`)),
+			`README's config table has no row for daemon.${key}`,
+		)
+		assert.ok(key in example.daemon, `config.example.json omits daemon.${key}`)
+	}
 })
