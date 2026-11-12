@@ -27,6 +27,22 @@ Outlook.com and QQ mailbox; no automated live-mailbox test exists.
 - `core/deliveries.ts` — claim → inject → ack runner; never acks a failed
   injection; absorbs replays after a failed ack.
 
+### Single mailbox: safe to run, and no longer silently lossy
+
+One address for both pi and the human is a first-class layout, so the guards around it are
+now explicit and tested:
+
+- every notification carries `X-Pi-Mailbridge: notification`, and inbound scanning refuses
+  that marker before authorization - so our own mail cannot come back as an instruction even
+  if the outbound id was never recorded;
+- the outbound `Message-ID` is minted and recorded **before** the send, closing the window in
+  which a notification could return before the guard knew about it;
+- a message from your own address is accepted only with reply evidence (`In-Reply-To` or
+  `References`), so a freshly composed mail is rejected instead of being injected;
+- `/mailbridge setup` writes `requireDmarcPass: false` for this shape: providers that stamp
+  no `Authentication-Results` on self-addressed mail (QQ) would otherwise reject every reply,
+  and the rejection advanced the cursor past it.
+
 ### Daemon
 
 - A session that attaches to an already-running daemon now reloads it when `config.json` is

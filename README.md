@@ -77,18 +77,39 @@ loop guard stays strict.
 notifications land in your inbox and you reply from the same address.
 
 ```
-mail.imap.user / mail.smtp.user = you@hotmail.com
-mail.to                          = you@hotmail.com
-security.allowFrom               = ["you@hotmail.com"]
+mail.imap.user / mail.smtp.user = you@qq.com
+mail.to                          = you@qq.com
+security.allowFrom               = ["you@qq.com"]
 security.allowSelfReplies        = true      # required, or every reply is a "self" loop
+security.requireDmarcPass        = false     # see below; /mailbridge setup sets this for you
 ```
 
-`allowSelfReplies` accepts a message from your own address **only when it is genuinely a
-reply**. Two things make that safe. Notifications after the first are threaded, so they
-*do* carry `In-Reply-To` — which means the header alone cannot be the discriminator. The
-scanner therefore also compares the message's own `Message-ID` against the outbound
-registry and rejects anything it sent itself (`self-echo`). So pi cannot re-ingest its own
-mail as instructions, threaded or not.
+Three things make this shape safe, and they are worth knowing because they constrain
+how you reply:
+
+1. **A marker header.** Every notification carries `X-Pi-Mailbridge: notification`, and
+   inbound scanning refuses that marker before anything else. That is what stops pi
+   re-ingesting its own mail.
+2. **Reply evidence is mandatory.** A message from your own address is only considered
+   at all when it carries `In-Reply-To` or `References` — i.e. when it is a *reply* to a
+   notification. **In this layout, Reply (or Forward-then-Reply) is the only supported
+   way in.** A freshly composed mail from your address, even with the `[pi:…]` tag in the
+   subject, is rejected as `self-echo`: the tag advice below applies to layout A.
+3. **The outbound registry.** The scanner also compares the message's own `Message-ID`
+   with the ids it recorded when sending, so a copy of our own mail is recognised even if
+   the marker was stripped.
+
+**DMARC cannot work here, and that is not a loophole to leave open by accident.** A
+message from your address to the same address is submitted and delivered by your own
+provider; some providers (QQ is one) add no `Authentication-Results` header at all for
+such mail. Requiring one rejects every genuine reply, so `/mailbridge setup` writes
+`requireDmarcPass: false` when the two addresses match and says so. The allowlist, the
+loop guard and the two guards above still apply — DMARC was never what separated you from
+a stranger in this layout. If you know your provider stamps the header on self-mail, set
+it back to `true`.
+
+Point layout B at a mailbox you would not mind an agent reading, or prime it before your
+first `/afk` (below). The isolation of layout A is real, and this layout gives it up.
 
 Once configured, prove it without pi:
 
@@ -115,8 +136,10 @@ What this means in practice:
 - **Reply normally.** Every mail client sets `In-Reply-To`, so a plain Reply works
   either way.
 - **Editing the subject is safe** — the chain still routes it, until the TTL expires.
-- **Composing a brand-new email** with no id and no reference is *not*
-  identified. Use Reply, or keep the `[pi:…]` tag in the subject.
+- **Composing a brand-new email** with no id and no reference is *not* identified. In
+  layout A, use Reply or keep the `[pi:…]` tag in the subject; in layout B (one address)
+  the tag alone is not enough — only Reply carries the threading headers that gate
+  requires.
 - **Quoted text is stripped** before the agent sees it, so leave the quote in.
 - **A reply to a reply** still works: the chain carries the original id.
 
@@ -422,7 +445,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | Provider | Auth | Status |
 | --- | --- | --- |
 | Any IMAP/SMTP host (self-hosted, Posteo, Fastmail, Zoho…) | `LOGIN` — the account password or a provider app password | ✅ works |
-| **QQ Mail / Foxmail / 163 / 126** (practical in mainland China) | `LOGIN` 授权码 | ✅ works, built into discovery |
+| **QQ Mail / Foxmail / 163 / 126** (practical in mainland China) | `LOGIN` 授权码 | ✅ works, built into discovery — new QQ accounts must be **14 days old** before IMAP/SMTP can be enabled |
 | Gmail | app password (`LOGIN`) recommended | ✅ works |
 | Microsoft 365 / work accounts | `XOAUTH2` | ✅ usually works |
 | **Personal** `@outlook.com` / `@hotmail.com` | `XOAUTH2` only | ⚠️ app passwords are rejected over IMAP; two obstacles — see below |

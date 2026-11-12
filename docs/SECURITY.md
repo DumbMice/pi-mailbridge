@@ -134,17 +134,17 @@ A legitimate email can still contain text that reads like instructions
   mailbox and are processed when you `/afk` again — which also means turning it back on can
   deliver a burst. To stop entirely, stop the daemon (`systemctl --user stop pi-mailbridge`,
   or let it exit: it quits ~120 s after the last pi session stops pinging).
-- **One mailbox for both roles** (`security.allowSelfReplies`). The loop guard is
-  relaxed for self-addressed mail, so the sender allowlist alone no longer
-  separates "me" from "not me" — it is the same address. The discriminator is the
-  message's own `Message-ID`: if we recorded it going out, it is our own mail and it is
-  rejected (`self-echo`) before routing. Every notification also carries an
-  `X-Pi-Mailbridge: notification` header, and inbound scanning refuses that marker outright —
-  so the guard does not depend on the id having been recorded, nor on the transport
-  returning one. `In-Reply-To` is checked too, but it cannot be the tie-breaker on its own,
-  because threaded notifications carry that header as well. All of these are forgeable by
-  anyone who can already send from your address; they exist to stop loops, not attackers.
-  Prefer a dedicated mailbox.
+- **One mailbox for both roles** (`security.allowSelfReplies`). The loop guard is relaxed
+  for self-addressed mail, so the sender allowlist alone no longer separates "me" from "not
+  me" — it is the same address. Three guards do the work, in this order: the
+  `X-Pi-Mailbridge: notification` marker (refused outright, so it does not depend on
+  anything being recorded), the reply-evidence gate (`In-Reply-To` or `References` must be
+  present), and the outbound `Message-ID` registry. All of them are forgeable by anyone who
+  can already send from your address; they exist to stop loops, not attackers.
+  **DMARC is off in this shape by default**, because a provider may deliver a message from
+  your address to the same address with no `Authentication-Results` header at all (QQ does),
+  which would reject every reply. `/mailbridge setup` writes it that way and `--check`
+  warns if you set it back on. Prefer a dedicated mailbox.
 - **Multiple machines, one mailbox.** Each daemon only claims replies whose route id, token
   or chain entry names its own device, so they cannot steal each other's work. They share
   the allowlist (one config each), but **each machine has its own `secret.key`** — it is a

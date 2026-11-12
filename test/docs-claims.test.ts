@@ -612,3 +612,45 @@ test("no doc claims the daemon stops when a token is rejected", () => {
 		)
 	}
 })
+
+test("the single-mailbox layout states its three requirements", () => {
+	// This section is the whole story for one-address users, and it used to say "keep the
+	// [pi:...] tag" - which the reply-evidence gate rejects.
+	const readme = flat(doc("README.md"))
+	const at = readme.indexOf("One mailbox (single personal account)")
+	assert.ok(at > -1, "the layout-B section should exist")
+	// Bounded by the next section so a later mention elsewhere cannot satisfy the checks.
+	const end = readme.indexOf("Once configured, prove it without pi")
+	const section = readme.slice(at, end > at ? end : at + 2200)
+	assert.match(section, /X-Pi-Mailbridge/, "names the marker guard")
+	assert.match(section, /In-Reply-To/, "states that a reply must carry threading headers")
+	// Check the config block itself, not the prose: the prose repeats the key name, so a
+	// claim-matched assertion would pass even if the block said true.
+	const from = Math.max(0, section.indexOf("allowSelfReplies") - 400)
+	const block = /```([\s\S]*?)```/.exec(section.slice(from))?.[1] ?? ""
+	assert.match(block, /requireDmarcPass\s*=\s*false/, "the layout-B config sets DMARC off")
+	assert.match(section, /only supported way in|Reply \(or Forward-then-Reply\)/, "and that Reply is the way in")
+})
+
+test("the tag advice is qualified as layout A only", () => {
+	const readme = flat(doc("README.md"))
+	for (const sentence of readme.split(/(?<=[.!?])\s+/)) {
+		if (!/keep the `\[pi:…\]` tag/.test(sentence)) continue
+		assert.match(sentence, /layout A|one address|layout B/i, `unqualified tag advice: ${sentence}`)
+	}
+})
+
+test("no doc still says two things make single-mailbox mode safe", () => {
+	// There are three gates; SECURITY.md always said so, the README counted two.
+	for (const { file, text } of allProse()) {
+		assert.ok(!/two things make that safe/i.test(flat(text)), `${file} undercounts the guards`)
+	}
+})
+
+test("the QQ provider row carries the 14-day activation rule", () => {
+	const row = doc("README.md")
+		.split("\n")
+		.find((l) => /QQ Mail/.test(l) && /\|/.test(l))
+	assert.ok(row, "the provider table should have a QQ row")
+	assert.match(row!, /14 days old/, "new QQ accounts cannot enable IMAP/SMTP before 14 days")
+})

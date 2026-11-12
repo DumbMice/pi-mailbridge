@@ -76,7 +76,9 @@ address. If you want to pin the relay exactly, set
 which is the safer default because a provider can change the id.
 
 **One thing to watch:** if every reply is rejected with `dmarc-missing`, the
-provider is not adding an `Authentication-Results` header. Set
+provider is not adding an `Authentication-Results` header. This is the normal case for a
+self-addressed (single-mailbox) setup, which is why `/mailbridge setup` turns DMARC off when
+both addresses match. Set
 `security.requireDmarcPass: false` — the sender allowlist still applies, so this
 loses a defence layer rather than all of them.
 
