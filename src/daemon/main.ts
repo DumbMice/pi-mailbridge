@@ -33,7 +33,7 @@ import { createOpenidClient } from "../core/oauth-openid.ts"
 import { buildTokenProvider } from "../core/token-source.ts"
 import { fileTokenStore } from "../store/oauth-store.ts"
 import { scanAndProcess } from "./process.ts"
-import { dropPendingFromOtherSpaces } from "../store/pending-store.ts"
+import { applyUidValidity, createSourceProxy } from "./source-proxy.ts"
 import { createImapWatcher, type ImapWatcher } from "./watcher.ts"
 import { createImapflowFactory } from "./imapflow.ts"
 import { createDaemonService, type DaemonService } from "./service.ts"
@@ -41,7 +41,7 @@ import type { MailSource } from "./process.ts"
 import { runSmoke } from "../core/smoke.ts"
 import { runSetup } from "../core/setup.ts"
 import { listPending } from "../store/pending-store.ts"
-import { advanceCursor, syncUidValidity } from "../store/uid-cursor.ts"
+import { advanceCursor } from "../store/uid-cursor.ts"
 import { recordOutbound } from "../store/threads.ts"
 import { tokenFromSubject } from "../core/token.ts"
 
@@ -291,23 +291,8 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 	const getAccessToken = () => (tokenProvider ? tokenProvider.getToken() : Promise.reject(new Error("no token provider")))
 
 	// A stable MailSource the service can hold across reloads.
-	const sourceProxy: MailSource = {
-		searchAfter: (uid) => {
-			if (!currentWatcher) throw new Error("pi-mailbridge: imap watcher not started")
-			return currentWatcher.searchAfter(uid)
-		},
-		fetch: (uid) => {
-			if (!currentWatcher) throw new Error("pi-mailbridge: imap watcher not started")
-			return currentWatcher.fetch(uid)
-		},
-		markSeen: async (uid) => {
-			await currentWatcher?.markSeen?.(uid)
-		},
-		// Required, not optional: the scan and /ack key the journal on this, so an omission
-		// here silently disables UIDVALIDITY handling (it has now happened twice - once in
-		// adapt(), once here - which is why the member is not optional).
-		uidValidity: () => currentWatcher?.uidValidity(),
-	}
+	// Built once; every call reads the live watcher, which /reload swaps.
+	const sourceProxy: MailSource = createSourceProxy({ watcher: () => currentWatcher, env: process.env })
 
 	let reportedModeOff = false
 	// Last scan outcome, surfaced on /health so `/mailbridge status` can answer "why did my
@@ -423,14 +408,10 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 					// folder renumbers from 1; without this the high-water cursor would skip
 					// every future message, with "examined 0" as the only symptom.
 					// `currentWatcher` is assigned before start(), so it is this watcher here.
-					const validity = currentWatcher?.uidValidity()
-					if (syncUidValidity(process.env, validity, currentWatcher?.uidNext()) && validity !== undefined) {
-						// The renumbering also invalidates any queued record from the old space:
-						// a new UID could collide with it and replace it silently. Dropped mail is
-						// still unread in the mailbox and is re-read from the reset cursor.
-						const dropped = dropPendingFromOtherSpaces(process.env, validity)
+					const outcome = applyUidValidity(process.env, currentWatcher)
+					if (outcome.reset) {
 						log(
-							`mailbox UIDVALIDITY changed to ${validity}; cursor reset and ${dropped} queued record(s) dropped - re-reading from the start`,
+							`mailbox UIDVALIDITY changed to ${outcome.validity}; cursor reset and ${outcome.dropped} queued record(s) dropped - re-reading from the start`,
 						)
 					}
 					log("imap ready; running catch-up scan")

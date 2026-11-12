@@ -493,11 +493,13 @@ test("the real adapter exposes UIDVALIDITY (the guard is not inert in production
 		fetchOne: async () => undefined,
 		on: () => {},
 		usable: true,
-		mailbox: { uidValidity: 987654n, exists: 3 },
+		mailbox: { uidValidity: 987654n, uidNext: 12, exists: 3 },
 	}
 	const { adapt } = await import("../src/daemon/imapflow.ts")
 	const adapted = adapt(fake as never)
 	assert.equal(adapted.mailbox?.uidValidity, 987654n, "UIDVALIDITY must reach the watcher")
+	// Enumerating the mailbox by hand dropped uidNext after uidValidity; pass it through whole.
+	assert.equal(adapted.mailbox?.uidNext, 12, "UIDNEXT must reach the watcher too")
 
 	// imapflow reports `false` when no mailbox is open; that must not look like validity 0.
 	const closed = adapt({ ...fake, mailbox: false } as never)

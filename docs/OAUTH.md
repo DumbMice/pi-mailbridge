@@ -175,8 +175,9 @@ the `consumers` row to work; for the `organizations` row, any tenant member will
 > (`login.partner.microsoftonline.cn`). An app registered in a 21Vianet tenant
 > **cannot** authenticate against global Outlook.com — the device flow against
 > `login.microsoftonline.com` will fail. You need the global cloud, i.e.
-> `azure.microsoft.com` / `login.microsoftonline.com`. `--check` warns if
-> `oauth.issuer` points at a sovereign-cloud domain.
+> `azure.microsoft.com` / `login.microsoftonline.com`. `--check` reports it and exits
+> non-zero (which stops the shipped unit at `ExecStartPre`) if `oauth.issuer` points at a
+> sovereign-cloud domain.
 
 > Caveat: if the Microsoft account already belongs to a tenant as a member or
 > guest, Azure signup joins that tenant instead of creating a fresh directory.
@@ -313,7 +314,7 @@ Presets (`core/oauth-openid.ts`):
 | **Google** | `https://accounts.google.com` | `https://mail.google.com/ offline_access` |
 
 `offline_access` is not optional — without it the provider returns no refresh
-token and you would re-approve every hour. `--check` warns about this.
+token and you would re-approve every hour. `--check` reports it as a problem, with a non-zero exit.
 
 ### Scopes are not interchangeable
 
@@ -425,8 +426,9 @@ If you already have a token broker, skip the built-in flow:
 ```
 
 The command is executed as argv (never a shell), its stdout is the token, and the
-result is cached until near expiry. A failing command disables OAuth2 for the
-session rather than spawning a failing process on every scan.
+result is cached until near expiry. Three consecutive failures disable OAuth2 for the
+session rather than spawning a failing process on every scan; a single transient failure is
+retried.
 
 Precedence: **`oauth.*` beats `tokenCommand`**. Remove the `oauth` block to switch
 back.

@@ -243,7 +243,9 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					// is no longer in `pending`, which the scanner never reads again.
 					const acked = ackPending(env, uid, instanceId)
 					if (!acked.ok) return fail(acked.reason === "not-found" ? 404 : 409, acked.reason)
-					journal(env, uid, deps.source.uidValidity?.())
+					// The record's space, not the watcher's: after a renumbering the two can differ,
+					// and journaling in the wrong space suppresses a brand-new message at that UID.
+					journal(env, uid, acked.uidValidity ?? deps.source.uidValidity?.())
 					// The record's session, never the request body's: a client that acks
 					// another session's mail must not also free its decision slot.
 					registry.release(acked.sessionId)

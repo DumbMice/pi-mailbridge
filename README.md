@@ -134,8 +134,8 @@ A reply is matched to a session by the **first rule that succeeds**:
 | 3 | **The reply chain** — `In-Reply-To`, or any id in `References`, equals a Message-ID we minted | subject edited, rewritten or purged | The id is recorded when the notification is sent, kept for the last 2,000 sends and aged out with `security.tokenTtlHours`. |
 | 4 | None of the above | — | Rejected as `no-token`. The mail stays unread, but the cursor has passed it, so "retry" means replying again — editing the old subject is not re-read. |
 
-Every rule is routing only. Authorization happens before it, and is the sender
-allowlist plus DMARC.
+Every rule is routing only. Authorization happens before it: the sender allowlist, plus
+DMARC (which is off in the single-mailbox layout — see One mailbox or two?).
 
 What this means in practice:
 
@@ -153,8 +153,8 @@ Rule 3 is a convenience fallback, not authentication — a Message-ID is only
 visible to the recipient, but it is unsigned. Set
 `security.allowHeaderThreading: false` to switch *that rule* off. It does not make the
 subject id authoritative: rule 1 is an unsigned lookup key either way, so if you want
-no unauthenticated path at all, treat the mailbox as trusted input and rely on the
-allowlist and DMARC.
+no unauthenticated path at all, treat the mailbox as trusted input and rely on the allowlist and DMARC (DMARC is off in
+single-mailbox mode).
 
 ## A reply did not arrive
 
@@ -199,6 +199,7 @@ Where to look:
 | Path | What it holds |
 | --- | --- |
 | `$XDG_STATE_HOME/pi-mailbridge/daemon.log` (default `~/.local/state/…`); under systemd, `journalctl --user -u pi-mailbridge` | scan summaries, connect errors, rejected reasons |
+| `…/uid-cursor.json` | last seen UID + the mailbox's UIDVALIDITY; a change resets it |
 | `…/pending.json` | accepted replies waiting for a session |
 | `…/routes.json` | short routing ids (`security.tokenTtlHours`) |
 | `…/threads.json` | outbound Message-IDs used for threading and the reply chain |
@@ -221,7 +222,8 @@ Message-ID → routing → durable ack**. DMARC reads `Authentication-Results`; 
 `security.requireDmarcPass` (on by default) and pinned to an `authserv-id` only when
 `security.trustedAuthservId` is set. Routing is a short `[pi:f913c9]` id, a legacy
 HMAC-signed token, or the reply chain. Routing identifiers never authorize anything:
-authorization is the allowlist and DMARC alone. Prefer a dedicated account or a filtered
+authorization is the allowlist and DMARC alone (DMARC is off in single-mailbox
+mode). Prefer a dedicated account or a filtered
 folder, never a mailbox that receives untrusted mail.
 
 ## Install

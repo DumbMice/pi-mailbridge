@@ -73,12 +73,11 @@ export function adapt(client: ImapFlow): ImapClientLike {
 			return client.usable
 		},
 
-		// The watcher's UIDVALIDITY guard reads this. Without the passthrough the property
-		// is always undefined in production and the guard silently never runs - the same
-		// class of bug as a header that is fetched but never mapped.
+		// Pass the whole mailbox through, never a hand-built subset: an enumerated copy has
+		// silently dropped a field twice (uidValidity, then uidNext) and both times the guard
+		// that read it went inert in production with the tests still green.
 		get mailbox() {
-			const m = client.mailbox
-			return m ? { uidValidity: m.uidValidity } : undefined
+			return client.mailbox === false ? undefined : client.mailbox
 		},
 	}
 }

@@ -686,3 +686,20 @@ test("the renumbering behaviour is documented, including its cost", () => {
 	assert.match(section, /re-deliver|delivered once more/i, "and admits the re-delivery cost")
 	assert.match(flat(doc("docs/SECURITY.md")), /uid-cursor\.json/, "SECURITY lists the cursor file")
 })
+
+test("authorization claims name DMARC's exception for one mailbox", () => {
+	// With one address DMARC is off, so a flat "authorization is the allowlist and DMARC"
+	// is false in the layout the README recommends for personal accounts.
+	for (const { file, text } of allProse()) {
+		const flatText = flat(text)
+		for (const sentence of flatText.split(/(?<=[.!?])\s+/)) {
+			if (!/allowlist (?:and|plus) DMARC/i.test(sentence)) continue
+			if (/routing id authenticates|never authorizes|come first/i.test(sentence)) continue
+			assert.match(
+				sentence,
+				/DMARC is off|off in the single-mailbox|single-mailbox layout/i,
+				`${file}: ${sentence}`,
+			)
+		}
+	}
+})

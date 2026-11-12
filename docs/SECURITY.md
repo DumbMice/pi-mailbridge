@@ -63,7 +63,8 @@ a signed token, and both are accepted. Neither proves the message came from you.
 notification emails (or forwards it) can carry the token into the mailbox.
 
 That is why token verification is *never* the only gate — the allowlist and
-DMARC come first, and the token only routes.
+DMARC come first (DMARC is off in the single-mailbox layout), and the token only
+routes.
 
 ### 2.3 Replay protection must be durable
 

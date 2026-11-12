@@ -100,7 +100,8 @@ signed token (39 characters, in an 87-character subject) that made every subject
 preview. Signed tokens still verify, so mail already in flight keeps working.
 
 The id is a lookup key, not a credential: an unknown id resolves to nothing, and
-authorization remains the sender allowlist plus DMARC (SECURITY.md §2.2). Because routes are
+authorization remains the sender allowlist plus DMARC (SECURITY.md §2.2) — except in the
+single-mailbox layout, where DMARC is off (README, One mailbox or two?). Because routes are
 local, an id minted on one machine simply does not resolve on another — which is the
 desired behaviour, not an error.
 
@@ -136,7 +137,8 @@ An inbound message is matched to a session by the first rule that succeeds:
    past it, so the retry is a new reply, not an edited subject.
 
 None of these is authentication: they route, they do not authorize. Authorization is the
-allowlist plus DMARC, and it happens before any of this (§2). A signed token is not
+allowlist plus DMARC (off in the single-mailbox layout), and it happens before any of this
+(§2). A signed token is not
 stronger than a short id for routing purposes — the signature stops someone *predicting*
 an id, but guessing is pointless when any unresolvable id simply falls through to no
 route. `security.allowHeaderThreading: false` disables rule 3 only.
@@ -164,7 +166,8 @@ UIDs are only meaningful within one `UIDVALIDITY`. If a provider recreates, migr
 future message, with `examined 0` as the only symptom.
 
 The daemon records the mailbox's `UIDVALIDITY` beside the cursor and compares it on every
-connect. On a change it resets the cursor, ignores `journal.json` entries from the old
+connect. On a change it resets the cursor (except the first observation after an upgrade, unless the
+cursor has fallen outside the new range), ignores `journal.json` entries from the old
 numbering (they describe a space that no longer exists), and drops queued records from it.
 The cost is explicit: **a renumbering can re-deliver replies that were acked inside the
 route TTL**, because the only durable dedupe is UID-based. Nothing is lost; recent mail may
@@ -268,6 +271,7 @@ src/
     main.ts             CLI + lifecycle
     process.ts          UID-cursor scan → authorize → route → parse → persist
     scan-queue.ts       one scan at a time; bursts coalesce into a follow-up
+    source-proxy.ts     the MailSource the daemon really uses: live watcher + UIDVALIDITY
     service.ts          the HTTP surface: /health /pending /claim /ack /send /events …
     spawn.ts            ensureDaemon, single-instance
     watcher.ts          imapflow IDLE, renew, backoff

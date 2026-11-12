@@ -157,7 +157,9 @@ export function claimPending(
  * Returns the record's session so the caller releases the right decision slot instead of
  * trusting whatever session id the request body carried.
  */
-export type AckResult = { ok: true; sessionId: string } | { ok: false; reason: "not-found" | "not-claimed" }
+export type AckResult =
+	| { ok: true; sessionId: string; uidValidity?: number }
+	| { ok: false; reason: "not-found" | "not-claimed" }
 
 export function ackPending(env: NodeJS.ProcessEnv, uid: number, instanceId: string): AckResult {
 	const items = load(env)
@@ -165,7 +167,7 @@ export function ackPending(env: NodeJS.ProcessEnv, uid: number, instanceId: stri
 	if (!record) return { ok: false, reason: "not-found" }
 	if (record.claimedBy !== instanceId) return { ok: false, reason: "not-claimed" }
 	save(env, items.filter((r) => r.uid !== uid))
-	return { ok: true, sessionId: record.sessionId }
+	return { ok: true, sessionId: record.sessionId, ...(record.uidValidity === undefined ? {} : { uidValidity: record.uidValidity }) }
 }
 
 /**
