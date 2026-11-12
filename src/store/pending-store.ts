@@ -206,11 +206,13 @@ export function ackPending(
  *
  * @returns how many records were dropped.
  */
-export function dropPendingFromOtherSpaces(env: NodeJS.ProcessEnv, uidValidity: number): number {
+export function dropPendingFromOtherSpaces(env: NodeJS.ProcessEnv, uidValidity: number): PendingRecord[] {
 	const items = load(env)
 	const kept = items.filter((r) => r.uidValidity === undefined || r.uidValidity === uidValidity)
-	const dropped = items.length - kept.length
-	if (dropped > 0) save(env, kept)
+	const dropped = items.filter((r) => r.uidValidity !== undefined && r.uidValidity !== uidValidity)
+	if (dropped.length > 0) save(env, kept)
+	// Returned, not just counted: the caller releases exactly these sessions' decision slots,
+	// and a second pass over the file could disagree with what was actually removed.
 	return dropped
 }
 

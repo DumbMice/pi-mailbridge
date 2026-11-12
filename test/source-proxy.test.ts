@@ -118,3 +118,17 @@ test("a record with no UID space survives the every-connect drop", async () => {
 	assert.equal(pendingSize(e), 1)
 	assert.deepEqual(released, [])
 })
+
+test("a dropped record does not free a slot its session still uses", async () => {
+	// The same session can have a live queued record in the current space. Releasing its slot
+	// would let a second decision be reserved while the first is unanswered.
+	const e = env()
+	syncUidValidity(e, 2222, 50)
+	addPending(e, { uid: 1, sessionId: "s1", from: "you@qq.com", subject: "x", body: "old", receivedAt: 1, uidValidity: 1111 })
+	addPending(e, { uid: 2, sessionId: "s1", from: "you@qq.com", subject: "y", body: "live", receivedAt: 1, uidValidity: 2222 })
+
+	const released: string[] = []
+	const outcome = applyUidValidity(e, watcher({ validity: 2222, next: 50 }), (s) => released.push(s))
+	assert.equal(outcome.dropped, 1, "the old-space record is gone")
+	assert.deepEqual(released, [], "but s1 still has a live record, so its slot stays")
+})

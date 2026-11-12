@@ -266,7 +266,11 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			body,
 			...(accepted.length ? { attachments: accepted } : {}),
 			receivedAt: message.receivedAt,
-			...(uidValidity === undefined ? {} : { uidValidity }),
+			// Re-read per record: a renumber can land mid-scan, and stamping the scan's opening
+			// space would leave the tail of the batch unclaimable until the next connect.
+			...((deps.source.uidValidity?.() ?? uidValidity) === undefined
+				? {}
+				: { uidValidity: deps.source.uidValidity?.() ?? uidValidity }),
 		}
 
 		// Persist BEFORE the cursor moves. A crash here leaves the mail unseen.

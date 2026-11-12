@@ -232,7 +232,7 @@ test("a re-indexed mailbox does not let an old UID collide with a new one", asyn
 	addPending(e, { ...rec(9), uidValidity: 2222 })
 	assert.equal(pendingSize(e), 3)
 
-	assert.equal(dropPendingFromOtherSpaces(e, 2222), 2, "both old-space records are dropped")
+	assert.equal(dropPendingFromOtherSpaces(e, 2222).length, 2, "both old-space records are dropped")
 	assert.equal(pendingSize(e), 1)
 	assert.equal(getPending(e, 9)?.uidValidity, 2222)
 })

@@ -63,12 +63,20 @@ export function applyUidValidity(
 	// Drop on EVERY connect, not only on a reset: a crash between the cursor write and the
 	// drop leaves records from another space that nothing can claim (the guard refuses them)
 	// and nothing would ever remove, because the cursor already carries the new validity.
-	// Queued records from the wrong numbering could also collide with new UIDs and be replaced
-	// silently. Dropping them is safe: they were never acked, so the mail is still unread and
-	// the cursor re-reads it. Their decision slots are freed, or that session would be told it
-	// still has an outstanding decision for up to a day.
-	const doomed = listPending(env).filter((r) => r.uidValidity !== undefined && r.uidValidity !== validity)
+	// Queued records from the wrong numbering could collide with new UIDs and be replaced
+	// silently. Dropping them is safe: they were never acked, so the mail is still unread.
+	// On a reset the cursor re-reads it; on the orphan path (no reset) the message is behind
+	// an already-advanced cursor, which is why the drop runs every connect. Their decision
+	// slots are freed, or that session would be told it has an outstanding decision for a day.
 	const dropped = dropPendingFromOtherSpaces(env, validity)
-	for (const record of doomed) onDropped?.(record.sessionId)
-	return { reset, validity, dropped }
+	if (dropped.length > 0) {
+		// Only free a slot the dropped record was holding: a session that still has a live
+		// record in the current space must keep its reservation, or it could be granted a
+		// second decision while the first is unanswered.
+		const stillQueued = new Set(listPending(env).map((r) => r.sessionId))
+		for (const record of dropped) {
+			if (!stillQueued.has(record.sessionId)) onDropped?.(record.sessionId)
+		}
+	}
+	return { reset, validity, dropped: dropped.length }
 }

@@ -285,3 +285,26 @@ test("a renumbered mailbox does not confuse the injected set", async () => {
 	assert.deepEqual(await second.r.drain(), ["injected"])
 	assert.deepEqual(second.injected, ["second message"])
 })
+
+test("a claim refused as stale is reported once, not silently retried", async () => {
+	// The record cannot be delivered and is dropped at the next connect. Silence would look
+	// like a stalled queue; a log line every 10 s would be noise.
+	const errors: Error[] = []
+	const client = fakeClient({ pending: [record({ uidValidity: 1111 })] })
+	client.claim = async () => ({ ok: false as const, status: 409, code: "stale-space" })
+	const r = createDeliveryRunner({
+		client,
+		instanceId: "inst-stale",
+		sessionId: () => SESSION,
+		inject: async () => {},
+		onError: (e) => errors.push(e),
+	})
+
+	assert.deepEqual(await r.drain(), ["stale-space"])
+	assert.equal(errors.length, 1, "reported")
+	assert.match(errors[0]!.message, /earlier UID space/)
+
+	// A second drain must not report it again.
+	assert.deepEqual(await r.drain(), ["stale-space"])
+	assert.equal(errors.length, 1, "but only once")
+})

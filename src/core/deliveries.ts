@@ -32,6 +32,7 @@ export type DeliveryOutcome =
 	| "claimed-by-other"
 	| "inject-failed"
 	| "claim-unconfirmed"
+	| "stale-space"
 	| "not-found"
 
 export interface DeliveryRunnerDeps {
@@ -90,6 +91,8 @@ function injectedFor(instanceId: string): Set<string> {
 }
 
 export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
+	/** Stale-space refusals already reported, so a stuck record does not log every poll. */
+	const reported = new Set<string>()
 	const injected = (): Set<string> => injectedFor(deps.instanceId)
 
 	async function handle(record: PendingRecord): Promise<DeliveryOutcome> {
@@ -118,6 +121,17 @@ export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 		if (!claim.ok) {
 			// Expected when another instance won the race; the daemon answers 409.
 			if (claim.code === "claimed-by-other") return "claimed-by-other"
+			// The record belongs to a UID numbering the mailbox has left. It cannot be delivered
+			// and is dropped at the next connect; say so once rather than retrying in silence
+			// every poll tick.
+			if (claim.code === "stale-space") {
+				const key = injectionKey(record)
+				if (!reported.has(key)) {
+					reported.add(key)
+					deps.onError?.(new Error("reply belongs to an earlier UID space; it will be dropped"), record)
+				}
+				return "stale-space"
+			}
 			// Only a definite 404 means the record is gone. Anything else - a timeout, a
 			// network error, a rotated secret (401) - leaves the outcome unknown, and calling
 			// that "not-found" is the same lie in a different costume. It self-heals (the
