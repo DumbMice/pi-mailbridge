@@ -28,8 +28,9 @@ N-way race for mailbox state, because only one process reads the mailbox.
 
 The extension (inside pi) never touches IMAP or SMTP on the delivery path: it sends mail
 through the daemon and receives replies from it. The one exception is the `/mailbridge
-smoke` diagnostic, which deliberately sends a real mail and reads it back over its own
-short-lived connection to prove the account works.
+smoke` diagnostic, which sends a real mail and then opens the folder over its own
+short-lived connection to prove both sides work (and `/mailbridge prime`, which opens one
+to move the cursor without reading anything).
 
 ## 2. Delivery pipeline (the part that must not lose mail)
 
@@ -99,7 +100,7 @@ signed token (39 characters, in a subject well over 80) that made every subject 
 preview. Signed tokens still verify, so mail already in flight keeps working.
 
 The id is a lookup key, not a credential: an unknown id resolves to nothing, and
-authorization remains the sender allowlist plus DMARC (§2.2). Because routes are
+authorization remains the sender allowlist plus DMARC (SECURITY.md §2.2). Because routes are
 local, an id minted on one machine simply does not resolve on another — which is the
 desired behaviour, not an error.
 

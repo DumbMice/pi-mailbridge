@@ -212,7 +212,7 @@ systemctl --user enable --now pi-mailbridge
 | `/mailbridge setup <addr> [to <addr>] [force]` | Discover servers + auth, write the config, reload the daemon |
 | `/mailbridge check` | Validate config and credentials; says what is missing |
 | `/mailbridge auth` | Start the OAuth2 device login; prints the URL, polls in the background |
-| `/mailbridge smoke` | Send one real mail, then read the folder back |
+| `/mailbridge smoke` | Send one real mail, then open the folder and count |
 | `/mailbridge restart` | Replace the daemon process (needed after an update, not just a config change) |
 | `/mailbridge prime` | Set the cursor to now, so existing mail is never read |
 
@@ -391,7 +391,8 @@ IMAP IDLE ──► scan (UID cursor) ──► authorize ──► route ──
 
 One daemon per machine owns the mailbox; the session's delivery path never touches
 IMAP. (`/mailbridge smoke` is the exception: a one-off diagnostic that sends one mail and
-reads it back over its own short-lived connection.) Details and
+opens the folder and counts over its own short-lived connection; `/mailbridge prime`
+also opens one, to move the cursor without reading anything.) Details and
 the failure-mode table: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md). Module
 map and the port from `opencode-afk`: [docs/MAPPING.md](./docs/MAPPING.md).
 
