@@ -67,3 +67,9 @@ test("usage lists every subcommand", () => {
 		assert.ok(USAGE.includes(sub), `usage should mention ${sub}`)
 	}
 })
+
+test("prime is a first-class subcommand", () => {
+	assert.equal(parseMailbridgeCommand("prime").sub, "prime")
+	assert.equal(isSubcommand("prime"), true)
+	assert.match(USAGE, /prime/)
+})

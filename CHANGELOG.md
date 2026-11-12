@@ -81,6 +81,15 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### prime: start watching from now
+
+The first scan walks the entire existing mailbox to look for a routing token. On a
+personal inbox that is slow and reads mail that was never addressed to pi (nothing
+is stored or marked seen, but it is fetched and parsed).
+
+`--prime` / `/mailbridge prime` sets the UID cursor to the newest message without
+fetching anything, so watching begins at the next arrival.
+
 ### NetEase family added; QQ has a 14-day wait
 
 QQ Mail refuses to enable IMAP/SMTP for accounts younger than 14 days

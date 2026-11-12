@@ -10,6 +10,7 @@ export type MailbridgeSubcommand =
 	| "check"
 	| "auth"
 	| "smoke"
+	| "prime"
 	| "restart"
 	| "help"
 
@@ -29,10 +30,20 @@ export const USAGE = [
 	"/mailbridge check           validate config and credentials",
 	"/mailbridge auth            approve OAuth2 device login",
 	"/mailbridge smoke           send one real mail, then read the folder back",
+	"/mailbridge prime           start watching from now, ignoring existing mail",
 	"/mailbridge restart         reload config in the daemon",
 ].join("\n")
 
-const SUBCOMMANDS: readonly MailbridgeSubcommand[] = ["status", "setup", "check", "auth", "smoke", "restart", "help"]
+const SUBCOMMANDS: readonly MailbridgeSubcommand[] = [
+	"status",
+	"setup",
+	"check",
+	"auth",
+	"smoke",
+	"prime",
+	"restart",
+	"help",
+]
 
 export function isSubcommand(value: string): value is MailbridgeSubcommand {
 	return (SUBCOMMANDS as readonly string[]).includes(value)

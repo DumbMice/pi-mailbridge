@@ -143,6 +143,19 @@ ports or TLS modes. It refuses to overwrite an existing config unless you add
 
 Prefer to write it yourself? Copy [`config.example.json`](./config.example.json).
 
+### Start watching from now, not from history
+
+If the mailbox already has mail you don't want the agent to read (a personal
+inbox, for instance), prime the cursor before starting the daemon:
+
+```
+/mailbridge prime        # or: pi-mailbridge --prime
+```
+
+That moves the UID cursor to the newest message without fetching anything, so the
+scan begins at the next arrival. Nothing is stored and nothing is marked seen
+either way — priming is about not reading mail that was never addressed to pi.
+
 ### The headless entry point
 
 There is a CLI, but only for running the daemon where pi cannot: a systemd unit,
@@ -181,6 +194,7 @@ systemctl --user enable --now pi-mailbridge
 | `/mailbridge auth` | Start the OAuth2 device login; prints the URL, polls in the background |
 | `/mailbridge smoke` | Send one real mail, then read the folder back |
 | `/mailbridge restart` | Re-read config and restart the daemon's watcher |
+| `/mailbridge prime` | Set the cursor to now, so existing mail is never read |
 
 ## Agent tools
 

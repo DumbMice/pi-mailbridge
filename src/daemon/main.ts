@@ -34,6 +34,7 @@ import type { MailSource } from "./process.ts"
 import { runSmoke } from "../core/smoke.ts"
 import { runSetup } from "../core/setup.ts"
 import { listPending } from "../store/pending-store.ts"
+import { advanceCursor } from "../store/uid-cursor.ts"
 import { recordOutbound } from "../store/threads.ts"
 import { tokenFromSubject } from "../core/token.ts"
 
@@ -112,6 +113,42 @@ async function smoke(config: ResolvedConfig): Promise<number> {
 	if (!result.ok) return EXIT_AUTH
 	log("smoke ok: both directions work")
 	return 0
+}
+
+/**
+ * `--prime`: move the UID cursor to the newest message without reading anything.
+ *
+ * Without this, the first scan walks the entire existing mailbox: it fetches and
+ * parses every message looking for a routing token. Nothing is stored and nothing
+ * is marked seen, but on a mailbox that also carries personal mail that is both
+ * slow and more exposure than a notification bridge needs. Priming says "watch
+ * from now on".
+ */
+async function prime(config: ResolvedConfig): Promise<number> {
+	const tokenProvider = await buildTokenProvider(config)
+	const getAccessToken = tokenProvider ? () => tokenProvider.getToken() : undefined
+	const client = await createImapflowFactory({ ...(getAccessToken ? { getAccessToken } : {}) })(
+		config,
+		{ idleRenewMs: config.tuning.idleRenewMs },
+	)
+	try {
+		await client.connect()
+		await client.mailboxOpen(config.mail.imap.folder || "INBOX")
+		const uids = await client.search({ uid: "1:*" }, { uid: true })
+		const highest = uids.length > 0 ? Math.max(...uids) : 0
+		advanceCursor(process.env, highest)
+		log(`primed: cursor set to uid ${highest} (${uids.length} existing message(s) will not be read)`)
+		return 0
+	} catch (error) {
+		log(`prime failed: ${(error as Error).message}`)
+		return EXIT_AUTH
+	} finally {
+		try {
+			await client.logout()
+		} catch {
+			/* already gone */
+		}
+	}
 }
 
 /** Value of `--flag <value>`, or undefined. */
@@ -349,6 +386,10 @@ async function main(): Promise<void> {
 	}
 	if (argv.includes("--auth")) {
 		process.exitCode = await login(config)
+		return
+	}
+	if (argv.includes("--prime")) {
+		process.exitCode = await prime(config)
 		return
 	}
 	if (argv.includes("--smoke")) {

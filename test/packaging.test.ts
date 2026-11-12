@@ -208,3 +208,7 @@ test("every parsed subcommand has a handler in the extension", () => {
 		assert.ok(src.includes(`case "${sub}":`), `/mailbridge ${sub} is parsed but has no handler`)
 	}
 })
+
+test("--prime is documented", () => {
+	assert.match(readme, /--prime|primed/i, "README should mention priming the cursor")
+})

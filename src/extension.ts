@@ -386,6 +386,32 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					return
 				}
 
+				case "prime": {
+					// Skip the mailbox's existing mail: set the cursor to the newest uid.
+					try {
+						const provider = await buildTokenProvider(config, env)
+						const { createImapflowFactory } = await import("./daemon/imapflow.ts")
+						const { advanceCursor } = await import("./store/uid-cursor.ts")
+						const imap = await createImapflowFactory({
+							...(provider ? { getAccessToken: () => provider.getToken() } : {}),
+						})(config, { idleRenewMs: config.tuning.idleRenewMs })
+						await imap.connect()
+						await imap.mailboxOpen(config.mail.imap.folder || "INBOX")
+						const uids = await imap.search({ uid: "1:*" }, { uid: true })
+						const highest = uids.length ? Math.max(...uids) : 0
+						advanceCursor(env, highest)
+						await imap.logout().catch(() => {})
+						const reloaded = client ? await client.reload() : undefined
+						c.ui.notify(
+							`primed: cursor at uid ${highest}; ${uids.length} existing message(s) will not be read${reloaded?.ok ? ", daemon reloaded" : ""}`,
+							"info",
+						)
+					} catch (error) {
+						c.ui.notify(`prime failed: ${(error as Error).message}`, "error")
+					}
+					return
+				}
+
 				case "restart": {
 					if (!client) return void c.ui.notify("daemon is not reachable — nothing to restart", "warning")
 					const reloaded = await client.reload()
