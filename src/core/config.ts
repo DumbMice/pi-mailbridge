@@ -189,6 +189,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 	resolved.device = { name: configuredDevice || shortHostname() }
 
 	// Validation that must not throw in-process.
+	// allowFrom is checked with .length below, which a string also satisfies - and then
+	// every message throws in the allowlist check, killing the scan silently forever.
+	const rawAllow: unknown = resolved.security?.allowFrom
+	if (!Array.isArray(rawAllow)) {
+		warnings.push("security.allowFrom must be an array of addresses — ignoring it (fail closed)")
+		resolved.security = { ...resolved.security, allowFrom: [] }
+	} else {
+		resolved.security = { ...resolved.security, allowFrom: rawAllow.map((v) => String(v).trim()).filter(Boolean) }
+	}
+
+	// A quoted or non-numeric delay silently disables debouncing (setTimeout coerces it).
+	const rawDebounce: unknown = resolved.notify?.debounceMs
+	const debounce = typeof rawDebounce === "number" ? rawDebounce : Number.NaN
+	if (!Number.isFinite(debounce) || debounce < 0) {
+		if (rawDebounce !== undefined) warnings.push("notify.debounceMs must be a non-negative number — using 10000")
+		resolved.notify = { ...resolved.notify, debounceMs: 10_000 }
+	}
+
 	const imap = resolved.mail.imap
 	if (!imap.host || !imap.user) warnings.push("mail.imap.host and mail.imap.user are required")
 	if (!resolved.mail.to) warnings.push("mail.to is required")

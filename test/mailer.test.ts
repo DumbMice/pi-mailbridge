@@ -180,3 +180,11 @@ test("no threading headers for the first message of a session", async () => {
 	assert.equal(t.sent[0]!.inReplyTo, undefined)
 	assert.equal(t.sent[0]!.references, undefined)
 })
+
+test("the subject cannot inject a header or exceed the line limit", async () => {
+	const { sanitizeSubject } = await import("../src/core/mailer.ts")
+	// Subject text can come from notify/send_update params, i.e. model-controlled.
+	assert.equal(sanitizeSubject("pi: hello\r\nBcc: attacker@evil.test"), "pi: hello Bcc: attacker@evil.test")
+	assert.equal(sanitizeSubject("pi: a\nb\u0000c"), "pi: a b c")
+	assert.ok(sanitizeSubject("x".repeat(500)).length <= 200)
+})

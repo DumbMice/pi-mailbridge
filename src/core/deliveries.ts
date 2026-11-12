@@ -55,6 +55,7 @@ export interface DeliveryRunner {
 export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 	/** UIDs already injected in this process lifetime. */
 	const injected = new Set<number>()
+	let inFlight: Promise<DeliveryOutcome[]> | undefined
 
 	async function handle(record: PendingRecord): Promise<DeliveryOutcome> {
 		if (injected.has(record.uid)) return "already-injected"
@@ -101,13 +102,22 @@ export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 		injectedUids: () => [...injected],
 
 		async drain() {
-			const result = await deps.client.pending()
-			if (!result.ok) return []
-			const outcomes: DeliveryOutcome[] = []
-			for (const record of result.data.pending) {
-				outcomes.push(await handle(record))
-			}
-			return outcomes
+			// One drain at a time. The claim registry is keyed per pid, so two overlapping
+			// drains in this process would both be granted the same uid and inject twice -
+			// and a duplicate injection cannot be undone.
+			if (inFlight) return inFlight
+			inFlight = (async () => {
+				try {
+					const result = await deps.client.pending()
+					if (!result.ok) return []
+					const outcomes: DeliveryOutcome[] = []
+					for (const record of result.data.pending) outcomes.push(await handle(record))
+					return outcomes
+				} finally {
+					inFlight = undefined
+				}
+			})()
+			return inFlight
 		},
 	}
 }

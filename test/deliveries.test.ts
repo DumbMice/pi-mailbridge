@@ -161,3 +161,30 @@ test("injectedUids reports what this runner has accepted", async () => {
 	await r.handle(record({ uid: 12 }))
 	assert.deepEqual(r.injectedUids().sort(), [11, 12])
 })
+
+test("two overlapping drains inject once", async () => {
+	// The claim registry is keyed per pid, so a second concurrent drain in this process is
+	// granted the same uid - and a duplicate injection cannot be undone.
+	let injected = 0
+	let claims = 0
+	const runner = createDeliveryRunner({
+		client: {
+			pending: async () => ({ ok: true, data: { pending: [record()] } }),
+			claim: async () => {
+				claims++
+				await new Promise((r) => setTimeout(r, 5))
+				return { ok: true, data: { ok: true } }
+			},
+			ack: async () => ({ ok: true, data: { ok: true } }),
+		} as never,
+		instanceId: "inst",
+		sessionId: () => SESSION,
+		inject: async () => {
+			injected++
+			await new Promise((r) => setTimeout(r, 5))
+		},
+	})
+	await Promise.all([runner.drain(), runner.drain()])
+	assert.equal(injected, 1, "serialized: the second drain rides the first")
+	assert.equal(claims, 1)
+})

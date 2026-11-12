@@ -103,7 +103,10 @@ export async function sendMail(
 	const info = (await transporter.sendMail({
 		from: message.from ?? config.mail.smtp.user,
 		to: message.to,
-		subject: message.subject,
+		// The subject carries model-controlled text. A CR/LF would fold a new header into
+		// the message (the classic header-injection shape), and an unbounded subject is
+		// rejected by some MTAs, so both are flattened here at the single choke point.
+		subject: sanitizeSubject(message.subject),
 		// multipart/alternative: clients fold quoted history only for HTML mail, so
 		// plain-text-only notifications produced reply threads of raw repeated text.
 		text: message.text,
@@ -117,4 +120,15 @@ export async function sendMail(
 	})) as { messageId?: string } | undefined
 
 	return info?.messageId ? { messageId: info.messageId } : {}
+}
+
+/** RFC 5322 caps a header line at 998 octets; keep well inside it. */
+const MAX_SUBJECT = 200
+
+export function sanitizeSubject(subject: string): string {
+	return subject
+		.replace(/[\r\n\u0000]+/g, " ")
+		.replace(/\s{2,}/g, " ")
+		.trim()
+		.slice(0, MAX_SUBJECT)
 }

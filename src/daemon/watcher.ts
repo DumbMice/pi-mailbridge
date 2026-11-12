@@ -208,6 +208,7 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 	let reconnectHandle: unknown
 	let attempt = 0
 	let stopped = false
+	let connecting = false
 
 	async function teardown(): Promise<void> {
 		const c = client
@@ -221,7 +222,10 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 	}
 
 	function scheduleReconnect(error: Error): void {
-		if (stopped) return
+		// A dying connection emits both "close" and "error", and connectOnce's catch adds a
+		// third path. Without this guard each one arms its own timer, so the watcher opens
+		// several connections and leaks all but the last.
+		if (stopped || reconnectHandle !== undefined || connecting) return
 		const delay = nextBackoff(attempt, config.tuning.backoffInitialMs, config.tuning.backoffMaxMs)
 		attempt++
 		callbacks.onError?.(error, delay)
@@ -232,7 +236,8 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 	}
 
 	async function connectOnce(): Promise<void> {
-		if (stopped) return
+		if (stopped || connecting) return
+		connecting = true
 		try {
 			const c = await factory(config, { idleRenewMs })
 			client = c
@@ -248,7 +253,12 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 			callbacks.onReady()
 		} catch (error) {
 			await teardown()
+			// Clear the in-flight flag first: scheduleReconnect refuses while a connect is
+			// pending, and this catch is one of the legs that must be able to arm it.
+			connecting = false
 			scheduleReconnect(error instanceof Error ? error : new Error(String(error)))
+		} finally {
+			connecting = false
 		}
 	}
 
