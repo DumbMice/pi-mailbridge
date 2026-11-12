@@ -268,6 +268,17 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 	}
 
 	let reportedModeOff = false
+	// Last scan outcome, surfaced on /health so `/mailbridge status` can answer "why did my
+	// reply not arrive?" - the reasons were already computed, just never shown.
+	let lastScan: { at: number; examined: number; persisted: number; rejected: number; reasons: Record<string, number> } | undefined
+	function formatReasons(reasons: Record<string, number>): string {
+		const parts = Object.entries(reasons)
+			.filter(([, n]) => n > 0)
+			.sort((a, b) => b[1] - a[1])
+			.map(([reason, n]) => `${reason}=${n}`)
+		return parts.length ? parts.join(" ") : "no reasons"
+	}
+
 	async function scanOnce(why: string): Promise<void> {
 		// `/back` must actually close the channel, not just stop the mail coming back.
 		// While mode is off nothing is fetched or persisted and the cursor stays put, so
@@ -283,13 +294,21 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 		const before = new Set(listPending().map((r) => r.uid))
 		try {
 			const result = await scanAndProcess(currentConfig, { source: sourceProxy, secret: ensureSecret() })
+			lastScan = {
+				at: Date.now(),
+				examined: result.examined,
+				persisted: result.persisted,
+				rejected: result.rejected,
+				reasons: result.reasons,
+			}
 			if (result.persisted > 0) {
 				log(`${why}: persisted ${result.persisted} of ${result.examined} (rejected ${result.rejected})`)
 				for (const record of listPending()) {
 					if (!before.has(record.uid)) service.broadcast({ type: "delivery", pending: record })
 				}
 			} else if (result.examined > 0) {
-				log(`${why}: examined ${result.examined}, nothing for us`)
+				// Name the reasons: "nothing for us" is what makes a missing reply undebuggable.
+				log(`${why}: examined ${result.examined}, nothing for us (${formatReasons(result.reasons)})`)
 			}
 		} catch (error) {
 			// A scan failure must not kill the daemon: the cursor did not advance, so
@@ -359,6 +378,7 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 		// Stop when the last pi session goes away. `daemon.exitWhenIdle: false` keeps it
 		// resident instead, which is what a systemd unit wants.
 		exitWhenIdle: () => currentConfig.daemon.exitWhenIdle !== false,
+		scanSummary: () => lastScan,
 		idleTimeoutMs: (currentConfig.daemon.idleTimeoutSecs ?? 120) * 1000,
 		// `/mailbridge setup` / `auth` write new config or tokens; pick them up here.
 		reload: async () => {

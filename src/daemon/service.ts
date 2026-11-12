@@ -67,6 +67,8 @@ export interface DaemonDeps {
 	 * client has pinged, so a daemon started by systemd (no pi sessions) never exits.
 	 */
 	exitWhenIdle?: () => boolean
+	/** Outcome of the most recent scan, for diagnostics. */
+	scanSummary?: () => { at: number; examined: number; persisted: number; rejected: number; reasons: Record<string, number> } | undefined
 	/** How long after the last ping to exit. Default 120s. */
 	idleTimeoutMs?: number
 	env?: NodeJS.ProcessEnv
@@ -170,6 +172,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				clients: pings.size,
 				lastPingAgoMs: newestPing ? Math.max(0, now() - newestPing) : null,
 				idleExitEnabled: deps.exitWhenIdle ? deps.exitWhenIdle() : false,
+				lastScan: deps.scanSummary?.() ?? null,
 			})
 		}
 

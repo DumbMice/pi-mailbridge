@@ -369,6 +369,26 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			config = load()
 			const parsed = parseMailbridgeCommand(args)
 
+			/** "why did my reply not arrive?" - the scan already knows, so show it. */
+			const scanLines = (
+				health: { ok: boolean; data?: Record<string, unknown> } | undefined,
+			): string[] => {
+				const summary = health?.ok
+					? (health.data?.lastScan as
+							| { examined: number; persisted: number; rejected: number; reasons: Record<string, number> }
+							| null)
+					: null
+				if (!summary) return ["last scan: (none yet)"]
+				const reasons = Object.entries(summary.reasons ?? {})
+					.filter(([, n]) => Number(n) > 0)
+					.map(([reason, n]) => `${reason} ${n}`)
+					.join(", ")
+				return [
+					`last scan: examined ${summary.examined}, kept ${summary.persisted}, rejected ${summary.rejected}`,
+					`rejections: ${reasons || "none"}`,
+				]
+			}
+
 			const statusReport = async () => {
 				const secret = secretFn()
 				const health = client ? await client.health() : undefined
@@ -383,6 +403,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						`mailbox: ${config.mail.to || "(unset)"}`,
 						`allowlist: ${config.security.allowFrom.join(", ") || "(empty — denies all)"}`,
 						`pending replies: ${pending?.ok ? pending.data.pending.length : "?"}`,
+						...scanLines(health),
 					].join("\n"),
 					"info",
 				)

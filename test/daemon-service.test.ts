@@ -627,3 +627,30 @@ test("/ack refuses a record nobody claimed, so another session's reply survives"
 		await service.close()
 	}
 })
+
+test("/health reports the last scan's rejection reasons", async () => {
+	// The reasons were computed and thrown away. "Why did my reply not arrive" needs them.
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-scan-")) },
+		source: { searchAfter: async () => [], fetch: async () => undefined },
+		send: async () => ({ messageId: "<x@qq.com>" }),
+		scanSummary: () => ({
+			at: 1,
+			examined: 3,
+			persisted: 1,
+			rejected: 2,
+			reasons: { routed: 2, "not-allowlisted": 1, "dmarc-missing": 1 },
+		}),
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	try {
+		const res = await fetch(`http://127.0.0.1:${port}/health`)
+		const body = (await res.json()) as { lastScan: { reasons: Record<string, number> } }
+		assert.equal(body.lastScan.reasons["not-allowlisted"], 1)
+		assert.equal(body.lastScan.reasons["dmarc-missing"], 1)
+	} finally {
+		await service.close()
+	}
+})

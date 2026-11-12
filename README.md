@@ -124,6 +124,47 @@ subject id authoritative: rule 1 is an unsigned lookup key either way, so if you
 no unauthenticated path at all, treat the mailbox as trusted input and rely on the
 allowlist and DMARC.
 
+## A reply did not arrive
+
+Every scan records why each message was refused, so this is answerable:
+
+```
+/mailbridge status
+```
+
+```
+last scan: examined 2, kept 1, rejected 1
+rejections: not-allowlisted 1
+```
+
+A count means mail was seen and dropped; `examined 0` means nothing arrived at all (or
+mode is off, in which case nothing is scanned — `/afk`).
+
+| Reason | What it means | Fix |
+| --- | --- | --- |
+| `not-allowlisted` | `From:` is not an exact `addr-spec` in `security.allowFrom` | add the address you actually reply from |
+| `dmarc-missing` / `dmarc-failed` | no `Authentication-Results` with `dmarc=pass` from a trusted relay | check `security.requireDmarcPass`; Microsoft consumer accounts need `trustedAuthservId` unset |
+| `no-token` | the subject lost its `[pi:…]` id **and** nothing in `In-Reply-To`/`References` matched | reply to the original mail, or keep the tag |
+| `other-device` | the id names a different `device.name` | reply from the machine that owns the session, or set `device.name` |
+| `self-echo` | it is our own notification coming back | nothing to do; this is the guard working |
+| `empty-body` | no prose and no usable attachment | — |
+| `attachment-*` | an attachment was dropped (type, size, count) | see the reason suffix |
+| `pending-full` | the queue holds 1 000 undelivered replies | start a session so they drain |
+
+Where to look:
+
+| Path | What it holds |
+| --- | --- |
+| `$XDG_STATE_HOME/pi-mailbridge/daemon.log` | scan summaries, connect errors, rejected reasons |
+| `…/pending.json` | accepted replies waiting for a session |
+| `…/routes.json` | short routing ids (`security.tokenTtlHours`) |
+| `…/threads.json` | outbound Message-IDs used for threading and the reply chain |
+| `…/journal.json` | acked UIDs (replay protection) |
+
+`/mailbridge check` validates config and credentials; `/mailbridge smoke` proves send and
+read both work. If `/mailbridge status` says the daemon is unreachable, `/mailbridge restart`
+replaces the process.
+
 ## Security first
 
 This package makes your inbox a control channel for an agent that can run shell
@@ -143,18 +184,46 @@ folder, never a mailbox that receives untrusted mail.
 pi install npm:pi-mailbridge
 ```
 
-Then do everything from inside pi — no shell required:
+Then, inside pi:
 
 ```
-/mailbridge setup pi-xyz@outlook.com to you@outlook.com   # discovers servers + auth
-/mailbridge auth                                          # approve once, on any device
-/mailbridge smoke                                         # send one real mail, then read it back
+/mailbridge setup you@gmail.com to you@gmail.com   # discovers servers + writes a config
 ```
 
-`setup` fetches the provider's published mail settings (Thunderbird's
-autoconfig database) and the auth it requires, so you never hand-write hosts,
-ports or TLS modes. It refuses to overwrite an existing config unless you add
-`force`.
+`setup` fetches the provider's published mail settings (Thunderbird's autoconfig
+database) and the auth it requires, so you never hand-write hosts, ports or TLS
+modes. It refuses to overwrite an existing config unless you add `force`.
+
+**Setup cannot invent your password.** It writes the account with an empty password and
+tells you where the file is; add the credential there, then send one real mail:
+
+```
+~/.config/pi-mailbridge/config.json      # set mail.imap.password and mail.smtp.password
+```
+
+For Gmail, QQ, 163, Fastmail and most providers that value is an **app password**
+(see [docs/OAUTH.md](./docs/OAUTH.md) for where each provider hides it). Microsoft
+accounts are the exception — they need OAuth, which means registering an app *first*:
+
+```
+/mailbridge auth      # after oauth.clientId is real; see docs/OAUTH.md
+```
+
+`/mailbridge check` validates the config and credentials without sending anything, and
+`/mailbridge smoke` sends one real mail and then opens the folder and counts, which proves
+both directions work.
+
+### Your first notification
+
+Email mode starts **off**. Turn it on, let a turn settle, and the first mail arrives:
+
+```
+/afk
+```
+
+Reply to it from any device. The reply continues that same session. `/back` turns it off
+again — in both directions: while it is off nothing is scanned, claimed or injected, and
+replies wait in the mailbox until you `/afk`.
 
 Prefer to write it yourself? Copy [`config.example.json`](./config.example.json).
 
@@ -177,9 +246,15 @@ There is a CLI, but only for running the daemon where pi cannot: a systemd unit,
 a container, a remote box. It is the same code path, not a second workflow.
 
 ```bash
-node --experimental-strip-types src/daemon/main.ts            # run the daemon
-node --experimental-strip-types src/daemon/main.ts --check    # for ExecStartPre
+# Installed as `pi install npm:pi-mailbridge` (or a checkout: point at its src/).
+node --experimental-strip-types \
+  "${PI_MAILBRIDGE_DIR:-$HOME/.pi/agent/npm/node_modules/pi-mailbridge}/src/daemon/main.ts"
 ```
+
+`pi-mailbridge --check` / `--prime` / `--smoke` / `--print-token` are the same entry point
+through the package's `bin`. If the command is not on `PATH` (npm installs it under the
+package's `node_modules/.bin`), call that file directly.
+
 
 In pi:
 
