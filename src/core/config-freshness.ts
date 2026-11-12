@@ -26,7 +26,8 @@ export function shouldReloadConfig({ configLoadedAt, configMtimeMs }: Freshness)
 	// "nothing to compare" - it is a daemon running on defaults, and a file that has since
 	// appeared must be picked up. Treating 0 as absent made this state permanent.
 	if (!configLoadedAt) return true
-	// One second of slack for coarse mtime resolution, so a write cannot re-trigger a reload
-	// on the very next session.
-	return configMtimeMs > configLoadedAt + 1_000
+	// Strictly newer. No slack: a re-trigger is impossible when both sides are the same
+	// file's mtime, and a tolerance would permanently miss a save that lands within it
+	// (an editor that writes twice), which is the failure this check exists to prevent.
+	return configMtimeMs > configLoadedAt
 }

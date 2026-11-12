@@ -571,16 +571,31 @@ test("the /health field list matches what the handler returns", () => {
 })
 
 test("SECURITY's /health list matches ARCHITECTURE's", () => {
-	// The unauthenticated endpoint is what a security reviewer audits; ARCHITECTURE's list
-	// was updated twice while SECURITY's was not.
-	const security = flat(doc("docs/SECURITY.md"))
-	// The sentence may be split by the abbreviation-free prose only; take a window around
-	// "liveness probe" rather than stopping at the first period (the sentence is long).
-	const at = security.indexOf("liveness probe")
-	assert.ok(at > -1, "SECURITY should mention the liveness probe")
-	const sentence = security.slice(at, at + 400)
-	assert.ok(sentence, "SECURITY should describe what /health returns")
-	for (const field of ["last scan", "mtime"]) {
-		assert.ok(sentence.toLowerCase().includes(field), `SECURITY's /health list omits ${field}`)
+	// The unauthenticated endpoint is what a security reviewer audits, and the two copies
+	// drifted twice. Compare them to each other rather than to a hardcoded phrase list.
+	const fields = (text: string): string[] => {
+		const at = text.indexOf("liveness probe")
+		assert.ok(at > -1, "the doc should describe the liveness probe")
+		const window = text.slice(at, at + 400).toLowerCase()
+		const known: [string, RegExp][] = [
+			["mode", /mode/],
+			["pending", /pending/],
+			["client", /client/],
+			["ping", /ping/],
+			["idle", /idle/],
+			["scan", /scan/],
+			// The field is named configLoadedAt in code and "mtime" in prose; both are right.
+			["mtime", /configloadedat|mtime/],
+			["sse", /sse/],
+		]
+		return known.filter(([, pattern]) => pattern.test(window)).map(([name]) => name)
+	}
+	const architecture = fields(doc("docs/ARCHITECTURE.md"))
+	const security = fields(doc("docs/SECURITY.md"))
+	// SECURITY need not repeat every field, but it must not be missing a whole category.
+	const important = ["mode", "pending", "ping", "idle", "scan", "mtime"]
+	for (const field of important) {
+		assert.ok(architecture.includes(field), `ARCHITECTURE's /health row omits ${field}`)
+		assert.ok(security.includes(field), `SECURITY's /health list omits ${field}`)
 	}
 })

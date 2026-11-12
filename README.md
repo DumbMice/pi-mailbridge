@@ -105,7 +105,7 @@ A reply is matched to a session by the **first rule that succeeds**:
 | 1 | **Short route id in the subject** — `[pi:f913c9]`, matched anywhere in the subject | subject intact | What every new notification carries. A *lookup key in this machine's route table*, not a credential: an id that was never minted here resolves to nothing. TTL-bounded. `Re:`, `RE:`, `Aw:`, `Re[2]:` prefixes are fine because the id is not anchored. |
 | 2 | **Legacy signed token** — `[pi:<payload>.<mac>]` | subject intact | Still verified (HMAC, TTL-bounded) so mail sent before the short id keeps working. New notifications no longer use it. |
 | 3 | **The reply chain** — `In-Reply-To`, or any id in `References`, equals a Message-ID we minted | subject edited, rewritten or purged | The id is recorded when the notification is sent, kept for the last 2,000 sends and aged out with `security.tokenTtlHours`. |
-| 4 | None of the above | — | Rejected as `no-token`; the mail is left **unread** so you can retry. |
+| 4 | None of the above | — | Rejected as `no-token`. The mail stays unread, but the cursor has passed it, so "retry" means replying again — editing the old subject is not re-read. |
 
 Every rule is routing only. Authorization happens before it, and is the sender
 allowlist plus DMARC.
@@ -326,7 +326,7 @@ systemctl --user enable --now pi-mailbridge
 | `/mailbridge check` | Validate the config and that credentials are present (in pi: no network; `--check` runs your `tokenCommand` if XOAUTH2 is configured) |
 | `/mailbridge auth` | Start the OAuth2 device login; prints the URL, polls in the background |
 | `/mailbridge smoke` | Reload the daemon, send one real mail, then open the folder and count |
-| `/mailbridge restart` | Replace the daemon process (needed after an update; the daemon re-reads the config on `setup`/`smoke` and when a session finds a newer file, but this session's own copy — device name, shown mailbox — refreshes only when a `/mailbridge` command runs or pi restarts) |
+| `/mailbridge restart` | Replace the daemon process (needed after an update; the daemon re-reads the config on `setup`/`smoke` and when a session finds a newer file, but this session's own copy — device name, shown mailbox — refreshes only when a `/mailbridge` command runs or pi restarts. Changing `daemon.host`/`daemon.port` always needs a pi restart: the session dials the address it read at startup) |
 | `/mailbridge prime` | Set the cursor to now, so existing mail is never read |
 
 ## Turning it off for good

@@ -93,7 +93,8 @@ A legitimate email can still contain text that reads like instructions
 - Defaults to binding `127.0.0.1`; `daemon.host` can change that, but there is no TLS and
   no user model beyond the bearer token, so do not. Nothing else about the daemon is
   reachable without the token, apart from the `/health` liveness probe. That returns mode,
-  pending/session/client counts, ping timing, whether idle-exit is armed, the last scan's
+  pending/clients counts, the decision-registry size, ping timing, whether idle-exit is armed,
+  the number of SSE subscribers, the last scan's
   reason *counts*, and the config file's mtime — no mail content, no addresses, no subjects.
 - Bearer token from `secret.key`, mode `0600`, created first-writer-wins,
   compared in constant time.
@@ -108,9 +109,10 @@ A legitimate email can still contain text that reads like instructions
   mailbox where you receive untrusted mail.
 - The tool marks a delivered message `\Seen` and journals it. It never deletes or moves
   mail, so a shared account keeps its history.
-- Rotate the app password and the HMAC key if you ever suspect exposure, and restart the
-  daemon afterwards: it caches the bearer token at startup, so a rotation without a restart
-  makes every poll 401 until you do. Rotating the key
+- Rotate the HMAC key if you suspect exposure, and **restart the daemon**: it caches the
+  bearer token at startup, so a rotation without a restart makes every poll 401 until you do.
+  The mail password is different — `/reload` (and therefore `/mailbridge smoke`) re-reads it,
+  so no restart is needed. Rotating the key
   kills every outstanding **signed token**, but *not* the short route ids: those are
   entries in `routes.json` and resolve with no secret at all, so they keep working until
   `security.tokenTtlHours` expires. Rotating the key does not stop delivery on its own.

@@ -113,7 +113,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	/** Throttle for respawning a daemon that exited for idleness. */
 	let lastRespawnAttempt = 0
 
-	const baseUrl = daemonBaseUrl(config.daemon.port, config.daemon.host)
+	// Computed per use, not once: `config` is replaced whenever a /mailbridge command
+	// reloads it, and a frozen URL means editing daemon.port leaves every probe (including
+	// /mailbridge restart, the documented remedy) dialling the old port forever.
+	const currentBaseUrl = (): string => daemonBaseUrl(config.daemon.port, config.daemon.host)
 
 	/**
 	 * Last assistant text and turn count from the session branch.
@@ -240,7 +243,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 		const token = secret.toString("base64url")
 		const makeClient = deps.makeClient ?? ((base, tok) => createDaemonClient({ baseUrl: base, token: tok }))
-		client = makeClient(baseUrl, token)
+		client = makeClient(currentBaseUrl(), token)
 
 		const initialMode = await client.mode()
 		emailMode = initialMode.ok && initialMode.data.mode === "on" ? "on" : "off"
@@ -326,7 +329,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 	async function ensureDaemonSafe(): Promise<boolean> {
 		const ensure = deps.ensureDaemon ?? ((base: string, script: string) => ensureDaemon({ baseUrl: base, scriptPath: script, env }).then((r) => r.healthy))
-		return ensure(baseUrl, fileURLToPath(new URL("./daemon/main.ts", import.meta.url)))
+		return ensure(currentBaseUrl(), fileURLToPath(new URL("./daemon/main.ts", import.meta.url)))
 	}
 
 	pi.on("session_start", async (_event, c) => {
@@ -448,7 +451,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				const pending = client ? await client.pending() : undefined
 				c.ui.notify(
 					[
-						`daemon: ${health?.ok ? "healthy" : "unreachable"} (${baseUrl})`,
+						`daemon: ${health?.ok ? "healthy" : "unreachable"} (${currentBaseUrl()})`,
 						`device: ${config.device.name}`,
 						`mode: ${health?.ok ? health.data.mode : "(unknown)"}`,
 						`session: ${ctx?.sessionManager.getSessionId() ?? "(none)"}`,
@@ -650,7 +653,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						// Give the process a moment to release the port before respawning.
 						await new Promise((resolve) => setTimeout(resolve, 400))
 					}
-					const healthy = await ensure(baseUrl, fileURLToPath(new URL("./daemon/main.ts", import.meta.url)))
+					const healthy = await ensure(currentBaseUrl(), fileURLToPath(new URL("./daemon/main.ts", import.meta.url)))
 					if (healthy && !client) {
 						// This session never had a runtime (started before the config existed).
 						await ensureRuntime(c.ui)

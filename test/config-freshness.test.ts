@@ -9,9 +9,15 @@ test("a config written after the daemon read it forces a reload", () => {
 	assert.equal(shouldReloadConfig({ configLoadedAt: loaded, configMtimeMs: loaded + 60_000 }), true)
 })
 
-test("an unchanged (or older) config does not", () => {
+test("an unchanged or older config does not reload", () => {
+	assert.equal(shouldReloadConfig({ configLoadedAt: loaded, configMtimeMs: loaded }), false, "same file, same mtime")
 	assert.equal(shouldReloadConfig({ configLoadedAt: loaded, configMtimeMs: loaded - 60_000 }), false)
-	assert.equal(shouldReloadConfig({ configLoadedAt: loaded, configMtimeMs: loaded + 200 }), false, "sub-second writes are the same config")
+})
+
+test("a newer mtime is newer content, however close", () => {
+	// A tolerance here permanently missed a config saved twice by an editor - the failure
+	// this check exists to prevent.
+	assert.equal(shouldReloadConfig({ configLoadedAt: loaded, configMtimeMs: loaded + 200 }), true)
 })
 
 test("no config file means nothing to do", () => {
@@ -20,7 +26,6 @@ test("no config file means nothing to do", () => {
 })
 
 test("a daemon running on defaults (stamp 0) reloads when a config file appears", () => {
-	// 0 is not "nothing to compare": it means the daemon loaded with no file. Treating it as
-	// absent made this permanent - a headless --setup afterwards was never picked up.
+	// 0 is not "nothing to compare": it means the daemon loaded with no file.
 	assert.equal(shouldReloadConfig({ configLoadedAt: 0, configMtimeMs: loaded }), true)
 })

@@ -37,6 +37,8 @@ function harness(configLoadedAt: number, opts: { reloadOk?: boolean; reloadHangs
 	writeFileSync(file, JSON.stringify({ mail: { to: "you@example.com" } }))
 
 	const events = new Map<string, (event: Record<string, unknown>, ctx: unknown) => unknown>()
+	const commands = new Map<string, (args: string, ctx: unknown) => Promise<void>>()
+	const dialled: string[] = []
 	const notes: string[] = []
 	let reloads = 0
 	const client = {
@@ -66,7 +68,9 @@ function harness(configLoadedAt: number, opts: { reloadOk?: boolean; reloadHangs
 		on(name: string, handler: (event: Record<string, unknown>, ctx: unknown) => unknown) {
 			events.set(name, handler)
 		},
-		registerCommand() {},
+		registerCommand(name: string, spec: { handler: (args: string, ctx: unknown) => Promise<void> }) {
+			commands.set(name, spec.handler)
+		},
 		registerTool() {},
 		sendUserMessage() {},
 	}
@@ -75,16 +79,31 @@ function harness(configLoadedAt: number, opts: { reloadOk?: boolean; reloadHangs
 		sessionManager: { getSessionId: () => "sess-1", getName: () => "x" },
 		ui: { notify: (m: string) => notes.push(m) },
 	}
+	const mutableConfig = config()
 	mailbridge(pi as never, {
 		env: configDirEnv,
-		loadConfig: config,
+		// Same object every time: `currentBaseUrl()` reads whatever the last load returned.
+		loadConfig: () => mutableConfig,
 		secret: () => SECRET,
-		makeClient: () => client as never,
+		makeClient: (base: string) => {
+			dialled.push(base)
+			return client as never
+		},
 		ensureDaemon: async () => true,
 		timers: { setTimeout: () => 1, clearTimeout: () => {} },
 		pollMs: 60_000,
 	})
-	return { events, ctx, notes, reloadCount: () => reloads }
+	return {
+		events,
+		ctx,
+		notes,
+		reloadCount: () => reloads,
+		dialledAt: () => dialled,
+		setPort: (port: number) => {
+			mutableConfig.daemon.port = port
+		},
+		runCommand: (sub: string) => commands.get("mailbridge")!(sub, ctx),
+	}
 }
 
 test("a daemon holding an older config than the file is asked to reload", async () => {
@@ -126,4 +145,22 @@ test("session_start settles even when the reload hangs", async () => {
 	])
 	assert.equal(winner, "settled", "session_start must not await a hanging reload")
 	assert.equal(h.reloadCount(), 1, "but it must have started one")
+})
+
+test("the daemon URL follows the config, so a changed port is dialled", async () => {
+	// daemon.port is a documented key. The URL used to be computed once at extension load, so
+	// editing the port left every probe - including /mailbridge restart, the documented
+	// remedy - dialling the old one, which reports "daemon did not come back" forever.
+	const h = harness(Date.now() + 60_000)
+	await h.events.get("session_start")!({}, h.ctx)
+	assert.deepEqual(h.dialledAt().slice(0, 1), ["http://127.0.0.1:4177"], `starts on the configured port (dialled: ${JSON.stringify(h.dialledAt())})`)
+
+	// A command reloads the config; the next dial must use the new port.
+	h.setPort(4199)
+	await h.runCommand("status")
+	// status prints the URL it would use; the dial happens on the next client build.
+	assert.ok(
+		h.notes.some((n) => n.includes(":4199")),
+		`the daemon URL must follow the config (notes: ${JSON.stringify(h.notes)})`,
+	)
 })

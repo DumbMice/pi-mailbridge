@@ -69,7 +69,7 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/health` | liveness probe; **unauthenticated** by design (mode, pending/session/client counts, last ping, whether idle-exit is armed, the last scan's summary, and `configLoadedAt` — no content, no addresses) |
+| GET | `/health` | liveness probe; **unauthenticated** by design (mode, pending/client counts, the decision-registry size — sessions *with an outstanding decision*, not live sessions — ping timing, idle-exit armed, SSE subscribers, the last scan's summary, `configLoadedAt`; no content, no addresses) |
 | GET | `/events` | SSE: `delivery`, `mode` (no client uses it; sessions poll) |
 | GET | `/pending` | the delivery channel: polled every 10 s, and replayed on reconnect |
 | POST | `/claim` | `{uid, instanceId}` — atomic claim |

@@ -24,7 +24,7 @@ import { randomBytes } from "node:crypto"
 
 import { statePath } from "./paths.ts"
 
-/** Keep this many live routes. Each maps one outbound notification. */
+/** Keep this many live routes. One per session (reused and refreshed), not per mail. */
 export const ROUTES_CAP = 2_000
 /** 6 hex characters: 16.7M values, ample for one mailbox's notifications. */
 const ID_BYTES = 3
