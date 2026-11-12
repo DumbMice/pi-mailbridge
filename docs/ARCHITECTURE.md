@@ -58,7 +58,8 @@ Invariants:
 
 ## 3. Daemon HTTP surface
 
-Loopback only. Every request carries `Authorization: Bearer <token>` from
+Loopback only by default (`daemon.host`). Every request carries
+`Authorization: Bearer <token>` from
 `$XDG_STATE_HOME/pi-mailbridge/secret.key`; comparison is constant-time.
 
 | Method | Path | Purpose |
@@ -113,17 +114,26 @@ desired behaviour, not an error.
 
 An inbound message is matched to a session by the first rule that succeeds:
 
-1. **Signed subject token** — `[pi:<payload>.<mac>]`, matched anywhere in the
-   subject, so `Re:` / `RE:` / `Aw:` / `Re[2]:` prefixes are irrelevant. It
-   carries `sessionId`, expiry and the minting device, and is HMAC-signed.
-2. **Reply chain** — `In-Reply-To`, or any id in `References`, equals a Message-ID
+1. **Short route id** — `[pi:f913c9]`, matched anywhere in the subject, so `Re:` /
+   `RE:` / `Aw:` / `Re[2]:` prefixes are irrelevant. This is what every new
+   notification carries. It is a lookup key into this machine's `store/routes.ts`, not a
+   signature: an id minted elsewhere (or expired) resolves to nothing, and then rule 2 is
+   tried.
+2. **Legacy signed token** — `[pi:<payload>.<mac>]`, a 39-character HMAC-signed payload
+   carrying `sessionId`, expiry and the minting device. Still verified so mail sent before
+   the short id keeps working; no longer minted.
+3. **Reply chain** — `In-Reply-To`, or any id in `References`, equals a Message-ID
    recorded in `store/threads.ts`. This is what survives a human editing the
    subject or a client rewriting it. The chain is searched newest-first, so the
-   closest ancestor wins.
-3. Otherwise the message is rejected (`no-token`) and left unread.
+   closest ancestor wins, and entries age out with `security.tokenTtlHours` so the chain
+   cannot route mail forever.
+4. Otherwise the message is rejected (`no-token`) and left unread.
 
-The token is authoritative because it is signed; the chain is unsigned and only a
-convenience. `security.allowHeaderThreading: false` disables rule 2.
+None of these is authentication: they route, they do not authorize. Authorization is the
+allowlist plus DMARC, and it happens before any of this (§2). A signed token is not
+stronger than a short id for routing purposes — the signature stops someone *predicting*
+an id, but guessing is pointless when any unresolvable id simply falls through to no
+route. `security.allowHeaderThreading: false` disables rule 3 only.
 
 The token is **not** authentication. It routes; it does not authorize. See
 SECURITY.md.

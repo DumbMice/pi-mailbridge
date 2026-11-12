@@ -247,6 +247,13 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 			client = c
 			await c.connect()
 			await c.mailboxOpen(config.mail.imap.folder || "INBOX")
+			// stop() may have run while those were awaited; the entry check cannot see that.
+			// Without this, the connection stays open with handlers attached and nothing
+			// will ever tear it down (isHealthy() would meanwhile report false).
+			if (stopped) {
+				await teardown()
+				return
+			}
 			attempt = 0
 			c.on("exists", () => callbacks.onMail())
 			c.on("close", () => {

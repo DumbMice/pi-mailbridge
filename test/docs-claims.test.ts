@@ -104,3 +104,42 @@ test("the README's test count is not a hardcoded number that can drift", () => {
 		"README states a literal test count; describe the suite instead",
 	)
 })
+
+test("the documented routing order is the implemented one", () => {
+	// Round 2 found README and ARCHITECTURE still listing the signed token as rule 1,
+	// and describing it as authoritative, while process.ts tries the short route id first.
+	const readme = doc("README.md")
+	const arch = doc("docs/ARCHITECTURE.md")
+	for (const [name, text] of [
+		["README.md", readme],
+		["docs/ARCHITECTURE.md", arch],
+	] as const) {
+		const route = text.search(/Short route id|short route id/i)
+		const legacy = text.search(/Legacy signed token|legacy signed token/i)
+		assert.ok(route > -1, `${name} must document the short route id`)
+		assert.ok(legacy > -1, `${name} must document the legacy token as the fallback`)
+		assert.ok(route < legacy, `${name} lists the signed token before the short route id`)
+	}
+	// The id is a lookup key, not a signature: no doc may call it authoritative.
+	assert.ok(!/authoritative because it is signed/i.test(arch), "ARCHITECTURE still calls the token authoritative")
+	assert.ok(!/\*\*Signed token in the subject\*\*/.test(readme), "README still presents the token as rule 1")
+})
+
+test("every environment override is documented", () => {
+	const config = readFileSync(join(root, "src/core/config.ts"), "utf8")
+	const names = [...config.matchAll(/env\.(PI_MAILBRIDGE_[A-Z_]+)/g)].map((m) => m[1]!)
+	assert.ok(names.length >= 8, `expected the override list, got ${names.length}`)
+	const readme = doc("README.md")
+	for (const name of new Set(names)) {
+		assert.ok(readme.includes(name), `${name} is read by config.ts but not documented`)
+	}
+})
+
+test("the systemd unit cannot restart-loop and keeps its state dir", () => {
+	const unit = readFileSync(join(root, "docs/systemd/pi-mailbridge.service"), "utf8")
+	// Restart=always would restart the clean "pi already owns the port" exit forever.
+	assert.ok(/^Restart=on-failure$/m.test(unit), "the unit must not use Restart=always")
+	assert.ok(/PI_MAILBRIDGE_EXIT_WHEN_IDLE=false/.test(unit), "a supervised daemon must not exit when idle")
+	// A ReadWritePaths that may not exist yet fails namespace setup unless '-'-prefixed.
+	assert.ok(/^ReadWritePaths=-/m.test(unit), "ReadWritePaths must tolerate a missing directory")
+})

@@ -36,7 +36,7 @@ Everything else ports essentially as-is.
 | `daemon.js` | 473 | `src/daemon/main.ts` | Ported: HTTP + SSE + single-instance lock (port **4177**, not 4100) |
 | `core/watcher.js` | 261 | `src/daemon/watcher.ts` | Ported verbatim — `imapflow` IDLE, renew < 29 min, exponential backoff |
 | `core/process.js` | 314 | `src/daemon/process.ts` | Ported — UID-cursor incremental scan → fetch → parse → persist |
-| `core/reply-parse.js` | 265 | `src/core/reply-parse.ts` | Ported — quote stripping + token extraction + HMAC verify |
+| `core/reply-parse.js` | 265 | `src/core/reply-parse.ts` | Ported — quote stripping, address/AR-header pinning (token verify lives in `core/token.ts`) |
 | `core/inject.js` | 181 | `src/extension.ts` (in-process) | **Replaced** by `pi.sendUserMessage(body, { deliverAs: "followUp" })` |
 | `core/pause-notify.js` | 143 | `src/extension.ts` → `pi.on("agent_settled")` | Replaced by the pi event (§4) |
 | `core/subscribe.js` | 271 | `src/extension.ts` | Replaced — polls `/pending` and replays it (idempotent); `/events` SSE stays available for push clients |
@@ -151,8 +151,11 @@ pi.registerCommand("mailbridge", { description: "Mailbridge status", handler: (_
 3. **Single watcher per machine.** One daemon, one IMAP IDLE connection, fixed
    port, `EADDRINUSE` = "already running, exit quietly". This is what makes
    multi-session polling sane: N pi sessions, 1 mailbox connection.
-4. **HMAC-signed routing token in the subject.** `[pi:<sig>]` — a forged or
-   truncated token is rejected, rather than trusting a guessable id.
+4. **A routing id in the subject — but no longer a signature.** Shipped as a 6-hex
+   local route id (`[pi:f913c9]`), looked up in `store/routes.ts`. This is the one
+   deliberate reversal from the baseline: a signed token made every subject preview
+   unreadable (~88 characters). HMAC tokens still verify for mail already in flight, and
+   authorization never depended on the token either way.
 5. **Global mode store.** `/afk` and `/back` are explicit, persisted, and
    independent of focus heuristics.
 6. **Backoff + IDLE renew.** Renew well under the ~29-minute server timeout;
@@ -183,4 +186,4 @@ pi.registerCommand("mailbridge", { description: "Mailbridge status", handler: (_
 - [x] peer deps on `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai` and `@sinclair/typebox`, not hard deps
 - [x] tests run with `node --test` and never touch real IMAP/SMTP
 - [x] docs state the daemon is a **local, authenticated** service that can inject prompts
-- [x] README leads with the threat model, not the feature list
+- [x] README states the threat model before the install steps ("Security first", and the install section points at SECURITY.md)

@@ -9,7 +9,11 @@
 //   v2 (current)  [pi:<payload>.<mac>]
 //     payload = base64url( [0x02][16 session uuid][3 expiry minutes][2 device hash] )
 //     mac     = base64url(HMAC-SHA256(secret, payload)) truncated to 6 bytes
-//     → 28 + 1 + 8 = 37 characters, so a whole subject stays under ~90
+//     → 30 + 1 + 8 = 39 characters, so a whole subject stays under ~90
+//
+//   v2-legacy (20-byte payload, minted before expiry went minute-granular)
+//     payload = base64url( [0x02][16 session uuid][2 expiry days][2 device hash] )
+//     Still verified: a notification sent minutes before an upgrade keeps working.
 //
 //   v1 (legacy)   base64url(JSON {s,e,d}) + '.' + 16-byte mac
 //     → ~130 characters. Still verified, so tokens already in flight keep working.
@@ -144,12 +148,29 @@ export function verifyToken(token: string, secret: Buffer, now: number = Date.no
 		return { ok: false, reason: "malformed" }
 	}
 
+	const fingerprintOf = (at: number): Buffer => bytes.subarray(at, at + 2)
+
 	// --- v2: compact binary payload ---
 	if (bytes.length === V2_PAYLOAD_BYTES && bytes[0] === V2) {
 		if (!macMatches(given, mac(secret, payload, MAC_BYTES_V2))) return { ok: false, reason: "bad-mac" }
 		const expiresAt = MINUTE_EPOCH + bytes.readUIntBE(17, 3) * 60_000
 		if (expiresAt <= now) return { ok: false, reason: "expired" }
-		const fingerprint = bytes.subarray(20, 22)
+		const fingerprint = fingerprintOf(20)
+		const claimsDevice = !fingerprint.equals(NO_DEVICE)
+		const deviceMatches = device && claimsDevice ? fingerprint.equals(deviceHash(device)) : undefined
+		return {
+			ok: true,
+			sessionId: bytesToUuid(bytes.subarray(1, 17)),
+			...(deviceMatches === undefined ? {} : { deviceMatches }),
+		}
+	}
+
+	// --- v2-legacy: same shape with two-byte day expiry, minted before the layout change ---
+	if (bytes.length === 20 && bytes[0] === V2) {
+		if (!macMatches(given, mac(secret, payload, MAC_BYTES_V2))) return { ok: false, reason: "bad-mac" }
+		const expiresAt = bytes.readUInt16BE(17) * 86_400_000
+		if (expiresAt <= now) return { ok: false, reason: "expired" }
+		const fingerprint = fingerprintOf(19)
 		const claimsDevice = !fingerprint.equals(NO_DEVICE)
 		const deviceMatches = device && claimsDevice ? fingerprint.equals(deviceHash(device)) : undefined
 		return {

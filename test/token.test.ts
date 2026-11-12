@@ -70,3 +70,23 @@ test("a token minted with the default TTL survives 30 days at the minute-epoch b
 	assert.equal(verifyToken(token, secret, now + 29 * 86_400_000).ok, true)
 	assert.equal(verifyToken(token, secret, now + 31 * 86_400_000).ok, false)
 })
+
+test("a token minted before the layout change still verifies", async () => {
+	// The 22-byte payload replaced a 20-byte one (day expiry). Without the legacy branch,
+	// a notification sent minutes before an upgrade failed as bad-mac. Built here by hand
+	// exactly as the old code wrote it.
+	const { createHmac } = await import("node:crypto")
+	const uuid = "01a1c453-f2fc-7169-8c89-69c93fa1a152"
+	const now = Date.UTC(2026, 0, 1)
+	const payload = Buffer.alloc(20)
+	payload[0] = 0x02
+	Buffer.from(uuid.replace(/-/g, ""), "hex").copy(payload, 1)
+	// Two days, not one hour: the old layout stored whole days, so a shorter life floored
+	// to midnight of the same day - i.e. already expired. That is the bug the layout fixed.
+	payload.writeUInt16BE(Math.floor((now + 2 * 86_400_000) / 86_400_000), 17)
+	const encoded = payload.toString("base64url")
+	const mac = createHmac("sha256", secret).update(encoded).digest().subarray(0, 6).toString("base64url")
+	const result = verifyToken(`${encoded}.${mac}`, secret, now)
+	assert.equal(result.ok, true, "legacy v2 must still verify")
+	assert.equal(result.ok && result.sessionId, uuid)
+})

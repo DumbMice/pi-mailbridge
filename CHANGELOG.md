@@ -28,13 +28,14 @@ a live mailbox.
 
 ### Daemon
 
-- `daemon/process.ts` — UID-cursor scan → authorize → verify token → strip quotes
+- `daemon/process.ts` — UID-cursor scan → authorize → route (short id / token / chain) → strip quotes
   → filter attachments → persist → advance. Ordering is the correctness property.
 - `daemon/watcher.ts` — IMAP IDLE over an injectable client factory; renews under
   the ~29 min cutoff; bounded backoff; `start()` never throws on a dead server.
 - `daemon/service.ts` — `/health`, `/events` (SSE), `/pending`, `/claim`, `/ack`,
-  `/register`, `/mode`, `/send`; constant-time bearer auth; bounded bodies and
-  streams; ack journals before removing the record.
+  `/register`, `/ping`, `/bye`, `/mode`, `/send`, `/reload`, `/shutdown`;
+  constant-time bearer auth; bounded bodies and streams; ack journals before removing
+  the record.
 - `daemon/spawn.ts` — `probeHealth`, `ensureDaemon` (detached, unref'd), typed
   client.
 - `daemon/main.ts` — server first, then catch-up scan, then watcher; SIGTERM

@@ -52,10 +52,12 @@ export interface DeliveryRunner {
 	injectedUids(): number[]
 }
 
+/** In-flight drains, shared across runner instances in this process. */
+const inFlightByInstance = new Map<string, Promise<DeliveryOutcome[]>>()
+
 export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 	/** UIDs already injected in this process lifetime. */
 	const injected = new Set<number>()
-	let inFlight: Promise<DeliveryOutcome[]> | undefined
 
 	async function handle(record: PendingRecord): Promise<DeliveryOutcome> {
 		if (injected.has(record.uid)) return "already-injected"
@@ -105,8 +107,12 @@ export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 			// One drain at a time. The claim registry is keyed per pid, so two overlapping
 			// drains in this process would both be granted the same uid and inject twice -
 			// and a duplicate injection cannot be undone.
-			if (inFlight) return inFlight
-			inFlight = (async () => {
+			// Keyed by instanceId, not by this runner object: a respawn builds a new runner
+			// while the claim key (the pid) stays the same, so a per-object flag would let an
+			// old runner's drain overlap a new one's.
+			const running = inFlightByInstance.get(deps.instanceId)
+			if (running) return running
+			const attempt = (async () => {
 				try {
 					const result = await deps.client.pending()
 					if (!result.ok) return []
@@ -114,10 +120,11 @@ export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 					for (const record of result.data.pending) outcomes.push(await handle(record))
 					return outcomes
 				} finally {
-					inFlight = undefined
+					inFlightByInstance.delete(deps.instanceId)
 				}
 			})()
-			return inFlight
+			inFlightByInstance.set(deps.instanceId, attempt)
+			return attempt
 		},
 	}
 }

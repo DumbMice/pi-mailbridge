@@ -23,6 +23,9 @@ import { statePath } from "./paths.ts"
 /** Keep this many recent outbound ids. Replies to older mail fall back to the token. */
 export const THREAD_CAP = 2_000
 
+/** Matches the token default, so all three routing rules age out together. */
+export const DEFAULT_CHAIN_TTL_HOURS = 30 * 24
+
 export interface ThreadRecord {
 	/** Normalized Message-ID without angle brackets. */
 	messageId: string
@@ -110,14 +113,33 @@ export function recordOutbound(
  * References lists ancestors oldest-first, so we search from the newest backward:
  * the closest ancestor is the notification the human actually replied to.
  */
-export function lookupChain(env: NodeJS.ProcessEnv, ids: readonly string[]): ThreadRecord | undefined {
+export function lookupChain(
+	env: NodeJS.ProcessEnv,
+	ids: readonly string[],
+	opts: { now?: number; ttlHours?: number } = {},
+): ThreadRecord | undefined {
 	if (ids.length === 0) return undefined
-	const byId = new Map(load(env).map((r) => [r.messageId, r]))
+	const now = opts.now ?? Date.now()
+	// The chain is the last routing rule, and it must not outlive the bound the other rules
+	// carry: without this, a re-sent copy of a month-old notification still routes into the
+	// session after route and token expiry have both passed, which made tokenTtlHours
+	// decorative for the ordinary reply case.
+	const oldest = now - (opts.ttlHours ?? DEFAULT_CHAIN_TTL_HOURS) * 3_600_000
+	const byId = new Map(load(env).filter((r) => r.createdAt >= oldest).map((r) => [r.messageId, r]))
 	for (let i = ids.length - 1; i >= 0; i--) {
 		const hit = byId.get(normalizeMessageId(ids[i]!))
 		if (hit) return hit
 	}
 	return undefined
+}
+
+/**
+ * Is this id one we sent? Age is irrelevant here: an old notification of ours is still ours,
+ * and recognising it is what stops it being re-ingested as a reply.
+ */
+export function findOutbound(env: NodeJS.ProcessEnv, id: string): ThreadRecord | undefined {
+	const target = normalizeMessageId(id)
+	return load(env).find((r) => r.messageId === target)
 }
 
 export function threadCount(env: NodeJS.ProcessEnv): number {

@@ -89,8 +89,9 @@ A legitimate email can still contain text that reads like instructions
 
 - Defaults to binding `127.0.0.1`; `daemon.host` can change that, but there is no TLS and
   no user model beyond the bearer token, so do not. Nothing else about the daemon is
-  reachable without the token, apart from the `/health` liveness probe (mode and pending
-  counts only, no mail content).
+  reachable without the token, apart from the `/health` liveness probe, which returns mode, pending and
+  session counts, client/ping timing and whether idle-exit is armed — no mail content,
+  no addresses, no subjects.
 - Bearer token from `secret.key`, mode `0600`, created first-writer-wins,
   compared in constant time.
 - Body cap 1 MB; registry cap 10 000; SSE client cap 100.
@@ -104,19 +105,26 @@ A legitimate email can still contain text that reads like instructions
   mailbox where you receive untrusted mail.
 - The tool marks a delivered message `\Seen` and journals it. It never deletes or moves
   mail, so a shared account keeps its history.
-- Rotate the app password and the HMAC key if you ever suspect exposure; rotating
-  the key invalidates every outstanding token.
+- Rotate the app password and the HMAC key if you ever suspect exposure. Rotating the key
+  kills every outstanding **signed token**, but *not* the short route ids: those are
+  entries in `routes.json` and resolve with no secret at all, so they keep working until
+  `security.tokenTtlHours` expires. To revoke routing immediately, delete that file (and
+  the journal) while the daemon is stopped.
 - Turn it off with `/back` when you will be at the desk. An idle mailbox should
   not be a listening control channel.
 - **One mailbox for both roles** (`security.allowSelfReplies`). The loop guard is
   relaxed for self-addressed mail, so the sender allowlist alone no longer
-  separates "me" from "not me" — it is the same address. The tie-breaker is
-  `In-Reply-To`: only a reply is accepted, and that header is trivially forgeable
-  by anyone who can already send from your address. Prefer a dedicated mailbox.
-- **Multiple machines, one mailbox.** Each daemon only claims replies whose token
-  names its own device, so they cannot steal each other's work. They do share one
-  allowlist and one secret — if one machine is compromised, rotate the key and
-  every outstanding token dies with it.
+  separates "me" from "not me" — it is the same address. The discriminator is the
+  message's own `Message-ID`: if we recorded it going out, it is our own mail and it is
+  rejected (`self-echo`) before routing. `In-Reply-To` is checked too, but it cannot be
+  the tie-breaker on its own, because threaded notifications carry that header as well.
+  Either signal is trivially forgeable by anyone who can already send from your address.
+  Prefer a dedicated mailbox.
+- **Multiple machines, one mailbox.** Each daemon only claims replies whose route id or
+  token names its own device, so they cannot steal each other's work. They do share one
+  allowlist and one secret — if one machine is compromised, rotate the key (which kills
+  outstanding signed tokens) and delete each machine's `routes.json` (which kills the
+  short ids).
 
 ## 6. What this package will never do
 

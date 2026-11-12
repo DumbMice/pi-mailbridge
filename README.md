@@ -29,7 +29,7 @@ When an agent settles, you get one email that identifies both the machine and th
 session, because that is all a notification preview shows:
 
 ```
-Subject: [pi:<signed token>] pi: fix-login @ dev-box-7 is waiting for you
+Subject: [pi:f913c9] pi: fix-login @ dev-box-7 is waiting for you
 
 Done: the failing test passes now.
 
@@ -45,7 +45,7 @@ Reply above this line to continue the session.
 
 Reply from **any device**: a tablet on the sofa, your work laptop, a second PC in
 another room, a webmail client on a machine that has never run pi. The reply is
-routed by the signed token, not by the sender's device.
+routed by the short id in the subject, not by the sender's device.
 
 With more than one machine, each daemon has its own `device.name`; a reply is only
 claimed by the daemon whose device the token names, so two machines sharing one
@@ -97,35 +97,43 @@ A reply is matched to a session by the **first rule that succeeds**:
 
 | # | Rule | Survives | Notes |
 | --- | --- | --- | --- |
-| 1 | **Signed token in the subject** — `[pi:<payload>.<mac>]`, matched anywhere in the subject | subject intact | Authoritative: HMAC-signed, TTL-bounded. `Re:`, `RE:`, `Aw:`, `Re[2]:` prefixes are fine because the token is not anchored. |
-| 2 | **The reply chain** — `In-Reply-To`, or any id in `References`, equals a Message-ID we minted | subject edited, rewritten or purged | The id is recorded when the notification is sent, and kept for the last 2,000 sends. |
-| 3 | Neither | — | Rejected as `no-token`; the mail is left **unread** so you can retry. |
+| 1 | **Short route id in the subject** — `[pi:f913c9]`, matched anywhere in the subject | subject intact | What every new notification carries. A *lookup key in this machine's route table*, not a credential: an id that was never minted here resolves to nothing. TTL-bounded. `Re:`, `RE:`, `Aw:`, `Re[2]:` prefixes are fine because the id is not anchored. |
+| 2 | **Legacy signed token** — `[pi:<payload>.<mac>]` | subject intact | Still verified (HMAC, TTL-bounded) so mail sent before the short id keeps working. New notifications no longer use it. |
+| 3 | **The reply chain** — `In-Reply-To`, or any id in `References`, equals a Message-ID we minted | subject edited, rewritten or purged | The id is recorded when the notification is sent, kept for the last 2,000 sends and aged out with `security.tokenTtlHours`. |
+| 4 | None of the above | — | Rejected as `no-token`; the mail is left **unread** so you can retry. |
+
+Every rule is routing only. Authorization happens before it, and is the sender
+allowlist plus DMARC.
 
 What this means in practice:
 
 - **Reply normally.** Every mail client sets `In-Reply-To`, so a plain Reply works
   either way.
-- **Editing the subject is safe** — the chain still routes it.
-- **Composing a brand-new email** with no token and no reference is *not*
+- **Editing the subject is safe** — the chain still routes it, until the TTL expires.
+- **Composing a brand-new email** with no id and no reference is *not*
   identified. Use Reply, or keep the `[pi:…]` tag in the subject.
 - **Quoted text is stripped** before the agent sees it, so leave the quote in.
 - **A reply to a reply** still works: the chain carries the original id.
 
-Rule 2 is a convenience fallback, not authentication — a Message-ID is only
+Rule 3 is a convenience fallback, not authentication — a Message-ID is only
 visible to the recipient, but it is unsigned. Set
-`security.allowHeaderThreading: false` if you want the signed token to be the only
-way in.
+`security.allowHeaderThreading: false` to switch *that rule* off. It does not make the
+subject id authoritative: rule 1 is an unsigned lookup key either way, so if you want
+no unauthenticated path at all, treat the mailbox as trusted input and rely on the
+allowlist and DMARC.
 
 ## Security first
 
 This package makes your inbox a control channel for an agent that can run shell
 commands. **Read [docs/SECURITY.md](./docs/SECURITY.md) before installing.**
 
-Gate order, all fail-closed: sender allowlist → DMARC pin (`security.requireDmarcPass`, on
-by default; `authserv-id` must match) → routing, which is a short `[pi:abc123]` id, a
-legacy HMAC-signed token, or the reply chain → durable replay journal. Routing identifiers
-never authorize anything: authorization is the allowlist and DMARC alone. Prefer a
-dedicated account or a filtered folder, never a mailbox that receives untrusted mail.
+Gate order, all fail-closed: **journal (already-seen UID) → sender allowlist → DMARC →
+routing → durable ack**. DMARC reads `Authentication-Results`; it is required by
+`security.requireDmarcPass` (on by default) and pinned to an `authserv-id` only when
+`security.trustedAuthservId` is set. Routing is a short `[pi:f913c9]` id, a legacy
+HMAC-signed token, or the reply chain. Routing identifiers never authorize anything:
+authorization is the allowlist and DMARC alone. Prefer a dedicated account or a filtered
+folder, never a mailbox that receives untrusted mail.
 
 ## Install
 
@@ -200,6 +208,21 @@ systemctl --user enable --now pi-mailbridge
 | `/mailbridge smoke` | Send one real mail, then read the folder back |
 | `/mailbridge restart` | Replace the daemon process (needed after an update, not just a config change) |
 | `/mailbridge prime` | Set the cursor to now, so existing mail is never read |
+
+## Environment overrides
+
+Config values can be overridden per-process, which is how the shipped systemd unit stays
+resident without editing your config file:
+
+| Variable | Sets |
+| --- | --- |
+| `PI_MAILBRIDGE_IMAP_HOST`, `PI_MAILBRIDGE_IMAP_USER`, `PI_MAILBRIDGE_IMAP_PASS` | `mail.imap.host`, `.user`, `.password` |
+| `PI_MAILBRIDGE_SMTP_HOST`, `PI_MAILBRIDGE_SMTP_USER`, `PI_MAILBRIDGE_SMTP_PASS` | `mail.smtp.host`, `.user`, `.password` |
+| `PI_MAILBRIDGE_TO` | `mail.to` |
+| `PI_MAILBRIDGE_PORT` | `daemon.port` |
+| `PI_MAILBRIDGE_DEVICE` | `device.name` |
+| `PI_MAILBRIDGE_EXIT_WHEN_IDLE` | `daemon.exitWhenIdle` (`false` for a supervised daemon) |
+| `PI_MAILBRIDGE_IMAP_TOKEN_CMD`, `PI_MAILBRIDGE_SMTP_TOKEN_CMD` | `mail.imap.tokenCommand`, `mail.smtp.tokenCommand` (argv list; JSON or comma-separated) |
 
 ## Agent tools
 

@@ -18,7 +18,7 @@ import { authorize } from "../core/authz.ts"
 import { stripQuoted, type HeaderLike } from "../core/reply-parse.ts"
 import { tokenFromSubject } from "../core/token.ts"
 import { selectAttachments, type RawAttachment } from "../core/attachments.ts"
-import { parseMessageIds, lookupChain } from "../store/threads.ts"
+import { findOutbound, parseMessageIds, lookupChain } from "../store/threads.ts"
 import { routeIdFromSubject, resolveRoute } from "../store/routes.ts"
 import { addPending, type PendingRecord } from "../store/pending-store.ts"
 import { isJournaled } from "../store/journal.ts"
@@ -135,7 +135,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		// reply. The outbound registry can: if this message's own Message-ID is one we sent,
 		// it is ours, whatever its headers say.
 		const ownIds = parseMessageIds(message.headers.messageId)
-		if (ownIds.length > 0 && ownIds.some((id) => lookupChain(env, [id]))) {
+		if (ownIds.length > 0 && ownIds.some((id) => findOutbound(env, id))) {
 			result.rejected++
 			bump(result.reasons, "self-echo")
 			result.cursor = advanceCursor(env, uid)
@@ -183,7 +183,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 					...parseMessageIds(message.headers.inReplyTo),
 					...parseMessageIds((message.headers.references ?? []).join(" ")),
 				]
-				const thread = lookupChain(env, ids)
+				const thread = lookupChain(env, ids, { now: now(), ttlHours: config.security.tokenTtlHours })
 				if (thread?.device && thread.device !== config.device.name) {
 					result.rejected++
 					bump(result.reasons, "other-device")

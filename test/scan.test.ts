@@ -465,3 +465,27 @@ test("our own threaded notification is not injected as a reply", async () => {
 	assert.equal(r.reasons["self-echo"], 1, "rejected as our own mail")
 	assert.equal(r.persisted, 0, "and never injected")
 })
+
+test("the reply chain ages out with the configured TTL", async () => {
+	// The chain is a routing rule like the other two, so it must carry the same replay
+	// bound: a re-sent copy of an old notification must not route forever.
+	const e = env()
+	recordOutbound(e, { messageId: "<old@qq.com>", sessionId: SESSION, device: "test-device", subject: "x" })
+	// Backdate the record well past the TTL.
+	const { readFileSync, writeFileSync } = await import("node:fs")
+	const { statePath } = await import("../src/store/paths.ts")
+	const file = statePath(e, "threads.json")
+	const stored = JSON.parse(readFileSync(file, "utf8")) as { items: { createdAt: number }[] }
+	for (const item of stored.items) item.createdAt = Date.now() - 40 * 86_400_000
+	writeFileSync(file, JSON.stringify(stored))
+
+	const r = await scanAndProcess(config(), {
+		source: source([
+			msg(1, { subject: "Re: pi: x", headers: { authResults: [GOOD_AR], inReplyTo: "<old@qq.com>" } }),
+		]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.persisted, 0, "a stale chain must not route a reply")
+	assert.equal(r.reasons["no-token"], 1)
+})

@@ -28,9 +28,11 @@ Environment=PI_MAILBRIDGE_EXIT_WHEN_IDLE=false
 ExecStartPre=/usr/bin/env node --experimental-strip-types ${PI_MAILBRIDGE_DIR}/src/daemon/main.ts --check
 ExecStart=/usr/bin/env node --experimental-strip-types ${PI_MAILBRIDGE_DIR}/src/daemon/main.ts
 
-# The port is the single-instance lock; a duplicate start exits 0 immediately,
-# so Restart=always is safe.
-Restart=always
+# The port is the single-instance lock: when pi's ensureDaemon() already owns it, this
+# unit's start exits 0. Restart=always would then restart it every RestartSec forever, so
+# only restart on failure - and treat the "somebody else owns the port" exit as success.
+Restart=on-failure
+RestartPreventExitStatus=0
 RestartSec=5
 # Logs go to the journal; the daemon writes its own daemon.log when spawned by pi.
 StandardOutput=journal
@@ -41,7 +43,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=%h/.local/state/pi-mailbridge
+ReadWritePaths=-%h/.local/state/pi-mailbridge
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 MemoryMax=512M
 

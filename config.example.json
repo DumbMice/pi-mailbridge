@@ -36,7 +36,6 @@
     "requireDmarcPass": true,
     "allowHeaderThreading": true,
     "allowSelfReplies": false,
-    "trustedAuthservId": "mx.example.com",
     "tokenTtlHours": 720
   },
   "daemon": {
