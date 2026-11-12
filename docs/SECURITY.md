@@ -189,10 +189,27 @@ commands that change the machine are refused: `setup` (rewrites the config and t
 address), `auth` (starts a credential flow), `restart` (replaces the daemon) and `prime` (skips
 unread mail) are delivered to the agent as text instead.
 
-What this costs: in the one-mailbox layout DMARC is off, so anyone who can forge the allowlisted
-`From` can toggle email mode or trigger a test mail. They cannot reconfigure the account, obtain
-credentials, restart the daemon or discard a queue by mail. In the two-address layout the reply
-must also pass DMARC.
+What this costs, in the one-mailbox layout (DMARC is off there by design) and if the sender can
+forge the allowlisted `From` *and* carries a live route id or token — i.e. they have read one of
+your notifications:
+
+- `/mailbridge off` is a **one-way, global, persisted** denial of the channel: scanning and
+  delivery stop for every session until a human turns it back on at a terminal. Mail is not lost
+  (the cursor does not move), but the remote-decision channel is dead.
+- `/mailbridge smoke` sends one real mail **from your own account to your own address** and costs
+  a daemon reload plus up to ~52 s of IMAP work. It is not rate-limited, so repeated replies can
+  consume SMTP/IMAP capacity and get genuine notifications throttled.
+- `status`, `check` and `help` print into the local pi session; nothing is mailed back.
+
+They cannot reconfigure the account, obtain credentials, restart the daemon, re-prime the cursor
+or discard the queue by mail: `setup`, `auth`, `restart` and `prime` are refused by the
+dispatcher. What the dispatcher refuses, however, is still *delivered to the agent as text*, so
+§1 and §3 apply to it — the refusal is about what runs automatically, not about what the model
+may then do in a shell-capable session.
+
+"A command" means the reply's text **after quote-stripping**, so `/mailbridge on` above a quoted
+original still executes — that is deliberate (a phone-appended signature must not break it), but
+it means "entire body" below refers to the stripped body, not the raw mail.
 
 ## 7. Reporting
 

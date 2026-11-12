@@ -58,7 +58,13 @@ export function parseMailCommand(body: string): MailCommand | undefined {
 	if (name !== "mailbridge") return undefined
 
 	// Bare `/mailbridge` prints status, exactly as it does at the prompt.
-	const sub = (args.split(/\s+/)[0] ?? "").toLowerCase() || "status"
+	// Every safe subcommand takes no arguments, so any leftover word means this is a message that
+	// happens to start with a command: `/mailbridge off thanks, the deploy is still broken` must
+	// reach the agent, not flip the mode and drop the sentence. Splitting on /\s+/ (not "\n")
+	// also catches U+2028/U+2029, which a body may contain without a newline.
+	const words = args.split(/\s+/).filter(Boolean)
+	if (words.length > 1) return undefined
+	const sub = (words[0] ?? "").toLowerCase() || "status"
 	if (!(MAIL_SAFE_SUBCOMMANDS as readonly string[]).includes(sub)) {
 		// `setup`, `auth`, `restart`, `prime` and unknown words stay text, so the agent sees the
 		// request and nothing reconfigures itself because someone's address was spoofed.

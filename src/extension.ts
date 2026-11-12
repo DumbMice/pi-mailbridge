@@ -301,6 +301,12 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				const command = parseMailCommand(body)
 				if (command) {
 					const handler = commandHandlers.get(command.name)
+					if (handler && !ctx) {
+						// The session is tearing down. Throwing keeps the record pending so the
+						// command runs in a live session; falling through would inject the
+						// command text into a dead session and then ack it, consuming the mail.
+						throw new Error("no active session for a command reply")
+					}
 					if (handler && ctx) {
 						// A command that throws must NOT propagate: deliveries treats an inject
 						// failure as "retry later" and never acks, so the same command would run
@@ -682,24 +688,27 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				case "prime": {
 					// First run only: the cursor is what makes mail visible, so moving it after
 					// the bridge has been watching would skip replies that arrived unscanned.
+					let imap: { logout: () => Promise<void> } | undefined
 					try {
 						const provider = await buildTokenProvider(config, env)
 						const { createImapflowFactory } = await import("./daemon/imapflow.ts")
-						const { advanceCursor, readCursor } = await import("./store/uid-cursor.ts")
+						const { advanceCursor, hasCursor, readCursor } = await import("./store/uid-cursor.ts")
 						const { alreadyPrimedMessage, runPrime } = await import("./core/prime.ts")
-						const imap = await createImapflowFactory({
+						const imapClient = await createImapflowFactory({
 							...(provider ? { getAccessToken: () => provider.getToken() } : {}),
 						})(config, { idleRenewMs: config.tuning.idleRenewMs })
+						imap = imapClient
 						const plan = await runPrime(config, {
 							openMailbox: async (cfg) => {
-								await imap.connect()
-								await imap.mailboxOpen(cfg.mail.imap.folder || "INBOX")
+								await imapClient.connect()
+								await imapClient.mailboxOpen(cfg.mail.imap.folder || "INBOX")
 								return {
-									search: () => imap.search({ uid: "1:*" }, { uid: true }),
-									close: async () => imap.logout(),
+									search: () => imapClient.search({ uid: "1:*" }, { uid: true }),
+									close: async () => imapClient.logout(),
 								}
 							},
 							readCursor: () => readCursor(env),
+							hasCursor: () => hasCursor(env),
 							advanceCursor: (uid) => {
 								advanceCursor(env, uid)
 							},
@@ -715,6 +724,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						)
 					} catch (error) {
 						c.ui.notify(`prime failed: ${(error as Error).message}`, "error")
+					} finally {
+						// A connect that succeeded before mailboxOpen threw would otherwise leak the
+						// connection. logout is idempotent; the CLI does the same.
+						await imap?.logout().catch(() => undefined)
 					}
 					return
 				}

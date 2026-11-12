@@ -36,6 +36,7 @@ export const USAGE = [
 	"/mailbridge smoke           send one real mail, then read the folder back",
 	"/mailbridge prime           start watching from now, ignoring existing mail",
 	"/mailbridge restart         replace the daemon process (picks up new code, not just config)",
+	"/mailbridge help            this list",
 ].join("\n")
 
 const SUBCOMMANDS: readonly MailbridgeSubcommand[] = [

@@ -532,7 +532,7 @@ test("the systemd checklist includes the state directory", () => {
 	assert.match(block, /mkdir -p ~\/\.local\/state\/pi-mailbridge/, "and create the state directory")
 })
 
-test("prime is advised before the first /afk, not before the daemon", () => {
+test("prime is advised before the first /mailbridge on, not before the daemon", () => {
 	const readme = doc("README.md")
 	assert.ok(
 		!/prime the cursor before starting the daemon/i.test(readme),
@@ -541,7 +541,7 @@ test("prime is advised before the first /afk, not before the daemon", () => {
 	const primeIdx = readme.indexOf("Start watching from now")
 	const firstMailIdx = readme.indexOf("Your first notification")
 	assert.ok(primeIdx > -1 && firstMailIdx > -1)
-	assert.ok(primeIdx < firstMailIdx, "prime must be explained before the first /afk")
+	assert.ok(primeIdx < firstMailIdx, "prime must be explained before the first /mailbridge on")
 })
 
 test("only the settle module puts a device name in a mail", () => {
@@ -801,7 +801,7 @@ test("the Outlook config snippet has a security block", () => {
 })
 
 test("the daemon's mode gate is present in the code that runs it", () => {
-	// The /back promise is enforced in main.ts's scanNow, which no test can reach. This pins
+	// The `off` promise is enforced in main.ts's scanNow, which no test can reach. This pins
 	// the wiring itself, so deleting the gate fails the suite rather than shipping silently.
 	const main = readFileSync(join(root, "src/daemon/main.ts"), "utf8")
 	assert.match(main, /if \(!scanningEnabled\(readMode\(process\.env\)\)\)/, "scanNow must check the mode")

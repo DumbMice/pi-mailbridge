@@ -23,6 +23,17 @@ function path(env: NodeJS.ProcessEnv): string {
 	return statePath(env, "uid-cursor.json")
 }
 
+/**
+ * Has the bridge ever established a cursor?
+ *
+ * `lastUid` alone cannot answer this: the first connect on an empty mailbox and a UIDVALIDITY
+ * reset both write `{lastUid: 0}`, and treating those as "never primed" would let `prime` skip
+ * a mailbox that is already being watched.
+ */
+export function hasCursor(env: NodeJS.ProcessEnv = process.env): boolean {
+	return existsSync(path(env))
+}
+
 export function readCursor(env: NodeJS.ProcessEnv = process.env): number {
 	return readFile(env).lastUid
 }

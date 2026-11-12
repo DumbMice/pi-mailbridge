@@ -410,15 +410,15 @@ another extension) and appear in the usage text.
 | `/mailbridge auth` | Start the OAuth2 device login; prints the URL, polls in the background |
 | `/mailbridge smoke` | Reload the daemon, send one real mail, then open the folder and count |
 | `/mailbridge prime` | **First run only.** Set the cursor to now, so the mailbox's existing mail is never read. Refuses once the bridge has a cursor |
-| `/mailbridge restart` | Replace the daemon process (needed after an update; the daemon re-reads the config on `setup`/`smoke` and when a session finds a newer file, but this session's own copy refreshes when a `/mailbridge` command runs or pi restarts — respawns are throttled to one a minute) |
+| `/mailbridge restart` | Replace the daemon process (needed after an update; the daemon re-reads the config on `setup`/`smoke` and when a session finds a newer file, but this session's own copy refreshes when a `/mailbridge` command runs or pi restarts; the poll's automatic respawn of a dead daemon is throttled to one a minute) |
 | `/mailbridge help` | The same list, from inside the session |
 
 A bare `/mailbridge` and `/mailbridge status` are the same command.
 
 ### Commands by mail
 
-A reply whose **entire** body is one command line runs that command instead of being read by the
-agent — useful when you are away and want the phone to do something. Everything else is a
+A reply whose body — after the quoted original and signature are stripped — is one command line
+runs that command instead of being read by the agent — useful when you are away and want the phone to do something. Everything else is a
 message for the agent.
 
 | Reply | Effect |
@@ -429,13 +429,16 @@ message for the agent.
 | `/mailbridge check` / `/mailbridge smoke` | validate the config / send one test mail |
 | `/mailbridge help` | the command list |
 
+Output appears in the pi session, **not** in a reply mail — a phone that sends only `/mailbridge
+status` gets no mail back.
+
 Four are deliberately **not** runnable by mail — `/mailbridge setup`, `auth`, `restart` and
 `prime`. Anything else, including a reply that merely quotes a command under your own text, is
 delivered to the agent as a message, so a quoted `/mailbridge off` never switches your mode by
 accident.
 
-The reply is dispatched by this package, not handed to pi's command parser, for two reasons: the
-daemon can then tell "the command ran" from "pi rejected the prompt", and the refused four can
+The reply is dispatched by this package, not handed to pi's command parser, for two reasons: this
+package can then tell "the command ran" from "pi rejected the prompt", and the refused four can
 never be triggered by someone who spoofs your address in the one-mailbox layout (where DMARC is
 off by design).
 
@@ -446,7 +449,7 @@ Same work without pi, for a systemd unit, a container or a first run on a remote
 | Flag | Effect |
 | --- | --- |
 | *(no flag)* | Run the daemon in the foreground |
-| `--setup <pi-address> [--to <your-address>] [--force]` | Write the config and start or reload the daemon; omitting `--to` selects the single-mailbox layout |
+| `--setup <pi-address> [--to <your-address>] [--force]` | Write the config and exit — nothing is started. Start the daemon separately, or run `/mailbridge setup` inside pi, which does start/reload it. Omitting `--to` selects the single-mailbox layout |
 | `--check` | Validate the config and that credentials are *present* (no network call: a wrong password still reports `config ok` — `--smoke` is what proves the login). Exits non-zero on a problem, and runs your `tokenCommand` when XOAUTH2 is configured, which the in-pi `/mailbridge check` does not |
 | `--smoke` | Send one real mail, then read the folder back and count |
 | `--auth` | OAuth2 device login |

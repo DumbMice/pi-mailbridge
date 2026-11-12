@@ -123,6 +123,10 @@ work as a mail reply. Nothing was published, so there is no alias to carry.
 
 ### Commands by mail, dispatched here
 
+A command that throws is reported and the delivery is still acked: `deliveries` retries an inject
+failure on every poll tick, so re-running a failing `/mailbridge smoke` would have re-sent a real
+mail every ten seconds.
+
 A reply whose entire body is one command line now runs that command:
 `/mailbridge [on|off|status|check|smoke|help]`. `setup`, `auth`, `restart` and `prime` are refused and
 delivered as text, and anything longer than a single line is a message (so a quoted

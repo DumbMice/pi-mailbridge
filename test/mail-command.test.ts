@@ -1,7 +1,13 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { isRefusedSubcommand, parseMailCommand } from "../src/core/mail-command.ts"
+import {
+	MAIL_REFUSED_SUBCOMMANDS,
+	MAIL_SAFE_SUBCOMMANDS,
+	isRefusedSubcommand,
+	parseMailCommand,
+} from "../src/core/mail-command.ts"
+import { parseMailbridgeCommand } from "../src/core/commands.ts"
 
 test("a bare command reply is a command", () => {
 	assert.deepEqual(parseMailCommand("/mailbridge on"), { name: "mailbridge", args: "on", sub: "on" })
@@ -47,5 +53,22 @@ test("commands that reconfigure the machine are never runnable by mail", () => {
 		assert.equal(parseMailCommand(`/mailbridge ${sub}`)?.sub, sub)
 	}
 	assert.equal(parseMailCommand("/mailbridge nonsense"), undefined)
+	// No safe subcommand takes an argument, so a leftover word means the human wrote a sentence:
+	// it must reach the agent instead of flipping the mode and dropping their words.
+	assert.equal(parseMailCommand("/mailbridge off thanks, the deploy is still broken"), undefined)
+	assert.equal(parseMailCommand("/mailbridge on\u2028the deploy is still broken"), undefined)
 	assert.equal(parseMailCommand("/unknown"), undefined)
+})
+
+test("the two parsers agree, so a validated command cannot dispatch as something else", () => {
+	// dispatchMailCommand validates `sub` here, then the handler re-parses the raw args with
+	// parseMailbridgeCommand. That is safe only while both tokenize identically.
+	for (const sub of MAIL_SAFE_SUBCOMMANDS) {
+		const parsed = parseMailCommand(`/mailbridge ${sub}`)
+		assert.equal(parsed?.sub, sub)
+		assert.equal(parseMailbridgeCommand(sub).sub, sub, `${sub} must re-parse to itself`)
+	}
+	for (const sub of MAIL_REFUSED_SUBCOMMANDS) {
+		assert.equal(parseMailCommand(`/mailbridge ${sub}`), undefined, `${sub} must never parse as a command`)
+	}
 })

@@ -139,9 +139,10 @@ follow-ups after it.
 ```
 
 ```ts
-pi.registerCommand("mailbridge", { description: "…, on, off, …", handler: (args, ctx) => … })
-pi.registerCommand("back", { description: "Email mode OFF", handler: (_, ctx) => setMode("off", ctx) })
-pi.registerCommand("mailbridge", { description: "Status, setup, check, auth, smoke, restart", handler: (_, ctx) => status(ctx) })
+pi.registerCommand("mailbridge", {
+	description: "Status, on/off, setup, check, auth, smoke, restart",
+	handler: (args, ctx) => …,   // one command; away/here became on/off, and no top-level commands
+})
 ```
 
 ---
