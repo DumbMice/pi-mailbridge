@@ -182,16 +182,20 @@ test("the reply identification rule is documented in README and ARCHITECTURE", (
 	assert.equal(security["allowHeaderThreading"], true, "example config must ship the default")
 })
 
-test("OAuth is documented and shipped in the example config", () => {
+test("OAuth is documented in one coherent place", () => {
 	assert.ok(existsSync(new URL("../docs/OAUTH.md", import.meta.url)), "docs/OAUTH.md must exist")
 	assert.ok(readme.includes("docs/OAUTH.md"), "README must link the OAuth guide")
 
-	const oauth = example["oauth"] as Record<string, unknown>
-	assert.ok(oauth, "config.example.json must ship an oauth block")
+	// The example config is the app-password path end to end. Shipping an oauth block
+	// beside `authType: LOGIN` produced an inert block and a warning for anyone who
+	// copy-pasted it, so the block lives in the OAuth guide with a matching authType.
+	assert.equal(example["oauth"], undefined, "config.example.json must not mix OAuth into the LOGIN example")
+	const guide = read("../docs/OAUTH.md")
 	for (const key of ["issuer", "clientId", "scope"]) {
-		assert.equal(typeof oauth[key], "string", `oauth.${key} must be present`)
+		assert.ok(guide.includes(`"${key}"`), `docs/OAUTH.md must show oauth.${key}`)
 	}
-	assert.match(String(oauth["scope"]), /offline_access/, "offline_access is required for a refresh token")
+	assert.match(guide, /offline_access/, "offline_access is required for a refresh token")
+	assert.match(guide, /"authType": "XOAUTH2"/, "the OAuth example must use XOAUTH2, not mix with LOGIN")
 })
 
 test("the provider matrix names the risky case honestly", () => {

@@ -78,7 +78,8 @@ test("a token minted before the layout change still verifies", async () => {
 	const { createHmac } = await import("node:crypto")
 	const uuid = "01a1c453-f2fc-7169-8c89-69c93fa1a152"
 	const now = Date.UTC(2026, 0, 1)
-	const payload = Buffer.alloc(20)
+	// 21 bytes, exactly what the old writer allocated: 1 + 16 + 2 + 2.
+	const payload = Buffer.alloc(21)
 	payload[0] = 0x02
 	Buffer.from(uuid.replace(/-/g, ""), "hex").copy(payload, 1)
 	// Two days, not one hour: the old layout stored whole days, so a shorter life floored

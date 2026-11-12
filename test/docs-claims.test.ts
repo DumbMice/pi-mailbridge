@@ -36,21 +36,30 @@ test("no document offers a command or control the code does not have", () => {
 	}
 })
 
-test("the documented HTTP surface exists in the handler", () => {
+test("the documented HTTP surface exists in the handler, with the right method", () => {
+	// Round 3 showed the first version was method-blind: documenting GET /ack passed because
+	// `case "POST /ack"` contains the path. A reader following that doc gets a 405.
 	const service = readFileSync(join(root, "src/daemon/service.ts"), "utf8")
-	const ar ="docs/ARCHITECTURE.md"
-	const rows = doc(ar)
+	const rows = doc("docs/ARCHITECTURE.md")
 		.split("\n")
 		.filter((line) => /^\| (GET|POST|DELETE|GET\/POST) \| `\//.test(line))
 	assert.ok(rows.length > 8, "expected the request table to be present")
+
 	for (const row of rows) {
-		const path = /`(\/[a-z]+)`/.exec(row)?.[1]
-		if (!path) continue
-		if (path === "/health") continue
-		assert.ok(
-			service.includes(`"${path}"`) || service.includes(` ${path}"`) || service.includes(`"${path.slice(1)}`),
-			`${ar} documents ${path}, which the handler does not route`,
-		)
+		const method = /^\| (GET|POST|DELETE|GET\/POST) \|/.exec(row)?.[1]!
+		const path = /`(\/[a-z]+)`/.exec(row)?.[1]!
+		if (path === "/health") {
+			// The liveness probe is unauthenticated and handled before the router.
+			assert.ok(service.includes('url.pathname === "/health"'), "ARCHITECTURE documents /health")
+			continue
+		}
+		const methods = method === "GET/POST" ? ["GET", "POST"] : [method]
+		for (const m of methods) {
+			assert.ok(
+				service.includes(`case "${m} ${path}":`),
+				`ARCHITECTURE documents ${m} ${path}, which the handler does not route`,
+			)
+		}
 	}
 })
 
@@ -58,17 +67,37 @@ test("the module layout lists real files", () => {
 	const arch = doc("docs/ARCHITECTURE.md")
 	const block = /## 8\. Module layout\n\n```\n([\s\S]*?)```/.exec(arch)?.[1]
 	assert.ok(block, "the layout block should exist")
-	const listed = [...block.matchAll(/^\s{4}([a-z0-9-]+\.ts)\s/gm)].map((m) => m[1]!)
+	const listed = [...block.matchAll(/^\s{2,4}([a-z0-9*-]+\.ts)\s/gm)].map((m) => m[1]!)
 	assert.ok(listed.length > 20, `expected a full listing, got ${listed.length}`)
+	const covered = (file: string): boolean => {
+		const base = file.split("/").pop()!
+		return listed.some((l) => (l.includes("*") ? base.startsWith(l.split("*")[0]!) : l === base))
+	}
 	for (const name of listed) {
-		// oauth*.ts is written as a glob in the layout; everything else must exist.
 		if (name.includes("*")) continue
 		assert.ok(
 			existsIn("src", name),
 			`ARCHITECTURE lists ${name}, which is not in src/ (renamed or never written)`,
 		)
 	}
+
+	// And the other direction: a new module must be added to the map, or the map quietly
+	// stops describing the code.
+	const onDisk = allTs("src").filter((f) => !f.endsWith(".d.ts"))
+	const missing = onDisk.filter((f) => !covered(f))
+	assert.deepEqual(missing, [], `src/ modules missing from the ARCHITECTURE layout: ${missing.join(", ")}`)
 })
+
+/** Every .ts basename under `dir`, recursively. */
+function allTs(dir: string, prefix = ""): string[] {
+	const out: string[] = []
+	for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
+		const rel = prefix ? `${prefix}/${entry.name}` : entry.name
+		if (entry.isDirectory()) out.push(...allTs(join(dir, entry.name), rel))
+		else if (entry.name.endsWith(".ts")) out.push(rel)
+	}
+	return out
+}
 
 function existsIn(dir: string, name: string): boolean {
 	for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
@@ -105,24 +134,54 @@ test("the README's test count is not a hardcoded number that can drift", () => {
 	)
 })
 
-test("the documented routing order is the implemented one", () => {
-	// Round 2 found README and ARCHITECTURE still listing the signed token as rule 1,
-	// and describing it as authoritative, while process.ts tries the short route id first.
-	const readme = doc("README.md")
-	const arch = doc("docs/ARCHITECTURE.md")
-	for (const [name, text] of [
-		["README.md", readme],
-		["docs/ARCHITECTURE.md", arch],
-	] as const) {
-		const route = text.search(/Short route id|short route id/i)
-		const legacy = text.search(/Legacy signed token|legacy signed token/i)
-		assert.ok(route > -1, `${name} must document the short route id`)
-		assert.ok(legacy > -1, `${name} must document the legacy token as the fallback`)
-		assert.ok(route < legacy, `${name} lists the signed token before the short route id`)
+test("the documented routing order is the implemented one, in every file that states it", () => {
+	// Round 3 proved the previous version vacuous: it compared first-mention positions in the
+	// whole file, so a reversed numbered list still passed. This reads the numbered rules.
+	const expected = [/route id/i, /signed token/i, /reply chain/i]
+
+	// Other numbered lists exist in these files (troubleshooting steps), so take the
+	// contiguous block that starts with the routing rule rather than every numbered line.
+	function rules(text: string): string[] {
+		const blocks: { n: number; label: string }[][] = []
+		let current: { n: number; label: string }[] = []
+		for (const line of text.split("\n")) {
+			const row = /^\|\s*(\d)\s*\|\s*\*\*(.+?)\*\*/.exec(line)
+			const item = /^\s*(\d)\.\s+\*\*(.+?)\*\*/.exec(line)
+			const hit = row ?? item
+			if (hit) {
+				const n = Number(hit[1])
+				if (current.length === 0 || n === current.length + 1) current.push({ n, label: hit[2]! })
+				else {
+					blocks.push(current)
+					current = [{ n, label: hit[2]! }]
+				}
+			} else if (current.length > 0 && line.trim() !== "" && !/^\s/.test(line)) {
+				// A wrapped continuation line is indented and belongs to the current item;
+				// only an unindented non-empty line ends the block.
+				blocks.push(current)
+				current = []
+			}
+		}
+		if (current.length > 0) blocks.push(current)
+		const block = blocks.find((b) => b.length >= 3 && expected[0]!.test(b[0]!.label))
+		return (block ?? []).map((b) => b.label)
 	}
-	// The id is a lookup key, not a signature: no doc may call it authoritative.
-	assert.ok(!/authoritative because it is signed/i.test(arch), "ARCHITECTURE still calls the token authoritative")
-	assert.ok(!/\*\*Signed token in the subject\*\*/.test(readme), "README still presents the token as rule 1")
+
+	for (const name of ["README.md", "docs/ARCHITECTURE.md"]) {
+		const list = rules(doc(name))
+		assert.ok(list.length >= 3, `${name} must state the routing rules as a numbered list`)
+		expected.forEach((pattern, i) => {
+			assert.match(list[i]!, pattern, `${name} rule ${i + 1} should be ${pattern}`)
+		})
+	}
+
+	// The changelog states it as prose, in order.
+	const changelog = doc("CHANGELOG.md")
+	const section = /### Reply identification[\s\S]*?(?=\n### )/.exec(changelog)?.[0]
+	assert.ok(section, "CHANGELOG should have a Reply identification section")
+	const positions = expected.map((p) => section.search(p))
+	positions.forEach((pos, i) => assert.ok(pos > -1, `CHANGELOG omits rule ${i + 1}`))
+	assert.deepEqual([...positions].sort((a, b) => a - b), positions, "CHANGELOG lists the rules out of order")
 })
 
 test("every environment override is documented", () => {

@@ -48,7 +48,7 @@ another room, a webmail client on a machine that has never run pi. The reply is
 routed by the short id in the subject, not by the sender's device.
 
 With more than one machine, each daemon has its own `device.name`; a reply is only
-claimed by the daemon whose device the token names, so two machines sharing one
+claimed by the daemon whose device the route names, so two machines sharing one
 mailbox never fight over the same message.
 
 ## One mailbox or two?
@@ -175,8 +175,8 @@ There is a CLI, but only for running the daemon where pi cannot: a systemd unit,
 a container, a remote box. It is the same code path, not a second workflow.
 
 ```bash
-node src/daemon/main.ts            # run the daemon
-node src/daemon/main.ts --check    # for ExecStartPre
+node --experimental-strip-types src/daemon/main.ts            # run the daemon
+node --experimental-strip-types src/daemon/main.ts --check    # for ExecStartPre
 ```
 
 In pi:
@@ -192,6 +192,13 @@ The daemon can be started by the extension on demand. To keep it resident:
 ```bash
 mkdir -p ~/.config/systemd/user
 cp docs/systemd/pi-mailbridge.service ~/.config/systemd/user/
+```
+
+Check the two lines the unit cannot guess before enabling it: `Environment=PATH` (where
+your Node lives) and `Environment=PI_MAILBRIDGE_DIR` (where this package is installed; the
+default assumes `pi install npm:pi-mailbridge`).
+
+```bash
 systemctl --user enable --now pi-mailbridge
 ```
 
@@ -257,7 +264,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | `oauth.clientId` | — | your app registration's client id |
 | `oauth.clientSecret` | — | only for confidential clients; omit for device code |
 | `oauth.scope` | — | must include `offline_access` for a refresh token |
-| `device.name` | first label of `os.hostname()` | machine name shown in every notification and carried in the routing token |
+| `device.name` | first label of `os.hostname()` | machine name shown in every notification and carried in the routing id |
 | `security.allowFrom` | `[]` | senders allowed to command the agent; empty denies all |
 | `security.requireDmarcPass` | `true` | require a DMARC pass from the pinned relay |
 | `security.trustedAuthservId` | unset | pin the trusted `Authentication-Results` host. Leave unset for Microsoft consumer accounts — their relay emits no authserv-id |
@@ -375,7 +382,7 @@ failing process on every scan.
 ## How it works
 
 ```
-IMAP IDLE ──► scan (UID cursor) ──► authorize ──► verify token ──► persist
+IMAP IDLE ──► scan (UID cursor) ──► authorize ──► route ──► strip quote ──► persist
                                                                      │
                      pi session ◄── claim ◄── SSE/poll ◄─────────────┘
                           │

@@ -214,9 +214,12 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 	let stopped = false
 	let connecting = false
 
-	async function teardown(): Promise<void> {
-		const c = client
-		client = undefined
+	async function teardown(target?: ImapClientLike): Promise<void> {
+		// Take the connection explicitly when the caller still holds it: stop() may already
+		// have nulled `client` (and logged out nothing, because the dial had not finished),
+		// and tearing down `client` again would silently do nothing.
+		const c = target ?? client
+		if (!target) client = undefined
 		if (!c) return
 		try {
 			await c.logout()
@@ -251,7 +254,7 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 			// Without this, the connection stays open with handlers attached and nothing
 			// will ever tear it down (isHealthy() would meanwhile report false).
 			if (stopped) {
-				await teardown()
+				await teardown(c)
 				return
 			}
 			attempt = 0

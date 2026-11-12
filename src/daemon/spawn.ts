@@ -126,6 +126,12 @@ export interface DaemonClientOptions {
 	baseUrl: string
 	token: string
 	fetchImpl?: typeof fetch
+	/**
+	 * Per-request ceiling. Without one, a daemon that accepts a connection and never
+	 * answers leaves the caller's promise unsettled forever - and the drain it is inside
+	 * then wedges every later drain in the process.
+	 */
+	timeoutMs?: number
 }
 
 /** Tiny typed client used by the extension and by `/mailbridge`. */
@@ -136,10 +142,13 @@ export function createDaemonClient(options: DaemonClientOptions) {
 	const headers = { authorization: `Bearer ${options.token}`, "content-type": "application/json" }
 
 	async function call<T>(method: string, path: string, body?: unknown): Promise<DaemonResult<T>> {
+		const controller = new AbortController()
+		const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 15_000)
 		try {
 			const response = await doFetch(`${options.baseUrl}${path}`, {
 				method,
 				headers,
+				signal: controller.signal,
 				...(body === undefined ? {} : { body: JSON.stringify(body) }),
 			})
 			const text = await response.text()
@@ -153,8 +162,13 @@ export function createDaemonClient(options: DaemonClientOptions) {
 				return { ok: false, status: response.status, ...(code ? { code } : {}) }
 			}
 			return { ok: true, data: (text ? JSON.parse(text) : {}) as T }
-		} catch {
+		} catch (error) {
+			// A timeout is reported distinctly: the outcome is unknown, so callers must
+			// treat it like a network failure (retry later) rather than a definite "no".
+			if (error instanceof Error && error.name === "AbortError") return { ok: false, status: 0, code: "timeout" }
 			return { ok: false, status: 0, code: "network" }
+		} finally {
+			clearTimeout(timer)
 		}
 	}
 

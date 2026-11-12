@@ -30,7 +30,7 @@ mail through the daemon, and receives replies from it.
 ## 2. Delivery pipeline (the part that must not lose mail)
 
 ```
-new UID ──► fetch ──► parse body ──► verify token ──► persist pending (durable)
+new UID ──► fetch ──► authorize ──► route (id / token / chain) ──► persist pending (durable)
                                                         │
                                                         ▼
                                               broadcast `delivery` (SSE)
@@ -64,7 +64,7 @@ Loopback only by default (`daemon.host`). Every request carries
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/health` | liveness probe; **unauthenticated** by design (mode, pending and session counts — no content) |
+| GET | `/health` | liveness probe; **unauthenticated** by design (mode, pending/session/client counts, last ping, whether idle-exit is armed — no content, no addresses) |
 | GET | `/events` | SSE: `delivery`, `mode` |
 | GET | `/pending` | catch-up list for reconnecting clients |
 | POST | `/claim` | `{uid, instanceId}` — atomic claim |
@@ -101,14 +101,14 @@ desired behaviour, not an error.
 
 - A local lookup key, not a signature: an id that was never minted here resolves to
   nothing. (Legacy tokens *are* HMAC-signed, and are verified when they appear.)
-- Carries the **device that minted it**. A daemon only persists a delivery whose
-  token names its own device, so several machines sharing one mailbox never hold
-  stale copies of each other's replies. A token with no device claim is accepted
-  (single-device installs, and tokens minted before devices were tracked).
-- Replies keep the token because mail clients prefix — `Re: [pi:…] …`. Parsing
+- Records the **device that minted it**. A daemon only persists a delivery whose
+  route (or chain entry, or legacy token) names its own device, so several machines
+  sharing one mailbox never hold stale copies of each other's replies. A record with
+  no device claim is accepted (single-device installs).
+- Replies keep the id because mail clients prefix — `Re: [pi:…] …`. Parsing
   tolerates `Re:`, `RE:`, `AW:`, `Re[2]:`.
-- Expiry bounds replay: a token older than `tokenTtlHours` is refused even if
-  the MAC is valid.
+- Expiry bounds replay: an id older than `tokenTtlHours` resolves to nothing, and the
+  reply chain ages out on the same clock.
 
 ### What identifies a reply
 

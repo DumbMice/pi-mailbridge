@@ -5,7 +5,7 @@
 //   1. search `UID <cursor>+1:*`            UID cursor, never \Seen, never SUBJECT
 //   2. fetch envelope + body
 //   3. authorize (loop → robot → allowlist → pinned DMARC)
-//   4. verify the routing token             routes, does not authorize
+//   4. route: short id, then legacy signed token, then the reply chain             routes, does not authorize
 //   5. strip quoted text
 //   6. persist to the durable pending store  <- nothing is lost after this
 //   7. advance the cursor                     <- only after persist

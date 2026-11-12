@@ -11,7 +11,8 @@ a live mailbox.
   constant-time verification, prefix-tolerant subject extraction, and an
   optional **device claim** so replies route to the machine that owns the session.
 - `core/authz.ts` — fail-closed chain: loop guard (pi account) → machine-generated
-  → allowlist (empty denies all) → DMARC pinned to `trustedAuthservId`.
+  → allowlist (empty denies all) → DMARC (`Authentication-Results`, optionally pinned
+  to `security.trustedAuthservId` when set).
 - `core/reply-parse.ts` — quote stripping that cuts at the first recognisable
   boundary, addr-spec normalization, auto-generated detection,
   `findTrustedAuthResults` (topmost matching `authserv-id` only).
@@ -21,7 +22,7 @@ a live mailbox.
 - `core/oauth.ts` — token from an argv command (argc-safe, `shell:false`), cached
   until TTL, one refresh on 401, disabled after a failing command.
 - `core/settle.ts` — `agent_settled`-only notifier, debounced, abort-aware,
-  token-stamped subject naming the **device and session** (`pi: fix-login @ dev-box-7
+  id-stamped subject naming the **device and session** (`pi: fix-login @ dev-box-7
   is waiting for you`), body with device/session id/project/turns/last text.
 - `core/deliveries.ts` — claim → inject → ack runner; never acks a failed
   injection; absorbs replays after a failed ack.
@@ -61,11 +62,14 @@ a live mailbox.
 
 ### Reply identification
 
-A reply is identified by the first rule that succeeds: the **signed subject
-token**, then the **reply chain** (`In-Reply-To` / `References` matched against
-Message-IDs recorded at send time in `store/threads.ts`), then rejected as
-`no-token` and left unread. The chain fallback means editing the subject no longer
-loses a reply; `security.allowHeaderThreading: false` disables it.
+A reply is identified by the first rule that succeeds: the **short route id**
+(`[pi:f913c9]`, a lookup key in `store/routes.ts`), then a **legacy signed token**
+(still verified, no longer minted), then the **reply chain** (`In-Reply-To` /
+`References` matched against Message-IDs recorded at send time in
+`store/threads.ts`), then rejected as `no-token` and left unread. All three age out
+with `security.tokenTtlHours`, and none of them authorizes anything. The chain
+fallback means editing the subject no longer loses a reply;
+`security.allowHeaderThreading: false` disables that rule only.
 
 ### In-pi commands
 
@@ -465,7 +469,7 @@ a config failure.
 ### Device identity
 
 An idle notification identifies the machine as well as the session, and the
-routing token carries the device so several machines can share one mailbox
+route record carries the device so several machines can share one mailbox
 without competing for the same reply. `device.name` defaults to the first label
 of `os.hostname()`; override with config or `PI_MAILBRIDGE_DEVICE`.
 

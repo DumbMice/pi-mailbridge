@@ -266,3 +266,25 @@ test("a spawned daemon writes to daemon.log instead of discarding output", async
 	assert.equal(typeof (stdio as unknown[])[1], "number")
 	assert.ok(existsSync(join(env.XDG_STATE_HOME, "pi-mailbridge", "daemon.log")))
 })
+
+test("a daemon that never answers times out instead of wedging the caller", async () => {
+	// Without a ceiling, a drain awaiting /pending never settles, and every later drain in
+	// the process rides the same dead promise - delivery stops permanently.
+	const { createDaemonClient } = await import("../src/daemon/spawn.ts")
+	const client = createDaemonClient({
+		baseUrl: "http://127.0.0.1:1",
+		token: "t",
+		timeoutMs: 20,
+		fetchImpl: ((_url: string, init?: { signal?: AbortSignal }) =>
+			new Promise((_resolve, reject) => {
+				init?.signal?.addEventListener("abort", () => {
+					const e = new Error("aborted")
+					e.name = "AbortError"
+					reject(e)
+				})
+			})) as never,
+	})
+	const result = await client.pending()
+	assert.equal(result.ok, false)
+	assert.equal(!result.ok && result.code, "timeout")
+})

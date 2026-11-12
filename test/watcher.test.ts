@@ -364,3 +364,48 @@ test("the scanner receives Message-ID, which the self-echo guard needs", async (
 	})
 	assert.equal(headers.messageId, "<abc@qq.com>")
 })
+
+test("stop() during a dial logs out the connection that just opened", async () => {
+	// stop() nulls `client` before the dial finishes, so its logout is a no-op; without
+	// logging out the client we just built, the socket stays open with nothing to close it.
+	const t = fakeTimers()
+	const log: string[] = []
+	let release: () => void = () => {}
+	const dialing = new Promise<void>((r) => {
+		release = r
+	})
+
+	const watcher = createImapWatcher(config(), {
+		timers: t.timers,
+		factory: () =>
+			({
+				usable: true,
+				async connect() {
+					log.push("connect-start")
+					await dialing
+					log.push("connect-done")
+				},
+				async logout() {
+					log.push("logout")
+				},
+				async mailboxOpen() {},
+				async search() {
+					return []
+				},
+				async fetchOne() {
+					return undefined
+				},
+				on() {},
+			}) as never,
+		callbacks: { onMail: () => {}, onReady: () => {} },
+	})
+
+	const started = watcher.start()
+	// Let connect() begin, then stop while it is still awaiting.
+	await new Promise((r) => setImmediate(r))
+	await watcher.stop()
+	release()
+	await started
+
+	assert.ok(log.includes("logout"), `the opened connection must be logged out (saw ${JSON.stringify(log)})`)
+})

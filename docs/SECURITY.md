@@ -105,11 +105,14 @@ A legitimate email can still contain text that reads like instructions
   mailbox where you receive untrusted mail.
 - The tool marks a delivered message `\Seen` and journals it. It never deletes or moves
   mail, so a shared account keeps its history.
-- Rotate the app password and the HMAC key if you ever suspect exposure. Rotating the key
+- Rotate the app password and the HMAC key if you ever suspect exposure, and restart the
+  daemon afterwards: it caches the bearer token at startup, so a rotation without a restart
+  makes every poll 401 until you do. Rotating the key
   kills every outstanding **signed token**, but *not* the short route ids: those are
   entries in `routes.json` and resolve with no secret at all, so they keep working until
-  `security.tokenTtlHours` expires. To revoke routing immediately, delete that file (and
-  the journal) while the daemon is stopped.
+  `security.tokenTtlHours` expires. To revoke routing immediately, stop the daemon and
+  delete all three stores: `routes.json` (short ids), `threads.json` (the reply chain, which
+  resolves against recorded Message-IDs with no secret either) and the journal.
 - Turn it off with `/back` when you will be at the desk. An idle mailbox should
   not be a listening control channel.
 - **One mailbox for both roles** (`security.allowSelfReplies`). The loop guard is
