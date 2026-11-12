@@ -856,3 +856,23 @@ test("a mail command that throws is acked, not retried forever", async () => {
 	)
 	assert.equal(pi.sent.length, 0, "and nothing was injected for the agent")
 })
+
+test("a /mailbridge off reply stops the batch it arrived in", async () => {
+	// The human's "off" is in the same snapshot as a message behind it. That message must stay
+	// pending, not land in a session they just asked to leave alone.
+	const t = fakeTimers()
+	const daemon = fakeDaemon({
+		mode: "on",
+		pending: [
+			{ uid: 41, sessionId: SESSION, from: "you@example.com", subject: "a", body: "/mailbridge off", receivedAt: 1 },
+			{ uid: 42, sessionId: SESSION, from: "you@example.com", subject: "b", body: "one more", receivedAt: 2 },
+		],
+	})
+	const pi = boot(daemon, t.timers)
+	await pi.fire("session_start")
+	for (let i = 0; i < 5; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.equal(daemon.modes.at(-1), "off")
+	assert.equal(pi.sent.length, 0, "the record behind the switch was not injected")
+	assert.deepEqual(daemon.acked ?? [], [41], "and it was not claimed or acked")
+})

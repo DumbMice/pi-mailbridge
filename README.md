@@ -424,7 +424,7 @@ message for the agent.
 | Reply | Effect |
 | --- | --- |
 | `/mailbridge on` | email mode ON (decisions mail you) |
-| `/mailbridge off` | email mode OFF (decisions ask at the terminal) |
+| `/mailbridge off` | email mode OFF (decisions ask at the terminal); anything else in that batch stays pending until the next `/mailbridge on` |
 | `/mailbridge` or `/mailbridge status` | the status panel |
 | `/mailbridge check` / `/mailbridge smoke` | validate the config / send one test mail |
 | `/mailbridge help` | the command list |

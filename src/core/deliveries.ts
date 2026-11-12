@@ -44,6 +44,13 @@ export interface DeliveryRunnerDeps {
 	/** Inject into the live session. Throw to signal failure (do not ack). */
 	inject: (body: string, record: PendingRecord) => Promise<void>
 	onError?: (error: Error, record: PendingRecord) => void
+	/**
+	 * Is delivery still wanted? Checked between records, so `/mailbridge off` arriving as a
+	 * reply stops the batch it came in: the records behind it stay pending (unclaimed, unseen)
+	 * and are delivered when the mode goes back on, instead of landing in a session the human
+	 * just asked to leave alone.
+	 */
+	stillDelivering?: () => boolean
 }
 
 export interface DeliveryRunner {
@@ -193,7 +200,12 @@ export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 					const result = await deps.client.pending()
 					if (!result.ok) return []
 					const outcomes: DeliveryOutcome[] = []
-					for (const record of result.data.pending) outcomes.push(await handle(record))
+					for (const record of result.data.pending) {
+						// Re-checked every record: a reply that turns the mode off is in this very
+						// batch, and everything after it must wait.
+						if (deps.stillDelivering && !deps.stillDelivering()) break
+						outcomes.push(await handle(record))
+					}
 					return outcomes
 				} finally {
 					inFlightByInstance.delete(deps.instanceId)

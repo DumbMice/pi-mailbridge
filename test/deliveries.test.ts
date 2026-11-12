@@ -308,3 +308,38 @@ test("a claim refused as stale is reported once, not silently retried", async ()
 	assert.deepEqual(await r.drain(), ["stale-space"])
 	assert.equal(errors.length, 1, "but only once")
 })
+
+test("off arriving in a batch stops the records behind it", async () => {
+	// `/mailbridge off` is the human saying "leave me alone at the terminal". The rest of that
+	// snapshot must stay pending - claimed, injected, acked or \Seen'd would all be wrong.
+	const records = [
+		{ uid: 1, sessionId: "s", from: "you@example.com", subject: "a", body: "/mailbridge off", receivedAt: 1 },
+		{ uid: 2, sessionId: "s", from: "you@example.com", subject: "b", body: "one more thing", receivedAt: 2 },
+		{ uid: 3, sessionId: "s", from: "you@example.com", subject: "c", body: "and another", receivedAt: 3 },
+	]
+	let enabled = true
+	const injected: number[] = []
+	const acked: number[] = []
+	const runner = createDeliveryRunner({
+		client: {
+			pending: async () => ({ ok: true as const, status: 200, data: { pending: records } }),
+			claim: async (uid: number) => ({ ok: true as const, status: 200, data: {} }),
+			ack: async (uid: number) => {
+				acked.push(uid)
+				return { ok: true as const, status: 200, data: {} }
+			},
+		} as never,
+		instanceId: "inst-1",
+		sessionId: () => "s",
+		inject: async (_body, record) => {
+			injected.push(record.uid)
+			// The command handler flips the mode while this record is being handled.
+			if (record.uid === 1) enabled = false
+		},
+		stillDelivering: () => enabled,
+	})
+
+	await runner.drain()
+	assert.deepEqual(injected, [1], "only the record before the switch was delivered")
+	assert.deepEqual(acked, [1], "the ones behind it were never claimed or acked")
+})

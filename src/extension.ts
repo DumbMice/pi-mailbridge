@@ -293,6 +293,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			},
 			instanceId,
 			sessionId: () => ctx?.sessionManager.getSessionId(),
+			stillDelivering: () => emailMode === "on",
 			inject: async (body, record) => {
 				// A command by mail runs the same handler the prompt would, and then there is
 				// nothing to inject: the human asked for an action, not for the agent to read a

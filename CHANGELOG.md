@@ -121,6 +121,14 @@ shadowed silently by another extension — pi resolves commands by first match a
 nothing — and neither name appeared in `/mailbridge help`. They are subcommands now, named for the mode they set, and the usage text lists them. Both still
 work as a mail reply. Nothing was published, so there is no alias to carry.
 
+### `off` by mail stops the batch it arrived in
+
+A drain takes a snapshot of pending records and delivers them in order. If the human's
+`/mailbridge off` reply was in that snapshot, the records behind it were still claimed and
+injected — the opposite of "leave me alone at the terminal". The runner re-checks the mode
+between records now: the switch is delivered and acked, everything behind it stays pending and
+unseen for the next `/mailbridge on`.
+
 ### Commands by mail, dispatched here
 
 A command that throws is reported and the delivery is still acked: `deliveries` retries an inject
