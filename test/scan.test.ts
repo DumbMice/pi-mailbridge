@@ -387,7 +387,7 @@ test("single-mailbox mode still rejects our own notification echo", async () => 
 		secret: SECRET,
 		env: e,
 	})
-	assert.equal(r.reasons["self-echo"], 1, "must not inject our own sent mail as a reply")
+	assert.equal(r.reasons["no-reply-evidence"], 1, "must not inject our own sent mail as a reply")
 	assert.equal(listPending(e).length, 0)
 })
 

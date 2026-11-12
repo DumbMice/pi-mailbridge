@@ -38,3 +38,11 @@ test("the queue-full line only appears when the queue actually refused something
 test("no summary yet is distinct from an empty one", () => {
 	assert.deepEqual(formatScan(null), ["last scan: (none yet)"])
 })
+
+test("our own echo is handled, not a rejection", () => {
+	// One-address installs reject every notification they send; reporting that as a rejection
+	// made a healthy setup look broken on every status call.
+	const lines = formatScan({ ...base, rejected: 4, reasons: { "self-echo": 4, routed: 1 } })
+	assert.ok(lines.some((l) => l.startsWith("rejections: none")), lines.join("\n"))
+	assert.ok(lines.some((l) => l.startsWith("handled: ") && l.includes("self-echo")))
+})

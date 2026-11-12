@@ -93,6 +93,14 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
 	if (built.security.allowSelfReplies) {
 		steps.push(`one mailbox for both roles — replies from ${to} are accepted only when they are real replies`)
 		steps.push(
+			"if this mailbox has other addresses that reach it (a QQ number, a foxmail alias), add each " +
+				"one to security.allowFrom - the allowlist matches the exact address you reply from",
+		)
+		steps.push(
+			"if the mailbox already has mail you do not want the agent to read, run /mailbridge prime " +
+				"before your first /afk",
+		)
+		steps.push(
 			"DMARC checks are off for this shape: a message from your address to the same address is " +
 				"delivered by your own provider and may carry no Authentication-Results header, so requiring " +
 				"one rejects every reply. The sender allowlist and the self-echo guards still apply.",

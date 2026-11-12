@@ -408,6 +408,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		// No daemon: fall back to the local file so /afk is never a silent no-op.
 		const { writeMode } = await import("./store/mode-store.ts")
 		writeMode(env, mode)
+		// The settle notifier reads this mirror, not the file. Without it the command reports
+		// ON while every notification is dropped as "mode off".
+		emailMode = mode
 		c.ui.notify(`mailbridge: email mode ${mode.toUpperCase()} (daemon unreachable, stored locally)`, "warning")
 	}
 
@@ -772,8 +775,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			}
 			const secret = secretFn()
 			if (!secret) return { content: [{ type: "text", text: "Mailbridge secret missing." }], details: {} }
+			// No session means no session to route back to: minting a route for "" would be
+			// dead state that the scanner treats as no-route anyway.
+			const context = sessionContext()
+			if (!context?.sessionId) {
+				return { content: [{ type: "text", text: "No active session to attach this notification to." }], details: {} }
+			}
 			const tag = ensureRouteForSession({
-				sessionId: sessionContext()?.sessionId ?? "",
+				sessionId: context.sessionId,
 				device: config.device.name,
 				subject: String(params["subject"] ?? "pi: update"),
 				ttlHours: config.security.tokenTtlHours,

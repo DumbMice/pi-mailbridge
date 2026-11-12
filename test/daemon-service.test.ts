@@ -336,7 +336,11 @@ test("/send reports the Message-ID to the caller so it can be recorded", async (
 			body: JSON.stringify({ subject: "[pi:a.b] pi: x", text: "t" }),
 		})
 		assert.equal(res.status, 200)
-		assert.deepEqual(seen, [{ messageId: "<m1@pi.local>", subject: "[pi:a.b] pi: x" }])
+		// The id reported is the one we minted and recorded before the send, not whatever the
+		// transport says - threading and the echo guard both reference it.
+		assert.equal(seen.length, 1)
+		assert.match(String(seen[0]!.messageId), /^<[0-9a-f-]{36}@example\.com>$/)
+		assert.equal(seen[0]!.subject, "[pi:a.b] pi: x")
 	} finally {
 		await service.close()
 	}

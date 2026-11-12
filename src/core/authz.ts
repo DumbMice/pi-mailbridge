@@ -16,6 +16,7 @@ export type AuthzDenial =
 	| "no-from"
 	| "self"
 	| "self-echo"
+	| "no-reply-evidence"
 	| "auto-generated"
 	| "not-allowlisted"
 	| "allowlist-empty"
@@ -55,7 +56,10 @@ export function authorize(input: AuthzInput, config: ResolvedConfig): AuthzResul
 		// forward-then-reply), because the router would have routed them by chain.
 		const threaded =
 			Boolean(input.headers.inReplyTo?.trim()) || Boolean(input.headers.references?.some((r) => r.trim()))
-		if (!threaded) return { ok: false, reason: "self-echo" }
+		// Distinct from the self-echo guards (marker header, outbound Message-ID): this is a
+		// message from your own address with no reply evidence at all. The two are different
+		// problems for the user, so they get different names.
+		if (!threaded) return { ok: false, reason: "no-reply-evidence" }
 	}
 
 	// 2. Never answer robots, and never act on a bounce: a null sender or a postmaster

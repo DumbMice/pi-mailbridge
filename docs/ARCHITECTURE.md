@@ -240,7 +240,7 @@ systemd-started daemon never exits just because pi happens to be closed.
 | Session exits before ack | mail stays unseen, pending durable → redelivered |
 | SMTP fails | decision is *not* reserved as outstanding; error surfaces to the tool |
 | Mailbox full of non-token mail | cursor advances, nothing is claimed, no state grows |
-| Clock skew | expiry is a hard gate against the local clock; a clock more than a TTL behind will refuse fresh ids |
+| Clock skew | expiry is compared against the local clock (`expiresAt <= now`), so a clock more than a TTL **ahead** refuses fresh ids, and a clock **behind** keeps expired ones alive |
 
 ## 8. Module layout
 

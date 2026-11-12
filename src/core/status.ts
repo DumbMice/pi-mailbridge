@@ -19,7 +19,16 @@ export interface ScanSummary {
  * miss on the subject id that still routed by token or chain. `attachment-*` drops one file
  * but keeps the reply.
  */
-const HANDLED = new Set(["routed", "threaded", "journaled", "vanished", "route-miss"])
+const HANDLED = new Set([
+	"routed",
+	"threaded",
+	"journaled",
+	"vanished",
+	"route-miss",
+	// In single-mailbox mode our own notifications come back on every send. Rejecting them is
+	// the system working, so counting them as rejections made a healthy install look broken.
+	"self-echo",
+])
 
 /** Deferred, not dropped: the queue was full and the same UID is retried. */
 const DEFERRED = new Set(["pending-full"])

@@ -59,26 +59,3 @@ export async function createOpenidClient(config: OAuthConfig, now: () => number 
 	}
 }
 
-/**
- * Provider presets.
- *
- * Scopes are the ones that actually work for IMAP/SMTP XOAUTH2 — the Graph scopes
- * are different, and mixing them is the most common cause of "token works but the
- * server rejects it".
- */
-export const OAUTH_PRESETS = {
-	microsoft: {
-		issuer: "https://login.microsoftonline.com/consumers/v2.0",
-		scope: "offline_access https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send",
-	},
-	"microsoft-365": {
-		issuer: "https://login.microsoftonline.com/organizations/v2.0",
-		scope: "offline_access https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send",
-	},
-	google: {
-		issuer: "https://accounts.google.com",
-		scope: "https://mail.google.com/ offline_access",
-	},
-} as const
-
-export type OAuthPreset = keyof typeof OAUTH_PRESETS

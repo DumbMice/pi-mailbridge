@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -180,8 +180,11 @@ test("an over-cap file on disk is preserved, not trimmed on the next write", () 
 
 	claimPending(e, 1, "A")
 	ackPending(e, 1, "A")
-	assert.equal(pendingSize(e), PENDING_CAP + 4, "an ack removes exactly one record")
-	assert.ok(getPending(e, 2), "the oldest remaining record is still there")
+	// Read the file itself: pendingSize() goes through the module cache, which save() refreshes
+	// with the untrimmed array - so a trimmed write was invisible in this test.
+	const onDisk = JSON.parse(readFileSync(file, "utf8")) as { items: { uid: number }[] }
+	assert.equal(onDisk.items.length, PENDING_CAP + 4, "the file keeps every record")
+	assert.ok(onDisk.items.some((r) => r.uid === 2), "and the oldest remaining one")
 })
 
 test("uid cursor: a changed UIDVALIDITY resets it, an unchanged one does not", async () => {

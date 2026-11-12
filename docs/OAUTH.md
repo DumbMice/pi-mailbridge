@@ -305,7 +305,7 @@ state.
 }
 ```
 
-Presets (`core/oauth-openid.ts`):
+Presets (`core/discover.ts`, where `setup` reads them):
 
 | Preset | `issuer` | `scope` |
 | --- | --- | --- |

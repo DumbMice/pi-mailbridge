@@ -112,8 +112,8 @@ A legitimate email can still contain text that reads like instructions
   mail, so a shared account keeps its history.
 - Rotate the HMAC key if you suspect exposure, and **restart the daemon**: it caches the
   bearer token at startup, so a rotation without a restart makes every poll 401 until you do.
-  The mail password is different — `/reload` (and therefore `/mailbridge smoke`) re-reads it,
-  so no restart is needed. Rotating the key
+  The mail password is different — the daemon's `POST /reload` re-reads it (run it via
+  `/mailbridge smoke`), so no restart is needed. Rotating the key
   kills every outstanding **signed token**, but *not* the short route ids: those are
   entries in `routes.json` and resolve with no secret at all, so they keep working until
   `security.tokenTtlHours` expires. Rotating the key does not stop delivery on its own.

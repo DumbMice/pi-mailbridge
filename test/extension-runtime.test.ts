@@ -38,6 +38,7 @@ interface FakePi extends ExtensionLike {
 	handlers: Map<string, (event: Record<string, unknown>, ctx: ExtensionCtxLike) => unknown>
 	fire(event: string, payload?: Record<string, unknown>): Promise<void>
 	sent: string[]
+	deliveryOptions: { deliverAs?: string; expandPromptTemplates?: boolean }[]
 }
 
 function fakePi(ctx: ExtensionCtxLike): FakePi {
@@ -46,12 +47,14 @@ function fakePi(ctx: ExtensionCtxLike): FakePi {
 	const tools: string[] = []
 	const handlers = new Map<string, (event: Record<string, unknown>, ctx: ExtensionCtxLike) => unknown>()
 	const sent: string[] = []
+	const deliveryOptions: { deliverAs?: string; expandPromptTemplates?: boolean }[] = []
 	const pi: FakePi = {
 		events,
 		commands,
 		tools,
 		handlers,
 		sent,
+		deliveryOptions,
 		on(event, handler) {
 			events.push(event)
 			handlers.set(event, handler)
@@ -62,7 +65,8 @@ function fakePi(ctx: ExtensionCtxLike): FakePi {
 		registerTool(spec) {
 			tools.push(spec.name)
 		},
-		sendUserMessage(content) {
+		sendUserMessage(content, options) {
+			if (options) deliveryOptions.push(options)
 			sent.push(
 				typeof content === "string"
 					? content
@@ -722,4 +726,59 @@ test("the extension forwards the record's UID space to claim and ack", async () 
 	assert.deepEqual(daemon.claimArgs, [1234], "claim must carry the record's UIDVALIDITY")
 	assert.deepEqual(daemon.ackArgs, [1234], "and so must the ack")
 	assert.deepEqual(daemon.acked, [9])
+})
+
+test("a delivered reply is injected as a followUp", async () => {
+	// AGENTS.md invariant 7 and the single injection point. The fake used to discard the
+	// options, so changing `deliverAs` to "steer" left the suite green.
+	const t = fakeTimers()
+	const daemon = fakeDaemon({
+		mode: "on",
+		pending: [{ uid: 4, sessionId: SESSION, from: "you@example.com", subject: "re", body: "do it", receivedAt: 1 }],
+	})
+	const pi = boot(daemon, t.timers)
+	await pi.fire("session_start")
+	await new Promise((r) => setImmediate(r))
+	await new Promise((r) => setImmediate(r))
+
+	assert.deepEqual(pi.deliveryOptions, [{ deliverAs: "followUp", expandPromptTemplates: true }])
+})
+
+test("a mode change that cannot reach the daemon still updates this session's mirror", async () => {
+	// The command writes mode.json and says "stored locally", but the settle notifier reads a
+	// local variable. Without updating it, /afk reports ON while every notification is dropped
+	// as "mode off" until a poll tick happens to succeed.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "off" })
+	const captured = new Map<string, (args: string, ctx: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		if (spec?.handler) captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-mode-")) },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+
+	// The daemon becomes unreachable exactly for the mode change.
+	const client = daemon.client as unknown as { setMode: unknown }
+	client.setMode = async () => ({ ok: false as const, status: 0, code: "network" })
+	await captured.get("afk")!("", ctx(notes))
+	assert.ok(notes.some((n) => /stored locally/.test(n)), `the fallback ran (notes: ${JSON.stringify(notes)})`)
+
+	// A settle now must be considered ON: the notifier should try to send.
+	await pi.fire("agent_settled", { aborted: false })
+	const settle = t.queue.filter((q) => q.ms === 10_000)
+	assert.equal(settle.length, 1, "the settle was scheduled, so mode reads as on")
+	settle[0]!.handler()
+	await new Promise((r) => setImmediate(r))
+	await new Promise((r) => setImmediate(r))
+	assert.ok(daemon.sent.length > 0, "and it mailed")
 })

@@ -14,6 +14,14 @@ const QUOTE_BOUNDARIES: RegExp[] = [
 	/^\s*On\b.{0,200}\bwrote:\s*$/i,
 	// Outlook / web clients
 	/^\s*-{2,}\s*Original Message\s*-{2,}\s*$/i,
+	// QQ Mail web (Chinese UI) - the primary client for the primary target users:
+	// "------------------ 原始邮件 ------------------" and its 163/126 cousins.
+	/^\s*-{2,}\s*原始邮件\s*-{2,}\s*$/,
+	/^\s*-{2,}\s*原邮件\s*-{2,}\s*$/,
+	// "在 2025年6月3日 09:12，pi <pi@example.com> 写道："
+	/^\s*在\s.{0,120}写道[：:]\s*$/,
+	// "发件人: pi <pi@example.com>" (QQ/163 header block)
+	/^\s*发件人[：:]\s*.+$/,
 	/^\s*_{10,}\s*$/,
 	/^\s*From:\s.+$/i,
 	// "> " quoted block start (BEFORE the boundary scan strips lines)

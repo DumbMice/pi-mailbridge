@@ -187,12 +187,13 @@ arrived. If mode is off nothing is scanned at all, so this panel keeps showing t
 | `route-miss` | the subject's id was expired or minted on another machine | nothing, if it routed by the chain — it appears under `handled:` |
 | `other-device` | the notification was minted by another pi machine, or `device.name` changed since | reply to a notification from this machine, or restore the old `device.name` |
 | `self` | single-mailbox mode, but `security.allowSelfReplies` is false, so a reply from your own address is refused | set it `true` (see One mailbox or two?) |
-| `self-echo` | our own notification looping back, **or** a new mail you composed from the same address in single-mailbox mode | reply to the original notification instead |
+| `self-echo` | our own notification looping back (the marker header or the recorded Message-ID identified it) | nothing to do; this is the guard working |
+| `no-reply-evidence` | a message from your own address with no `In-Reply-To`/`References` — a freshly composed mail, or a client that dropped threading headers | reply to the notification instead; in single-mailbox mode the threading header is required |
 | `auto-generated` | a robot, a mailing list, or a bounce (`mailer-daemon`, `postmaster`, null sender) | nothing to do |
 | `empty-body` | no prose and no usable attachment | — |
 | `attachment-*` | an attachment was dropped (type, size, count) | see the reason suffix |
 | `pending-full` | the queue holds 1 000 undelivered replies | start a session so they drain |
-| `too-large` | the message exceeds 8 MiB and was refused before its body was downloaded | send a smaller one (the attachment caps are 4 files / 1 MB each) |
+| `too-large` | the message exceeds 8 MiB and was refused before its body was downloaded | send a smaller one (attachments are capped at 4 files and 1 MB *in total*) |
 
 Where to look:
 
@@ -217,9 +218,9 @@ again.
 This package makes your inbox a control channel for an agent that can run shell
 commands. **Read [docs/SECURITY.md](./docs/SECURITY.md) before installing.**
 
-Gate order, all fail-closed: **journal (already-seen UID) → our own marker header → loop
-guard (our own address) → auto-generated/bounce → sender allowlist → DMARC → our own
-Message-ID → routing → durable ack**. DMARC reads `Authentication-Results`; it is required by
+Gate order, all fail-closed: **journal (already-seen UID) → size ceiling → our own marker
+header → `From:` present → loop guard (our own address) → auto-generated/bounce → sender
+allowlist → DMARC → our own Message-ID → routing → durable ack**. DMARC reads `Authentication-Results`; it is required by
 `security.requireDmarcPass` (on by default) and pinned to an `authserv-id` only when
 `security.trustedAuthservId` is set. Routing is a short `[pi:f913c9]` id, a legacy
 HMAC-signed token, or the reply chain. Routing identifiers never authorize anything:
@@ -304,7 +305,10 @@ Prefer to write it yourself? Copy [`config.example.json`](./config.example.json)
 
 There is a CLI: for running the daemon where pi cannot (a systemd unit, a container, a
 remote box), and for the same first-run and diagnostic steps without pi
-(`--setup`, `--check`, `--smoke`, `--auth`, `--prime`). Same code path, not a second workflow.
+(`--setup`, `--check`, `--smoke`, `--auth`, `--prime`, `--print-token`).
+
+`--print-token` prints the bearer/HMAC secret (`secret.key`) to stdout — never paste its
+output into an issue or a log. Same code path, not a second workflow.
 
 ```bash
 # Installed as `pi install npm:pi-mailbridge` (or a checkout: point at its src/).
@@ -373,9 +377,9 @@ rm -f ~/.config/systemd/user/pi-mailbridge.service
 systemctl --user daemon-reload
 
 # 2. the package — the reverse of however you installed it. For the documented
-#    `pi install npm:pi-mailbridge`, use pi's uninstall for that package in your pi
-#    configuration; for a manual checkout, remove the package directory and any entry
-#    you added to your pi config.
+#    `pi install npm:pi-mailbridge`, run `pi remove npm:pi-mailbridge` (or
+#    `pi uninstall npm:pi-mailbridge`); for a manual checkout, remove the package
+#    directory and any entry you added to your pi config.
 
 # 3. everything it wrote: credentials, routing ids, queued replies
 rm -rf ~/.local/state/pi-mailbridge ~/.config/pi-mailbridge
@@ -436,7 +440,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | `oauth.scope` | — | must include `offline_access` for a refresh token |
 | `device.name` | first label of `os.hostname()` | machine name shown in every settle notification, and stored on the routing record |
 | `security.allowFrom` | `[]` | senders allowed to command the agent; empty denies all |
-| `security.requireDmarcPass` | `true` | require a DMARC pass (pinned to `trustedAuthservId` when that is set). Must be `false` for a single-mailbox setup — see One mailbox or two? Under the shipped unit, `--check` fails rather than starting with this combination |
+| `security.requireDmarcPass` | `true` | require a DMARC pass (pinned to `trustedAuthservId` when that is set). For a single-mailbox setup this must be `false` **unless** your provider stamps `Authentication-Results` on self-addressed mail — and if you set it `true` there, `--check` fails, which stops the shipped unit at `ExecStartPre` |
 | `security.trustedAuthservId` | unset | pin the trusted `Authentication-Results` host. Leave unset for Microsoft consumer accounts — their relay emits no authserv-id |
 | `security.allowHeaderThreading` | `true` | accept a reply whose subject id was lost, by matching `In-Reply-To` / `References` against Message-IDs we minted |
 | `security.allowSelfReplies` | `false` | one address for both roles (personal Hotmail/Gmail): accept a self-addressed message, but only a real reply |
@@ -455,7 +459,8 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | Provider | Auth | Status |
 | --- | --- | --- |
 | Any IMAP/SMTP host (self-hosted, Posteo, Fastmail, Zoho…) | `LOGIN` — the account password or a provider app password | ✅ works |
-| **QQ Mail / Foxmail / 163 / 126** (practical in mainland China) | `LOGIN` 授权码 | ✅ works, built into discovery — new QQ accounts must be **14 days old** before IMAP/SMTP can be enabled |
+| **QQ Mail / Foxmail** (mainland China) | `LOGIN` 授权码 | ✅ works, built into discovery — **QQ accounts must be 14 days old** before IMAP/SMTP can be enabled |
+| **163 / 126 / yeah.net / 188.com** (mainland China) | `LOGIN` 授权码 | ✅ works, built into discovery — no waiting period; expects the IMAP `ID` command, which this client sends |
 | Gmail | app password (`LOGIN`) recommended | ✅ works |
 | Microsoft 365 / work accounts | `XOAUTH2` | ✅ usually works |
 | **Personal** `@outlook.com` / `@hotmail.com` | `XOAUTH2` only | ⚠️ app passwords are rejected over IMAP; two obstacles — see below |

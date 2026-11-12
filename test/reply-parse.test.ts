@@ -136,3 +136,21 @@ test("the Outlook mobile signature is stripped", () => {
 	assert.equal(stripQuoted("Looks good\n\nGet Outlook for iOS<https://aka.ms/AAb9ysg>"), "Looks good")
 	assert.equal(stripQuoted("Get Outlook for Android"), "", "a signature with no content leaves nothing")
 })
+
+test("QQ and 163 quoted history is stripped", () => {
+	// The Chinese clients are the primary target for this package, and their quote banners were
+	// not in the boundary list: the agent was fed its own previous output every turn.
+	const reply = [
+		"yes, go ahead",
+		"",
+		"------------------ 原始邮件 ------------------",
+		"发件人: pi <pi@qq.com>",
+		"主题: [pi:abc123] pi: proj @ box",
+		"",
+		"done",
+	].join("\n")
+	assert.equal(stripQuoted(reply).trim(), "yes, go ahead")
+
+	const wechat = ["ship it", "", "在 2025年6月3日 09:12，pi <pi@qq.com> 写道：", "> done"].join("\n")
+	assert.equal(stripQuoted(wechat).trim(), "ship it")
+})

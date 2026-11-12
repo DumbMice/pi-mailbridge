@@ -179,6 +179,11 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 
 		// Liveness is unauthenticated so a supervisor can probe without a secret.
 		if (url.pathname === "/health") {
+			// Prune here as well as on /bye: a crashed session never sends one, and an
+			// unbounded map plus a spread into Math.max is its own failure mode.
+			const nowMs = now()
+			const stale = nowMs - (deps.idleTimeoutMs ?? 120_000) * 4
+			for (const [id, at] of pings) if (at < stale) pings.delete(id)
 			const newestPing = pings.size > 0 ? Math.max(...pings.values()) : 0
 			return send(200, {
 				ok: true,
@@ -378,11 +383,6 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 						})
 						// Record the outbound id so a reply reaches this session even if a
 						// client or a human rewrites the subject token away.
-						deps.onSent?.({
-							messageId: (result as { messageId?: string } | undefined)?.messageId,
-							subject,
-							...(sessionId ? { sessionId } : {}),
-						})
 					} catch (error) {
 						// The id was recorded before the send, because the mail can come back
 						// before the transport resolves. It will not come back now, so drop it:
@@ -390,6 +390,13 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 						// existed.
 						removeOutbound(env, messageId)
 						return fail(502, "send_failed", { message: (error as Error).message })
+					}
+					// Bookkeeping only, and outside the failure path: a recording error here must
+					// not report a delivered mail as undelivered.
+					try {
+						deps.onSent?.({ messageId, subject, ...(sessionId ? { sessionId } : {}) })
+					} catch {
+						/* the thread store is an optimisation; the mail is already gone */
 					}
 					return send(200, { ok: true })
 				}

@@ -718,3 +718,29 @@ test("the UIDVALIDITY behaviour is in the changelog, not just the architecture",
 	assert.match(changelog, /UIDVALIDITY/i, "the release notes must mention it")
 	assert.match(changelog, /renumber|renumbering/i, "and what happens when the mailbox is renumbered")
 })
+
+test("the attachment caps are stated as a total, not per file", () => {
+	// The code caps 4 files AND 1 MB in total (attachments.ts). "1 MB each" told a reader four
+	// 400 KB files would fit.
+	const readme = flat(doc("README.md"))
+	assert.ok(!/1 MB each/i.test(readme), "README must not say the 1 MB cap is per file")
+	assert.match(readme, /1 MB in total|1 MB \*in total\*/i, "and should say it is a total")
+})
+
+test("the clock-skew row names the right direction", () => {
+	// Expiry compares against the local clock: ahead refuses fresh ids, behind keeps expired
+	// ones alive. The row used to say "behind refuses fresh ids", which is the opposite.
+	const arch = flat(doc("docs/ARCHITECTURE.md"))
+	const row = arch.split("| Clock skew |")[1]?.split("|")[0] ?? ""
+	assert.ok(row, "the failure-mode table should have a clock-skew row")
+	assert.match(row, /ahead/i, "a fast clock is what refuses fresh ids")
+	assert.match(row, /behind/i, "and a slow clock keeps expired ones alive")
+})
+
+test("the single-mailbox DMARC advice does not contradict itself", () => {
+	const readme = flat(doc("README.md"))
+	const table = readme.split("| `security.requireDmarcPass` |")[1]?.split("\n")[0] ?? ""
+	assert.ok(table, "the config table should document requireDmarcPass")
+	// "Must be false" and "set this back to true" cannot both be unconditional.
+	if (/must be `false`/i.test(table)) assert.match(table, /unless/i, "state the exception")
+})
