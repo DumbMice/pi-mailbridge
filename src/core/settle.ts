@@ -155,7 +155,9 @@ export function createSettleNotifier(deps: SettleNotifierDeps): SettleNotifier {
 				handle = undefined
 				const pending = pendingContext
 				pendingContext = undefined
-				if (pending) void deliver(pending)
+				// The mode can change during the debounce (a `/mailbridge off` typed at t+4s, a
+				// timer firing at t+10s). Scheduling proved nothing about when it fires.
+				if (pending && deps.mode() === "on") void deliver(pending)
 			}, delay)
 			return "scheduled"
 		},

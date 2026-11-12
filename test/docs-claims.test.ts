@@ -860,6 +860,17 @@ test("the periodic scan is pinned where no test can drive it", () => {
 		"the timer must respect the mode gate and the watcher's health",
 	)
 	assert.match(main, /const armPoll = \(\): void => \{[\s\S]{0,700}currentConfig\.daemon\.scanIntervalSecs/, "re-read per tick")
+	// The recovery half: turning the mode back on must scan at once, or a reply that arrived
+	// while off waits for the next sweep instead of arriving now.
+	assert.match(main, /onModeChange[\s\S]{0,400}scanOnce\("mode-on"\)/, "mode-on triggers an immediate scan")
+
+	// "last checked" must be stamped BEFORE the mode gate, or a quiet off period is
+	// indistinguishable from a dead poll loop - the symptom the line was added to diagnose.
+	// Position, not presence: the deletion that matters is moving it back below the gate.
+	const stampAt = main.indexOf("lastCheckedAt = Date.now()")
+	const gateAt = main.indexOf("if (!scanningEnabled(readMode(process.env)))")
+	assert.ok(stampAt > -1 && gateAt > -1, "both the stamp and the gate should exist")
+	assert.ok(stampAt < gateAt, "lastCheckedAt must be stamped before the mode gate")
 })
 
 test("the commands a mail reply may run match the code", () => {
@@ -870,14 +881,43 @@ test("the commands a mail reply may run match the code", () => {
 	const refused = /MAIL_REFUSED_SUBCOMMANDS\s*=\s*\[([^\]]*)\]/.exec(source)?.[1] ?? ""
 	const readme = doc("README.md")
 	const security = doc("docs/SECURITY.md")
+	// Pin the table row for each safe subcommand. The old fallback was constant-true: the README
+	// contains "`/mailbridge` or `/mailbridge status`" somewhere, so every name passed without a
+	// row. `status` is the one that may be written as the bare command.
+	// Scope to the Commands table: the mail table repeats some of these rows, so an unscoped
+	// search kept passing after the Commands row was deleted.
+	const commandsTable = readme.slice(readme.indexOf("## Commands"), readme.indexOf("### Commands by mail"))
 	for (const sub of safe.match(/"[a-z]+"/g) ?? []) {
 		const name = sub.replace(/"/g, "")
-		assert.ok(readme.includes(`/mailbridge ${name}`) || readme.includes(`\`/mailbridge\` or`), `README omits safe ${name}`)
+		const hasRow = commandsTable
+			.split("\n")
+			.some((line) => line.startsWith("| `/mailbridge") && line.includes(`/mailbridge ${name}\` |`))
+		const asBareStatus = name === "status" && /`\/mailbridge` or `\/mailbridge status`/.test(readme)
+		assert.ok(hasRow || asBareStatus, `README's table has no row for /mailbridge ${name}`)
 	}
+	// Refused subcommands must be named in the sentence that refuses them. A bare word match was
+	// satisfied by "authserv-id", "restart pi" and "re-prime the cursor"; the list is also
+	// wrapped across lines, so flatten before looking.
+	// Every place the refusal is stated, not just the first: SECURITY says it twice.
+	const near = (text: string, phrase: RegExp, window = 240): string => {
+		// Strip emphasis markers: the sentence is "deliberately **not** runnable by mail".
+		const flatText = text.replace(/\*\*/g, "").replace(/\s+/g, " ")
+		const windows: string[] = []
+		const re = new RegExp(phrase.source, phrase.flags.includes("g") ? phrase.flags : `${phrase.flags}g`)
+		for (let m = re.exec(flatText); m; m = re.exec(flatText)) {
+			windows.push(flatText.slice(m.index, m.index + window))
+			if (m.index === re.lastIndex) re.lastIndex += 1
+		}
+		return windows.join(" | ")
+	}
+	const readmeRefusal = near(readme, /not runnable by mail/i)
+	assert.ok(readmeRefusal.length > 0, "README's mail section names what it refuses")
+	const securityRefusal = near(security, /refused by the dispatcher|are refused/i)
+	assert.ok(securityRefusal.length > 0, "SECURITY says the dispatcher refuses them")
 	for (const sub of refused.match(/"[a-z]+"/g) ?? []) {
 		const name = sub.replace(/"/g, "")
-		assert.ok(readme.includes(name), `README omits refused ${name}`)
-		assert.ok(security.includes(name), `SECURITY omits refused ${name}`)
+		assert.ok(new RegExp(`\\b${name}\\b`).test(readmeRefusal), `README's refusal list omits ${name}`)
+		assert.ok(new RegExp(`\\b${name}\\b`).test(securityRefusal), `SECURITY's refusal list omits ${name}`)
 	}
 })
 

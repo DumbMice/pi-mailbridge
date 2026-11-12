@@ -60,8 +60,9 @@ export function parseMailCommand(body: string): MailCommand | undefined {
 	// Bare `/mailbridge` prints status, exactly as it does at the prompt.
 	// Every safe subcommand takes no arguments, so any leftover word means this is a message that
 	// happens to start with a command: `/mailbridge off thanks, the deploy is still broken` must
-	// reach the agent, not flip the mode and drop the sentence. Splitting on /\s+/ (not "\n")
-	// also catches U+2028/U+2029, which a body may contain without a newline.
+	// reach the agent, not flip the mode and drop the sentence. Splitting on /\s+/ also catches
+	// U+2028/U+2029, which a body can contain without a newline - though the whitelist below
+	// would reject a token carrying them anyway.
 	const words = args.split(/\s+/).filter(Boolean)
 	if (words.length > 1) return undefined
 	const sub = (words[0] ?? "").toLowerCase() || "status"
@@ -73,7 +74,3 @@ export function parseMailCommand(body: string): MailCommand | undefined {
 	return { name, args, sub: sub as SafeSubcommand }
 }
 
-/** True when the subcommand changes the machine and must not be triggerable by mail. */
-export function isRefusedSubcommand(sub: string): boolean {
-	return (MAIL_REFUSED_SUBCOMMANDS as readonly string[]).includes(sub.toLowerCase())
-}

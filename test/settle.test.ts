@@ -229,3 +229,26 @@ test("a refused send is reported, not silently dropped", async () => {
 	assert.equal(errors.length, 1)
 	assert.match(errors[0]!.message, /send failed/)
 })
+
+test("turning the mode off during the debounce cancels the send", async () => {
+	// The mode was checked when the settle was scheduled. A `/mailbridge off` typed four seconds
+	// later proved nothing about the timer that fires at ten.
+	let mode: Mode = "on"
+	const sent: string[] = []
+	const t = fakeTimers()
+	const notifier = createSettleNotifier({
+		mode: () => mode,
+		context: () => context(),
+		send: async (m) => {
+			sent.push(m.subject)
+		},
+		secret: () => SECRET,
+		config: { onSettled: true, debounceMs: 10_000, notifyOnAborted: false },
+		timers: t.timers,
+	})
+
+	assert.equal(notifier.settled({ aborted: false }), "scheduled")
+	mode = "off"
+	await t.run()
+	assert.deepEqual(sent, [], "no mail goes out after the mode changed")
+})

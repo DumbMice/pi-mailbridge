@@ -250,6 +250,12 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		client = makeClient(clientBase, token)
 
 		const initialMode = await client.mode()
+		// A session_shutdown can land during that await. Without this the runtime is rebuilt
+		// around a dead ctx: the poll keeps pinging and the daemon's idle exit can never fire.
+		if (!ctx) {
+			client = undefined
+			return false
+		}
 		emailMode = initialMode.ok && initialMode.data.mode === "on" ? "on" : "off"
 
 		notifier = createSettleNotifier({
@@ -340,6 +346,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		// Catch-up on connect, but only when the channel is actually open: `off` must not
 		// be bypassed by a session starting up.
 		if (emailMode === "on") await runner.drain()
+		// Same reason as above, after the drain's awaits.
+		if (!ctx) {
+			client = undefined
+			return false
+		}
 		return true
 	}
 

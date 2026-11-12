@@ -320,10 +320,14 @@ test("off arriving in a batch stops the records behind it", async () => {
 	let enabled = true
 	const injected: number[] = []
 	const acked: number[] = []
+	const claimed: number[] = []
 	const runner = createDeliveryRunner({
 		client: {
 			pending: async () => ({ ok: true as const, status: 200, data: { pending: records } }),
-			claim: async (uid: number) => ({ ok: true as const, status: 200, data: {} }),
+			claim: async (uid: number) => {
+				claimed.push(uid)
+				return { ok: true as const, status: 200, data: {} }
+			},
 			ack: async (uid: number) => {
 				acked.push(uid)
 				return { ok: true as const, status: 200, data: {} }
@@ -341,5 +345,15 @@ test("off arriving in a batch stops the records behind it", async () => {
 
 	await runner.drain()
 	assert.deepEqual(injected, [1], "only the record before the switch was delivered")
-	assert.deepEqual(acked, [1], "the ones behind it were never claimed or acked")
+	assert.deepEqual(acked, [1], "the ones behind it were never acked")
+	// Claimed, not merely injected-or-not: moving the check below `claim()` would strangle the
+	// records behind the switch behind a claim TTL, and an injected/acked-only assertion cannot
+	// see that.
+	assert.deepEqual(claimed, [1], "and never claimed either")
+
+	// The break must leave them deliverable, not consumed: re-enabling and draining again
+	// delivers exactly the two that were skipped.
+	enabled = true
+	await runner.drain()
+	assert.deepEqual(injected, [1, 2, 3], "the skipped records are still pending and go out later")
 })

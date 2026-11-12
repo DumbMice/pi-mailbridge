@@ -46,3 +46,40 @@ test("the refusal says what to do about a deliberate re-prime", () => {
 	assert.match(message, /4747/)
 	assert.match(message, /remove uid-cursor\.json/i)
 })
+
+test("an allowed prime advances the cursor and remembers that it ran", async () => {
+	// The only other runPrime case takes the refusal path, so both lines of the success path
+	// could be deleted with the suite green: prime would report success while leaving the
+	// cursor at 0 (re-reading the whole mailbox), or forget it ran (a second prime then
+	// silently skips unscanned mail).
+	const advanced: number[] = []
+	let primed = 0
+	const plan = await runPrime(config, {
+		openMailbox: async () => ({ search: async () => [4, 19, 7], close: async () => {} }),
+		readCursor: () => 0,
+		isPrimed: () => false,
+		advanceCursor: (uid) => advanced.push(uid),
+		markPrimed: () => {
+			primed += 1
+		},
+	})
+	assert.equal(plan.ok, true)
+	assert.deepEqual(advanced, [19], "the highest uid, not the last one")
+	assert.equal(primed, 1, "and the flag that makes the next attempt refuse")
+})
+
+test("a refused prime neither advances nor marks", async () => {
+	const advanced: number[] = []
+	let primed = 0
+	await runPrime(config, {
+		openMailbox: async () => ({ search: async () => [30, 31], close: async () => {} }),
+		readCursor: () => 12,
+		isPrimed: () => true,
+		advanceCursor: (uid) => advanced.push(uid),
+		markPrimed: () => {
+			primed += 1
+		},
+	})
+	assert.deepEqual(advanced, [])
+	assert.equal(primed, 0)
+})

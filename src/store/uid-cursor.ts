@@ -87,8 +87,9 @@ function write(env: NodeJS.ProcessEnv, uid: number, uidValidity?: number, primed
  *
  * UIDs are only meaningful within one UIDVALIDITY. A recreated or migrated folder renumbers
  * them from 1, and a persisted high-water cursor then skips everything for ever - visible
- * only as "examined 0". When it changes, the cursor is reset so the new UID space is read
- * from the start (the journal still prevents re-injecting anything already acked).
+ * only as "examined 0". When it changes, the cursor is reset so the new UID space is read from
+ * the start. The cost is the one ARCHITECTURE.md states: the journal is space-scoped, so a
+ * renumbering can re-deliver a reply that was acked inside the route TTL.
  *
  * @returns true when the cursor was reset.
  */

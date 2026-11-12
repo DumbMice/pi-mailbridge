@@ -207,6 +207,11 @@ dispatcher. What the dispatcher refuses, however, is still *delivered to the age
 §1 and §3 apply to it — the refusal is about what runs automatically, not about what the model
 may then do in a shell-capable session.
 
+A command reply to a *decision request* is a special case worth knowing: it runs the command and
+releases the decision slot without the agent seeing an answer, so a later `request_decision` is
+allowed again. Nothing is lost and no mail is misrouted, but "one outstanding decision" is
+weaker than the reply flow suggests.
+
 "A command" means the reply's text **after quote-stripping**, so `/mailbridge on` above a quoted
 original still executes — that is deliberate (a phone-appended signature must not break it), but
 it means "entire body" below refers to the stripped body, not the raw mail.

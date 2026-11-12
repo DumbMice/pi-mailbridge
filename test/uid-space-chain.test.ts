@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync } from "node:fs"
+import { mkdtempSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -143,12 +143,20 @@ test("a fresh install is primable; a reset renumbering is not; a prior prime is 
 	resetCursor(env, 0)
 	assert.equal(isPrimed(env), true, "the flag survives a reset")
 
-	// A cursor advanced past mail is primed by definition, even without the flag.
+	// A cursor advanced past mail is primed by definition, even without the flag - but advancing
+	// must also preserve a flag that was already set (the assertion below was a tautology: the
+	// cursor alone made isPrimed true, so dropping keepPrimed in write() still passed).
 	const env2 = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "cursor-prime2-")) }
 	syncUidValidity(env2, 99, 5)
 	const { advanceCursor } = await import("../src/store/uid-cursor.ts")
 	advanceCursor(env2, 4)
 	assert.equal(isPrimed(env2), true)
+	markPrimed(env2)
 	assert.equal(advanceCursor(env2, 9), 9)
-	assert.equal(isPrimed(env2), true, "advancing preserves the flag")
+	assert.equal(JSON.parse(readFileSync(join(dir, "pi-mailbridge", "uid-cursor.json"), "utf8")).primed, true,
+		"advancing a flagged cursor keeps the flag")
+	markPrimed(env2)
+	resetCursor(env2, 0)
+	assert.equal(JSON.parse(readFileSync(join(dir, "pi-mailbridge", "uid-cursor.json"), "utf8")).primed, true,
+		"and a reset does too")
 })

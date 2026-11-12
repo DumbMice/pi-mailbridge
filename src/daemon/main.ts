@@ -354,6 +354,10 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		// `off` must actually close the channel, not just stop the mail coming back.
 		// While mode is off nothing is fetched or persisted and the cursor stays put, so
 		// turning `/mailbridge on` back on processes what arrived meanwhile.
+		// Stamped before the gate: "last checked" answers "is the poll loop alive", and while
+		// mode is off it is the only thing it can honestly mean. Leaving it stale made a quiet
+		// off period look identical to a dead poll loop - the symptom this line exists to show.
+		lastCheckedAt = Date.now()
 		if (!scanningEnabled(readMode(process.env))) {
 			if (!reportedModeOff) {
 				reportedModeOff = true
@@ -377,7 +381,6 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 					reasons: result.reasons,
 				}
 			}
-			lastCheckedAt = Date.now()
 			if (result.persisted > 0) {
 				// Name the reasons even on a partial success: "rejected 1" alone leaves the user
 				// unable to tell which reply was dropped and why.

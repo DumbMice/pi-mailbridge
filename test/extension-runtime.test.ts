@@ -849,6 +849,7 @@ test("a mail command that throws is acked, not retried forever", async () => {
 	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
 
 	assert.ok(notes.some((n) => /from mail failed: network down/.test(n)), `the failure was reported: ${JSON.stringify(notes)}`)
+	assert.ok((daemon.acked ?? []).includes(21), "and the delivery was acked, so it is not retried")
 	assert.equal(
 		notes.filter((n) => /from mail failed/.test(n)).length,
 		1,

@@ -4,7 +4,6 @@ import assert from "node:assert/strict"
 import {
 	MAIL_REFUSED_SUBCOMMANDS,
 	MAIL_SAFE_SUBCOMMANDS,
-	isRefusedSubcommand,
 	parseMailCommand,
 } from "../src/core/mail-command.ts"
 import { parseMailbridgeCommand } from "../src/core/commands.ts"
@@ -45,7 +44,7 @@ test("commands that reconfigure the machine are never runnable by mail", () => {
 	// a spoofed From must not be able to reconfigure setup, credentials or the process.
 	for (const sub of ["setup", "auth", "restart", "prime"]) {
 		assert.equal(parseMailCommand(`/mailbridge ${sub}`), undefined, `${sub} must stay text`)
-		assert.equal(isRefusedSubcommand(sub), true)
+
 	}
 	assert.equal(parseMailCommand("/mailbridge setup evil@example.com to evil@example.com"), undefined)
 	// Read-only and harmless ones still work.
