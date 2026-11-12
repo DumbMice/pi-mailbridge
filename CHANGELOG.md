@@ -121,6 +121,14 @@ shadowed silently by another extension — pi resolves commands by first match a
 nothing — and neither name appeared in `/mailbridge help`. They are subcommands now, named for the mode they set, and the usage text lists them. Both still
 work as a mail reply. Nothing was published, so there is no alias to carry.
 
+### Notifications attach the files they link to
+
+A notification could inline images but a link to any other local file stayed a relative href no
+mail client can follow. Links to local files are attachments now, named with the file's own
+basename and listed in the body as "[attached: report.pdf]". Caps are up: images 2 MB, files 5 MB
+each and 12 MB in total, 8 attachments. A file type outside the allowlist (`id_rsa`, `.env`) is
+refused rather than mailed, because the path comes from model output.
+
 ### `off` by mail stops the batch it arrived in
 
 A drain takes a snapshot of pending records and delivers them in order. If the human's
