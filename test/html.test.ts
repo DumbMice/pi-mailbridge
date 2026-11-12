@@ -36,11 +36,13 @@ test("model output cannot inject markup into the mail body", () => {
 	assert.match(html, /&lt;a href=&quot;javascript:x&quot;&gt;/)
 })
 
-test("layout survives without converting newlines to <br>", () => {
+test("line structure survives style sanitising", () => {
 	const html = textToHtml("line one\nline two\n\n--\ndevice: x")
-	assert.match(html, /white-space:pre-wrap/)
-	assert.ok(!html.includes("<br"), "pre-wrap keeps the markup small")
-	assert.match(html, /line one\nline two/)
+	// A client that strips `style` must still render separate lines, so the line
+	// breaks live in the markup rather than in CSS.
+	assert.equal((html.match(/<br>/g) ?? []).length, 4)
+	assert.match(html, /line one<br>\nline two<br>\n<br>\n--<br>\ndevice: x/)
+	assert.ok(!html.includes("white-space"), "no reliance on pre-wrap")
 })
 
 test("the message goes out as text plus html", async () => {
@@ -56,5 +58,5 @@ test("the message goes out as text plus html", async () => {
 
 	assert.equal(sent[0]!.text, "done & <ok>", "the text part is unchanged")
 	assert.match(String(sent[0]!.html), /done &amp; &lt;ok&gt;/, "the html part is escaped")
-	assert.match(String(sent[0]!.html), /pre-wrap/, "so clients treat it as html and fold quotes")
+	assert.match(String(sent[0]!.html), /<div style=/, "so clients treat it as html and fold quotes")
 })

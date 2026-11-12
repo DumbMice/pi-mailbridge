@@ -25,15 +25,18 @@ export function escapeHtml(value: string): string {
 }
 
 /**
- * Render plain text as a minimal HTML document body.
+ * Render plain text as minimal HTML.
  *
- * `white-space: pre-wrap` keeps the layout without turning every newline into a
- * `<br>`, which keeps the markup small and the text copyable.
+ * Newlines become `<br>`, deliberately: an earlier version relied on
+ * `white-space: pre-wrap`, and clients that sanitise inline styles (Outlook web
+ * does) collapsed the whole body onto one line. Structure in the markup survives
+ * sanitising; CSS does not.
  */
 export function textToHtml(text: string): string {
+	const escaped = escapeHtml(text).replace(/\r?\n/g, "<br>\n")
 	return [
-		'<div style="white-space:pre-wrap;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.45">',
-		escapeHtml(text),
+		'<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.45">',
+		escaped,
 		"</div>",
 	].join("")
 }

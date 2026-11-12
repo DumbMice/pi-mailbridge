@@ -81,6 +81,15 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### Fixed: the body collapsed onto one line
+
+Reported after a live notification. The HTML part relied on `white-space: pre-wrap`
+to preserve line breaks, and clients that sanitise inline styles - Outlook web does -
+collapsed the whole body into a single line.
+
+Newlines are now `<br>` in the markup, which survives sanitising. Structure belongs in
+the markup, not in CSS.
+
 ### restart replaces the daemon process, not just its config
 
 Found by testing short-id routing against a live daemon: the daemon was still running
