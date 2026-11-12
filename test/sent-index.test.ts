@@ -31,7 +31,7 @@ test("the delivered Message-ID is recorded from the Sent folder", async () => {
 	const headers = [
 		"Message-ID: <tencent_ABC123@qq.com>",
 		"X-Pi-Mailbridge: notification",
-		"Subject: =?UTF-8?Q?=5Bpi=3A914625=5D?=",
+		"Subject: [pi:914625] pi: live test",
 		"",
 		"body",
 	]
@@ -43,7 +43,8 @@ test("the delivered Message-ID is recorded from the Sent folder", async () => {
 		connect: async () => ({
 			connect: async () => {},
 			mailboxOpen: async () => {},
-			search: async () => [563],
+			// QQ's Sent folder answers a subject search with nothing; a date search works.
+			search: async (query: Record<string, unknown>) => ("subject" in query ? [] : [563]),
 			fetchOne: async () => ({ source: Buffer.from(headers.join("\r\n")) }),
 			logout: async () => {},
 		}),

@@ -20,6 +20,11 @@ export interface SentLookupClient {
 	logout(): Promise<void>
 }
 
+/** Look back far enough for a slow append to the Sent folder. */
+const CAPTURE_WINDOW_MS = 15 * 60_000
+/** How many recent sent messages to inspect before giving up. */
+const CAPTURE_SCAN = 5
+
 export interface CaptureOptions {
 	config: ResolvedConfig
 	/** The subject we sent, used to find the copy. */
@@ -54,25 +59,36 @@ export async function captureDeliveredMessageId(options: CaptureOptions): Promis
 	try {
 		client = await connect()
 		await client.mailboxOpen(folder)
-		const uids = await client.search({ subject: options.subject }, { uid: true })
+		// Not `search({subject})`: QQ's Sent folder answers that with nothing (measured), while a
+		// date-bounded search works. So look at recent sent mail and pick ours out by the marker
+		// header and the subject we sent.
+		const since = new Date(Date.now() - CAPTURE_WINDOW_MS)
+		const uids = await client.search({ since }, { uid: true })
 		if (!uids.length) return undefined
-		// Newest first: the copy we just sent.
-		const newest = Math.max(...uids)
-		const fetched = (await client.fetchOne(newest, { source: true }, { uid: true })) as
-			| { source?: Buffer }
-			| false
-			| undefined
-		if (!fetched || !fetched.source) return undefined
-		const head = fetched.source.toString("utf8").split(/\r?\n\r?\n/)[0] ?? ""
-		const messageId = messageIdFromHeaders(head)
-		if (!messageId) return undefined
-		;(options.record ?? recordOutbound)(env, {
-			messageId,
-			sessionId: options.sessionId,
-			...(options.config.device.name ? { device: options.config.device.name } : {}),
-			subject: options.subject,
-		})
-		return messageId
+		const newestFirst = uids.slice().sort((a, b) => b - a).slice(0, CAPTURE_SCAN)
+		for (const uid of newestFirst) {
+			const fetched = (await client.fetchOne(uid, { source: true }, { uid: true })) as
+				| { source?: Buffer }
+				| false
+				| undefined
+			if (!fetched || !fetched.source) continue
+			const text = fetched.source.toString("utf8")
+			const head = text.split(/\r?\n\r?\n/)[0] ?? ""
+			// The marker is decisive: only we write it, and it survives QQ's RFC 2047 encoding of
+			// the subject (which is why a subject match failed here in the live test).
+			const unfolded = head.replace(/\r?\n[ \t]+/g, " ")
+			if (!/^x-pi-mailbridge:\s*notification/im.test(unfolded)) continue
+			const messageId = messageIdFromHeaders(head)
+			if (!messageId) continue
+			;(options.record ?? recordOutbound)(env, {
+				messageId,
+				sessionId: options.sessionId,
+				...(options.config.device.name ? { device: options.config.device.name } : {}),
+				subject: options.subject,
+			})
+			return messageId
+		}
+		return undefined
 	} catch {
 		return undefined
 	} finally {
