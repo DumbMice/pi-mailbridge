@@ -75,7 +75,13 @@ export interface ResolvedConfig {
 		/** Safety-net catch-up scan cadence, so a silent IDLE cannot strand a reply. Default 60; 0 disables. */
 		scanIntervalSecs?: number
 	}
-	notify: { onSettled: boolean; debounceMs: number; notifyOnAborted: boolean }
+	notify: {
+		onSettled: boolean
+		debounceMs: number
+		notifyOnAborted: boolean
+		/** Total bytes of files attached to one notification, before base64 encoding. */
+		maxAttachmentMb: number
+	}
 	tuning: { idleRenewMs: number; backoffInitialMs: number; backoffMaxMs: number }
 	/** Human-readable problems found while loading; surfaced by `/mailbridge`. */
 	warnings: string[]
@@ -99,7 +105,14 @@ const DEFAULTS: Omit<ResolvedConfig, "warnings"> = {
 		tokenTtlHours: 30 * 24,
 	},
 	daemon: { host: "127.0.0.1", port: 4177, exitWhenIdle: true, idleTimeoutSecs: 120, scanIntervalSecs: 60 },
-	notify: { onSettled: true, debounceMs: 10_000, notifyOnAborted: false },
+	notify: {
+		onSettled: true,
+		debounceMs: 10_000,
+		notifyOnAborted: false,
+		// 18 MB raw is about 24 MB once base64-encoded, under the 25 MB ceiling that Gmail and
+		// Outlook.com enforce. A provider that allows more (QQ: 50 MB) can raise it.
+		maxAttachmentMb: 18,
+	},
 	tuning: {
 		idleRenewMs: 25 * 60 * 1000,
 		backoffInitialMs: 1000,
@@ -262,6 +275,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 		resolved.daemon = { ...resolved.daemon, port: 4177 }
 	} else {
 		resolved.daemon = { ...resolved.daemon, port }
+	}
+
+	// Attachments are encoded ~4/3, and an over-limit send fails at the provider with the whole
+	// notification lost. Keep the default under the 25 MB Gmail/Outlook ceiling; cap the ceiling
+	// at what the largest common provider (QQ: 50 MB) accepts.
+	const rawMaxMb: unknown = resolved.notify.maxAttachmentMb
+	if (rawMaxMb !== undefined) {
+		const mb = typeof rawMaxMb === "number" ? rawMaxMb : Number.NaN
+		if (!Number.isFinite(mb) || mb < 1 || mb > 45) {
+			warnings.push("notify.maxAttachmentMb must be a number between 1 and 45 — using 18")
+			resolved.notify = { ...resolved.notify, maxAttachmentMb: 18 }
+		} else {
+			resolved.notify = { ...resolved.notify, maxAttachmentMb: mb }
+		}
 	}
 
 	// A negative, null or non-numeric interval would silently disable the safety net.

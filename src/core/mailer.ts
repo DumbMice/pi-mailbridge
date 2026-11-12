@@ -111,7 +111,12 @@ export async function sendMail(
 	if (!message.to) throw new Error("pi-mailbridge: no recipient (mail.to)")
 
 	const factory = deps.transportFactory ?? defaultTransportFactory
-	const rendered = renderMessage(message.text, { ...(message.cwd ? { root: message.cwd } : {}) })
+	const rendered = renderMessage(message.text, {
+		...(message.cwd ? { root: message.cwd } : {}),
+		// The user's cap, so a QQ account can use 45 MB and a Gmail account is not left with a
+		// send that fails at the provider.
+		maxTotalBytes: Math.round(config.notify.maxAttachmentMb * 1024 * 1024),
+	})
 
 	// withFreshToken hands each attempt its token; use it directly rather than fetching a
 	// second one, or the provider is called twice per attempt and the counts drift.

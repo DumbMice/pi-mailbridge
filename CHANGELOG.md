@@ -125,8 +125,10 @@ work as a mail reply. Nothing was published, so there is no alias to carry.
 
 A notification could inline images but a link to any other local file stayed a relative href no
 mail client can follow. Links to local files are attachments now, named with the file's own
-basename and listed in the body as "[attached: report.pdf]". Caps are up: images 2 MB, files 5 MB
-each and 12 MB in total, 8 attachments. A file type outside the allowlist (`id_rsa`, `.env`) is
+basename and listed in the body as "[attached: report.pdf]". Caps are up and provider-aware: images 5 MB,
+files 15 MB each, 18 MB in total and 10 attachments by default - chosen because base64 costs
+about a third and Gmail and Outlook.com both stop at 25 MB. `notify.maxAttachmentMb` raises the
+budget where the provider allows more (QQ: 50 MB per message). A file type outside the allowlist (`id_rsa`, `.env`) is
 refused rather than mailed, because the path comes from model output.
 
 ### `off` by mail stops the batch it arrived in

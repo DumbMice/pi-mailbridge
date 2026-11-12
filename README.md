@@ -224,6 +224,30 @@ On a system whose `env` lacks `-S` (busybox/Alpine), the `bin` shim fails with
 `env: invalid option -- 'S'`; the explicit `node --experimental-strip-types …` form above is the
 same program.
 
+### What gets attached
+
+A notification carries what it needs to be useful away from the desk:
+
+| In the mail body | What arrives |
+| --- | --- |
+| `![shot](./shot.png)` | the image, inline, up to 5 MB each |
+| `[the log](./build.log)` | `build.log` as an attachment, named after the file, listed as `the log [attached: build.log]` |
+
+Up to 10 files, 15 MB each, 18 MB in total by default (`notify.maxAttachmentMb`). Attachments are
+base64-encoded, which costs about a third, so the default stays under the smallest provider
+ceiling:
+
+| Provider | Per-message limit |
+| --- | --- |
+| Gmail (personal) | 25 MB sent, 50 MB received |
+| Outlook.com / Hotmail | 25 MB |
+| Microsoft 365 (work) | 35 MB sent by default; on-prem Exchange often 10 MB |
+| QQ | 50 MB (+5 MB body), 200 MB/day |
+
+Only allowlisted types are attached (`pdf txt log md csv json yml xml zip docx xlsx pptx`, plus
+images), because the path comes from model output — a private key is never mailed because a prompt
+asked for it.
+
 ## When it helps
 
 - Long runs where the agent stops to ask something and you are not at the desk.
@@ -371,6 +395,7 @@ environment variables. A working example: [`config.example.json`](./config.examp
 | `notify.onSettled` | `true` | email when an agent settles |
 | `notify.debounceMs` | `10000` | quiet period before the settle mail |
 | `notify.notifyOnAborted` | `false` | also mail when you hit Escape |
+| `notify.maxAttachmentMb` | `18` | total size of files attached to one notification, before base64. Default sits under Gmail/Outlook.com's 25 MB; QQ allows 50 MB, so a QQ account can raise it |
 | `tuning.idleRenewMs` | `1500000` | IDLE renew interval (keep under ~29 min) |
 | `tuning.backoffInitialMs` / `.backoffMaxMs` | `1000` / `60000` | reconnect backoff bounds |
 

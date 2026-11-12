@@ -27,7 +27,7 @@ function config(): ResolvedConfig {
 		},
 		security: { allowFrom: ["you@qq.com"], requireDmarcPass: false, allowSelfReplies: true, tokenTtlHours: 24 },
 		daemon: { host: "127.0.0.1", port: 4177, exitWhenIdle: true, idleTimeoutSecs: 120 },
-		notify: { onSettled: true, debounceMs: 0, notifyOnAborted: false },
+		notify: { onSettled: true, debounceMs: 0, notifyOnAborted: false, maxAttachmentMb: 18 },
 		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
 		device: { name: "test-device" },
 		warnings: [],

@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { inlineLocalImages, sniffImage, MAX_INLINE_BYTES, MAX_INLINE_COUNT, MAX_FILE_BYTES } from "../src/core/inline-images.ts"
+import { inlineLocalImages, sniffImage, MAX_INLINE_BYTES, MAX_INLINE_COUNT, MAX_FILE_BYTES, MAX_INLINE_TOTAL_BYTES } from "../src/core/inline-images.ts"
 import { renderMessage } from "../src/core/html.ts"
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
@@ -156,4 +156,21 @@ test("one file linked twice rides once; remote links are untouched", () => {
 	)
 	assert.equal(result.attachments.length, 1)
 	assert.match(result.html, /href="https:\/\/x\.test\/a\.txt"/, "a remote link stays a link")
+})
+
+test("the total budget can be raised, and the default is under every provider ceiling", () => {
+	// Base64 inflates ~4/3, so the raw default has to leave room: 18 MB -> ~24 MB on the wire,
+	// under Gmail's and Outlook.com's 25 MB. A QQ account (50 MB) can raise it.
+	assert.ok(MAX_INLINE_TOTAL_BYTES * (4 / 3) <= 25 * 1024 * 1024, "default stays under 25 MB encoded")
+
+	const root = dir()
+	writeFileSync(join(root, "a.bin"), Buffer.alloc(6 * 1024 * 1024, 1))
+	// 6 MB of content is over a small custom budget and under the default.
+	writeFileSync(join(root, "a.log"), Buffer.alloc(6 * 1024 * 1024, 1))
+	const small = inlineLocalImages('<a href="a.log">log</a>', { root, maxTotalBytes: 2 * 1024 * 1024 })
+	assert.equal(small.attachments.length, 0, "a 6 MB file does not fit a 2 MB budget")
+
+	const big = inlineLocalImages('<a href="a.log">log</a>', { root })
+	assert.equal(big.attachments.length, 1, "and does fit the default")
+	assert.match(big.html, /\[attached: a\.log\]/)
 })

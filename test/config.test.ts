@@ -128,3 +128,19 @@ test("a repaired section does not fail --check, because the daemon still runs", 
 		"a repaired section must not block startup",
 	)
 })
+
+test("the attachment budget is validated, and the default is provider-safe", () => {
+	const dir = mkdtempSync(join(tmpdir(), "cfg-attach-"))
+	const env = { XDG_CONFIG_HOME: dir }
+	mkdirSync(join(dir, "pi-mailbridge"), { recursive: true })
+
+	assert.equal(loadConfig(env).notify.maxAttachmentMb, 18, "default")
+	for (const bad of [0, -1, 100, "20", null]) {
+		writeFileSync(configPath(env), JSON.stringify({ notify: { maxAttachmentMb: bad } }))
+		const config = loadConfig(env)
+		assert.equal(config.notify.maxAttachmentMb, 18, `maxAttachmentMb: ${String(bad)} is refused`)
+		assert.ok(config.warnings.some((w) => /maxAttachmentMb/.test(w)))
+	}
+	writeFileSync(configPath(env), JSON.stringify({ notify: { maxAttachmentMb: 45 } }))
+	assert.equal(loadConfig(env).notify.maxAttachmentMb, 45, "a QQ-sized budget is allowed")
+})

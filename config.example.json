@@ -44,7 +44,8 @@
   "notify": {
     "onSettled": true,
     "debounceMs": 10000,
-    "notifyOnAborted": false
+    "notifyOnAborted": false,
+    "maxAttachmentMb": 18
   },
   "tuning": {
     "idleRenewMs": 1500000,

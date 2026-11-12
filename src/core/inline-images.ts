@@ -53,13 +53,23 @@ export interface InlineResult {
 	skipped: SkippedImage[]
 }
 
-/** Per-image cap, inlined. Screenshots are the common case and they have grown. */
-export const MAX_INLINE_BYTES = 2 * 1024 * 1024
+/**
+ * Provider ceilings, which is what these numbers are derived from:
+ *
+ *   Gmail        25 MB send (50 MB receive)
+ *   Outlook.com  25 MB per message
+ *   M365 work    35 MB send / 36 MB receive (Exchange default 10 MB)
+ *   QQ Mail      50 MB attachments, 55 MB with the body, 200 MB/day
+ *
+ * Base64 inflates by about a third, so 18 MB of files is roughly 24 MB on the wire - under the
+ * smallest ceiling. `notify.maxAttachmentMb` raises the budget for a provider that allows more.
+ */
+export const MAX_INLINE_BYTES = 5 * 1024 * 1024
 /** Per-file cap for an attached (non-inline) file. */
-export const MAX_FILE_BYTES = 5 * 1024 * 1024
-/** Total payload cap, so a mail cannot turn into a file transfer. */
-export const MAX_INLINE_TOTAL_BYTES = 12 * 1024 * 1024
-export const MAX_INLINE_COUNT = 8
+export const MAX_FILE_BYTES = 15 * 1024 * 1024
+/** Default total payload cap; a caller may pass `maxTotalBytes` instead. */
+export const MAX_INLINE_TOTAL_BYTES = 18 * 1024 * 1024
+export const MAX_INLINE_COUNT = 10
 
 /**
  * Extensions we will attach from a link.
@@ -165,6 +175,8 @@ export interface InlineOptions {
 	root?: string
 	maxBytes?: number
 	maxCount?: number
+	/** Total bytes of all attachments; defaults to MAX_INLINE_TOTAL_BYTES. */
+	maxTotalBytes?: number
 	/** Injected for tests. */
 	readFile?: (path: string) => Buffer
 	sizeOf?: (path: string) => number
@@ -174,6 +186,7 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 	const root = options.root ?? process.cwd()
 	const maxBytes = options.maxBytes ?? MAX_INLINE_BYTES
 	const maxCount = options.maxCount ?? MAX_INLINE_COUNT
+	const maxTotal = options.maxTotalBytes ?? MAX_INLINE_TOTAL_BYTES
 	const read = options.readFile ?? ((path: string) => readFileSync(path))
 	const size = options.sizeOf ?? ((path: string) => statSync(path).size)
 
@@ -211,7 +224,7 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 			skipped.push({ src, reason: "not-an-image" })
 			return note(alt || "image", "not attached, not an image")
 		}
-		if (bytes.length > maxBytes || total + bytes.length > MAX_INLINE_TOTAL_BYTES) {
+		if (bytes.length > maxBytes || total + bytes.length > maxTotal) {
 			skipped.push({ src, reason: "too-large" })
 			return note(alt || "image", "not attached, too large")
 		}
@@ -257,7 +270,7 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 		let bytes: Buffer
 		try {
 			const bytesOnDisk = size(path)
-			if (bytesOnDisk > MAX_FILE_BYTES || total + bytesOnDisk > MAX_INLINE_TOTAL_BYTES) {
+			if (bytesOnDisk > MAX_FILE_BYTES || total + bytesOnDisk > maxTotal) {
 				return refuse("too-large", `${Math.round(bytesOnDisk / 1024)} KB, over the limit`)
 			}
 			bytes = read(path)

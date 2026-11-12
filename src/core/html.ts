@@ -53,7 +53,10 @@ export interface RenderedMessage {
  * Full HTML body plus any images that had to be inlined.
  * `root` is the agent's working directory, used to resolve relative image paths.
  */
-export function renderMessage(text: string, options: { root?: string } = {}): RenderedMessage {
+export function renderMessage(
+	text: string,
+	options: { root?: string; maxTotalBytes?: number } = {},
+): RenderedMessage {
 	const rendered = inlineLocalImages(textToHtml(text), options)
 	return { html: rendered.html, attachments: rendered.attachments, skipped: rendered.skipped }
 }
