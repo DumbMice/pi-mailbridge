@@ -57,7 +57,11 @@ test("LOGIN: message fields reach the transport unchanged", async () => {
 
 	assert.equal(t.sent.length, 1)
 	// multipart/alternative: text is the fallback, html is what clients render.
-	assert.deepEqual(Object.keys(t.sent[0]!).sort(), ["from", "html", "subject", "text", "to"])
+	// messageId and the marker header are added by design: the id must be known before the
+	// send completes, and the marker is what lets inbound scanning recognise our own mail.
+	assert.deepEqual(Object.keys(t.sent[0]!).sort(), ["from", "headers", "html", "messageId", "subject", "text", "to"])
+	assert.match(String(t.sent[0]!.messageId), /^<[0-9a-f-]{36}@example\.com>$/)
+	assert.deepEqual(t.sent[0]!.headers, { "X-Pi-Mailbridge": "notification" })
 	assert.equal(t.sent[0]!.from, "pi@example.com")
 	assert.equal(t.sent[0]!.to, "you@example.com")
 	assert.equal(t.sent[0]!.subject, "[pi:a.b] pi: finished")
@@ -149,20 +153,28 @@ test("buildTransportOptions is inspectable without sending", async () => {
 	assert.equal((opts.auth as Record<string, unknown>).pass, "app-password")
 })
 
-test("sendMail returns the Message-ID so replies can be traced", async () => {
+test("sendMail returns the Message-ID we stamped, not whatever the transport says", async () => {
+	// It must be the recorded id: threading and the self-echo guard reference it, and the
+	// transport might return nothing at all.
 	const factory = (): TransportLike => ({
 		async sendMail() {
-			return { messageId: "<generated@pi.local>" }
+			return { messageId: "<transport-rewrote-this@pi.local>" }
 		},
 	})
-	const result = await sendMail(config(), { to: "you@example.com", subject: "s", text: "b" }, { transportFactory: factory })
-	assert.equal(result.messageId, "<generated@pi.local>")
+	const result = await sendMail(
+		config(),
+		{ to: "you@example.com", subject: "s", text: "b", messageId: "<ours@example.com>" },
+		{ transportFactory: factory },
+	)
+	assert.equal(result.messageId, "<ours@example.com>")
 })
 
-test("sendMail tolerates a transport that returns nothing", async () => {
+test("sendMail still reports an id when the transport returns nothing", async () => {
+	// The old behaviour returned {} here, which silently left the outbound registry empty
+	// and disabled threading and the self-echo guard for that message.
 	const factory = (): TransportLike => ({ async sendMail() {} })
 	const result = await sendMail(config(), { to: "you@example.com", subject: "s", text: "b" }, { transportFactory: factory })
-	assert.deepEqual(result, {})
+	assert.match(String(result.messageId), /^<[0-9a-f-]{36}@example\.com>$/)
 })
 
 test("threading headers are set when provided", async () => {
@@ -225,7 +237,9 @@ test("a revoked grant is refreshed once and the send retried", async () => {
 	assert.equal(attempts, 2, "retried exactly once")
 	assert.equal(invalidated, 1, "the cached token was dropped")
 	assert.equal(tokens, 2, "and a new one minted")
-	assert.equal(result.messageId, "<ok@qq.com>")
+	// The id is ours, minted before the first attempt, so a retry reuses it rather than
+	// producing a second identity for the same notification.
+	assert.match(String(result.messageId), /^<[0-9a-f-]{36}@example\.com>$/)
 })
 
 test("a non-auth failure is not retried", async () => {

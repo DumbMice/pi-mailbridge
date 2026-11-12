@@ -329,6 +329,8 @@ async function run(initialConfig: ResolvedConfig): Promise<void> {
 		source: sourceProxy,
 		send: (message) => {
 			const provider = tokenProvider
+			// The service minted and recorded the Message-ID already (before it called us),
+			// so a mail that comes straight back is recognised as ours.
 			return sendMail(currentConfig, message, {
 				...(provider ? { getAccessToken: () => provider.getToken() } : {}),
 				// Lets a revoked grant be refreshed once instead of failing the notification.

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 // SMTP send path.
 //
 // Deliberately tiny: build transport options, hand the message to the transport,
@@ -30,6 +31,11 @@ export interface OutboundMessage {
 	references?: string[]
 	/** Defaults to the SMTP user. */
 	from?: string
+	/**
+	 * Message-ID to stamp. The caller mints it when it needs to record the id before the
+	 * send completes (self-echo guard, threading); otherwise sendMail mints one.
+	 */
+	messageId?: string
 }
 
 export interface TransportLike {
@@ -116,6 +122,12 @@ export async function sendMail(
 		const transporter = factory(transportOptions)
 		return (await transporter.sendMail({
 			from: message.from ?? config.mail.smtp.user,
+		// Minted here at the latest, so the id is known to the caller before the transport
+		// has spoken. A notification must be recognisable as ours even if the send races an
+		// IMAP exists event.
+		messageId: message.messageId ?? generateMessageId(config.mail.smtp.user),
+		// Belt and braces for single-mailbox mode: the scan refuses any message carrying it.
+		headers: { "X-Pi-Mailbridge": "notification" },
 			to: message.to,
 			// The subject carries model-controlled text. A CR/LF would fold a new header into
 			// the message (the classic header-injection shape), and an unbounded subject is
@@ -142,7 +154,17 @@ export async function sendMail(
 			? await withFreshToken(deps.provider, dispatch)
 			: await dispatch()
 
-	return info?.messageId ? { messageId: info.messageId } : {}
+	// Ours, not the transport's: it is what was recorded and what threading references.
+	return { messageId: message.messageId ?? generateMessageId(config.mail.smtp.user) }
+}
+
+/**
+ * A Message-ID we control, on the sender's domain where possible.
+ * Domain is cosmetic; uniqueness is randomUUID's job.
+ */
+export function generateMessageId(from: string): string {
+	const domain = /@([^@>\s]+)/.exec(from)?.[1] ?? "pi-mailbridge.invalid"
+	return `<${randomUUID()}@${domain}>`
 }
 
 /** RFC 5322 caps a header line at 998 octets; keep well inside it. */

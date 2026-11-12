@@ -489,3 +489,30 @@ test("the reply chain ages out with the configured TTL", async () => {
 	assert.equal(r.persisted, 0, "a stale chain must not route a reply")
 	assert.equal(r.reasons["no-token"], 1)
 })
+
+test("a message carrying our own marker header is never ingested", async () => {
+	// The deterministic half of the self-echo guard: even if the outbound id was never
+	// recorded (a send that lost the race), the marker we stamp says "this is ours".
+	const e = env()
+	const cfg = config()
+	cfg.security.allowSelfReplies = true
+	cfg.security.allowFrom = [cfg.mail.smtp.user]
+	const r = await scanAndProcess(cfg, {
+		source: source([
+			msg(1, {
+				from: cfg.mail.smtp.user,
+				subject: "[pi:abcdef] pi: waiting for you",
+				headers: {
+					authResults: [GOOD_AR],
+					messageId: "<unknown@qq.com>",
+					inReplyTo: "<older@qq.com>",
+					piMailbridge: "notification",
+				},
+			}),
+		]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.reasons["self-echo"], 1)
+	assert.equal(r.persisted, 0)
+})

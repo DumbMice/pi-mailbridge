@@ -121,6 +121,16 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			continue
 		}
 
+		// The marker is stamped on every notification we send. Seeing it inbound means the
+		// mail is ours coming back - check before authorization, because in single-mailbox
+		// mode it is From: the human and would otherwise pass every gate.
+		if (message.headers.piMailbridge) {
+			result.rejected++
+			bump(result.reasons, "self-echo")
+			result.cursor = advanceCursor(env, uid)
+			continue
+		}
+
 		const authz = authorize({ from: message.from, headers: message.headers }, config)
 		if (!authz.ok) {
 			result.rejected++

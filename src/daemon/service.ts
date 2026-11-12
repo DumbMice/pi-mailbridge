@@ -16,7 +16,8 @@ import type { ResolvedConfig } from "../core/config.ts"
 import type { MailSource } from "./process.ts"
 import { ackPending, claimPending, listPending } from "../store/pending-store.ts"
 import { journal } from "../store/journal.ts"
-import { sessionThread } from "../store/threads.ts"
+import { recordOutbound, sessionThread } from "../store/threads.ts"
+import { generateMessageId } from "../core/mailer.ts"
 import { readMode, writeMode, isMode, type Mode } from "../store/mode-store.ts"
 import { createRegistry, type Registry } from "../store/registry.ts"
 
@@ -41,6 +42,8 @@ export interface DaemonDeps {
 		/** RFC 5322 threading, derived here from the outbound id registry. */
 		inReplyTo?: string
 		references?: string[]
+		/** Minted and recorded before this is called; the transport must stamp it. */
+		messageId: string
 	}) => Promise<{ messageId?: string } | void>
 	/**
 	 * Called after a successful send with the assigned Message-ID, so the caller can
@@ -312,7 +315,21 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					// Thread every notification for a session into one conversation: reply to
 					// the previous message, reference the session root. Read BEFORE sending,
 					// because recording happens after.
+					// Mint and record BEFORE calling deps.send. The scan can see the mail come
+					// back into INBOX as soon as SMTP accepts it, so an id recorded after the
+					// send leaves the self-echo guard empty for exactly that window.
+					// Read the thread BEFORE recording: recording moves lastMessageId to the new
+					// id, and a message must answer its predecessor, not itself.
 					const thread = sessionId ? sessionThread(env, sessionId) : {}
+					const messageId = generateMessageId(deps.config.mail.smtp.user ?? "")
+					if (sessionId) {
+						recordOutbound(env, {
+							messageId,
+							sessionId,
+							device: deps.config.device.name,
+							subject,
+						})
+					}
 					const threading = {
 						...(thread.lastMessageId ? { inReplyTo: `<${thread.lastMessageId}>` } : {}),
 						...(thread.rootMessageId ? { references: [`<${thread.rootMessageId}>`] } : {}),
@@ -324,6 +341,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 							text,
 							...(cwd ? { cwd } : {}),
 							...(sessionId ? { sessionId } : {}),
+							messageId,
 							...threading,
 						})
 						// Record the outbound id so a reply reaches this session even if a

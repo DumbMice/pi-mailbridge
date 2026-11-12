@@ -33,14 +33,14 @@ interface Harness {
 	service: DaemonService
 	base: string
 	env: NodeJS.ProcessEnv
-	sent: { to: string; subject: string; text: string }[]
+	sent: { to: string; subject: string; text: string; messageId?: string }[]
 	markedSeen: number[]
 	close(): Promise<void>
 }
 
 async function boot(): Promise<Harness> {
 	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-daemon-")) }
-	const sent: { to: string; subject: string; text: string }[] = []
+	const sent: { to: string; subject: string; text: string; messageId?: string }[] = []
 	const markedSeen: number[] = []
 
 	const service = createDaemonService({
@@ -241,7 +241,11 @@ test("/send hands the message to the injected mailer", async () => {
 	try {
 		const res = await post(h, "/send", { subject: "pi: finished", text: "3 turns" })
 		assert.equal(res.status, 200)
-		assert.deepEqual(h.sent, [{ to: "you@example.com", subject: "pi: finished", text: "3 turns" }])
+		assert.equal(h.sent.length, 1)
+		assert.equal(h.sent[0]!.to, "you@example.com")
+		assert.equal(h.sent[0]!.subject, "pi: finished")
+		assert.equal(h.sent[0]!.text, "3 turns")
+		assert.match(String(h.sent[0]!.messageId), /^<[0-9a-f-]{36}@/, "a Message-ID is minted for every send")
 
 		const explicit = await post(h, "/send", { to: "other@example.com", subject: "s", text: "t" })
 		assert.equal(explicit.status, 200)
@@ -511,11 +515,12 @@ test("ping requires auth", async () => {
 
 // --- threading: the bug was that nothing was ever recorded ------------------
 
-test("/send threads a session's notifications and records their Message-IDs", async () => {
+test("/send records the Message-ID before handing the mail over, and threads it", async () => {
 	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-thread-")) }
-	const { recordOutbound, sessionThread } = await import("../src/store/threads.ts")
-	const sent: { subject: string; inReplyTo?: string; references?: string[] }[] = []
-	let n = 0
+	const { sessionThread } = await import("../src/store/threads.ts")
+	const { readFileSync } = await import("node:fs")
+	const { statePath } = await import("../src/store/paths.ts")
+	const sent: { subject: string; inReplyTo?: string; references?: string[]; messageId: string; recordedAlready: boolean }[] = []
 
 	const service = createDaemonService({
 		config: config(),
@@ -523,10 +528,19 @@ test("/send threads a session's notifications and records their Message-IDs", as
 		env,
 		source: { searchAfter: async () => [], fetch: async () => undefined },
 		send: async (message) => {
-			sent.push({ subject: message.subject, inReplyTo: message.inReplyTo, references: message.references })
-			const messageId = `<m${++n}@qq.com>`
-			recordOutbound(env, { messageId, sessionId: message.sessionId!, subject: message.subject })
-			return { messageId }
+			// The ordering claim: the store must already know this id when the send starts,
+			// because the mail can bounce back into INBOX before it returns.
+			const stored = JSON.parse(readFileSync(statePath(env, "threads.json"), "utf8")) as {
+				items: { messageId: string }[]
+			}
+			sent.push({
+				subject: message.subject,
+				inReplyTo: message.inReplyTo,
+				references: message.references,
+				messageId: message.messageId,
+				recordedAlready: stored.items.some((r) => r.messageId === message.messageId.replace(/[<>]/g, "")),
+			})
+			return { messageId: message.messageId }
 		},
 	})
 	const { port } = await service.listen(0, "127.0.0.1")
@@ -540,14 +554,14 @@ test("/send threads a session's notifications and records their Message-IDs", as
 	try {
 		// A short route id, exactly what production sends - the case that used to record nothing.
 		await sendOnce("[pi:c05698] pi: one")
-		assert.deepEqual(sessionThread(env, "sess-thread"), { rootMessageId: "m1@qq.com", lastMessageId: "m1@qq.com" })
+		const first = sent[0]!.messageId.replace(/[<>]/g, "")
+		assert.deepEqual(sessionThread(env, "sess-thread"), { rootMessageId: first, lastMessageId: first })
+		assert.equal(sent[0]!.recordedAlready, true, "recorded before the transport was called")
 
 		await sendOnce("[pi:c05698] pi: two")
-		assert.deepEqual(sessionThread(env, "sess-thread"), { rootMessageId: "m1@qq.com", lastMessageId: "m2@qq.com" })
-
-		assert.equal(sent[0]!.inReplyTo, undefined, "the first message starts the thread")
-		assert.equal(sent[1]!.inReplyTo, "<m1@qq.com>", "the second answers the first")
-		assert.deepEqual(sent[1]!.references, ["<m1@qq.com>"], "and references the session root")
+		assert.equal(sent[1]!.inReplyTo, `<${first}>`, "the second answers the first")
+		assert.deepEqual(sent[1]!.references, [`<${first}>`], "and references the session root")
+		assert.equal(sent[1]!.recordedAlready, true)
 	} finally {
 		await service.close()
 	}

@@ -67,6 +67,8 @@ export interface HeaderLike {
 	authResults?: string[]
 	/** `Message-ID` of this message. Used to recognise our own mail when it comes back. */
 	messageId?: string
+	/** Marker header we stamp on every notification; its presence alone means "ours". */
+	piMailbridge?: string
 	/** `In-Reply-To`, the message this one directly answers. */
 	inReplyTo?: string
 	/** `References`, the ancestor chain. */

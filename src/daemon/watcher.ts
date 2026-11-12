@@ -32,8 +32,10 @@ export const WANTED_HEADERS = [
 	"list-id",
 	"from",
 	"subject",
-	// Our own Message-ID, so a notification that comes back is recognised as an echo.
+	// Our own Message-ID and marker, so a notification that comes back is recognised as an
+	// echo even if the id was never recorded (a send that raced the scan).
 	"message-id",
+	"x-pi-mailbridge",
 	// Reply-chain fallback: threading headers, so a reply reaches the session even
 	// when the subject token was rewritten by a client or a human.
 	"in-reply-to",
@@ -113,6 +115,7 @@ export function toHeaderLike(extracted: ExtractedHeaders): HeaderLike {
 		authResults: extracted.headerValues.get("authentication-results"),
 		// message-id is what lets the scanner recognise our own notification coming back.
 		...(one("message-id") ? { messageId: one("message-id") } : {}),
+		...(one("x-pi-mailbridge") ? { piMailbridge: one("x-pi-mailbridge") } : {}),
 		...(one("in-reply-to") ? { inReplyTo: one("in-reply-to") } : {}),
 		...(extracted.headerValues.get("references") ? { references: extracted.headerValues.get("references") } : {}),
 		autoSubmitted: one("auto-submitted"),
