@@ -48,12 +48,13 @@ test("LOGIN: message fields reach the transport unchanged", async () => {
 	await sendMail(config(), { to: "you@example.com", subject: "[pi:a.b] pi: finished", text: "done: 3 turns" }, { transportFactory: t.factory })
 
 	assert.equal(t.sent.length, 1)
-	assert.deepEqual(t.sent[0], {
-		from: "pi@example.com",
-		to: "you@example.com",
-		subject: "[pi:a.b] pi: finished",
-		text: "done: 3 turns",
-	})
+	// multipart/alternative: text is the fallback, html is what clients render.
+	assert.deepEqual(Object.keys(t.sent[0]!).sort(), ["from", "html", "subject", "text", "to"])
+	assert.equal(t.sent[0]!.from, "pi@example.com")
+	assert.equal(t.sent[0]!.to, "you@example.com")
+	assert.equal(t.sent[0]!.subject, "[pi:a.b] pi: finished")
+	assert.equal(t.sent[0]!.text, "done: 3 turns")
+	assert.match(String(t.sent[0]!.html), /done: 3 turns/)
 })
 
 test("LOGIN: transport options use user/pass with the configured host", async () => {

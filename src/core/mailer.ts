@@ -15,6 +15,7 @@
 import nodemailer from "nodemailer"
 
 import type { ResolvedConfig } from "./config.ts"
+import { textToHtml } from "./html.ts"
 
 export interface OutboundMessage {
 	to: string
@@ -96,7 +97,10 @@ export async function sendMail(
 		from: message.from ?? config.mail.smtp.user,
 		to: message.to,
 		subject: message.subject,
+		// multipart/alternative: clients fold quoted history only for HTML mail, so
+		// plain-text-only notifications produced reply threads of raw repeated text.
 		text: message.text,
+		html: textToHtml(message.text),
 	})) as { messageId?: string } | undefined
 
 	return info?.messageId ? { messageId: info.messageId } : {}

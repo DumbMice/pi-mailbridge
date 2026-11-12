@@ -81,6 +81,20 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### Mail is now multipart: text plus HTML
+
+Reported from a live reply: the quoted original did not fold away, it showed as raw
+repeated text. Cause: every message was text/plain only, and clients collapse quoted
+history only when the original is HTML (they quote as a <blockquote> they can fold).
+
+- core/html.ts: escapeHtml + textToHtml, using white-space:pre-wrap so the layout
+  survives without converting every newline to <br>
+- mailer sends text and html, so it is multipart/alternative: plain clients and the
+  scanner still get the text part unchanged
+- escaping is mandatory, not cosmetic: the body is model output and an unescaped
+  interpolation would inject markup into the recipient's mail client. Tested with
+  <img onerror=...> and a javascript: link.
+
 ### Shorter subject: a local route id instead of a signed blob
 
 The subject carried a signed token of ~88 characters, so a notification preview showed
