@@ -246,9 +246,12 @@ ceiling:
 | Microsoft 365 (work) | 35 MB sent by default; on-prem Exchange often 10 MB |
 | QQ | 50 MB (+5 MB body), 200 MB/day |
 
-Only allowlisted types are attached (`pdf txt log md csv json yml xml zip docx xlsx pptx`, plus
-images), because the path comes from model output — a private key is never mailed because a prompt
-asked for it.
+Attachments come only from **the agent's project directory**, and only for allowlisted types
+(`pdf txt log md csv tsv json yml yaml xml html zip gz tar docx xlsx pptx`, plus images). That
+keeps the obvious key *filenames* out of an accidental attach; it is not a content filter — an
+agent told to `cp ~/.ssh/id_rsa notes.txt` or `tar` a directory can still mail the result. Start
+pi in a project rather than in `$HOME`, and see
+[docs/SECURITY.md](./docs/SECURITY.md) §6b for the full boundary.
 
 ## When it helps
 

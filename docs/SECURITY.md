@@ -216,6 +216,34 @@ weaker than the reply flow suggests.
 original still executes — that is deliberate (a phone-appended signature must not break it), but
 it means "entire body" below refers to the stripped body, not the raw mail.
 
+## 6b. Attachments in notifications
+
+A notification carries the local files the agent linked, so what leaves the machine is decided by
+model output. The controls, all fail-closed:
+
+- **The project directory is the boundary.** Every path is `realpath`-resolved on both sides and
+  must land inside the agent's working directory. A symlink out of it (`ln -s ~/.config/… config.json`)
+  is refused, and so is an absolute path outside it.
+- **A home-rooted or `/`-rooted launch attaches nothing**, because with `cwd = $HOME` the config
+  file is "inside the project". Start pi in a project; that is the intended usage.
+- **The daemon's own config and state directories are never attached**, whatever the `cwd`.
+- **An extension allowlist** (`pdf txt log md csv json yml xml zip docx xlsx pptx` and images)
+  keeps the obvious key filenames out of an accidental attach. It is not a content filter:
+  `cp ~/.ssh/id_rsa notes.txt` or `tar czf k.tar ~/.ssh` defeats it, and `realpath` cannot see a
+  hardlink. Treat it as a guard rail against a naive single-shot injection, not a sandbox.
+- **Size caps** per file and per mail (`notify.maxAttachmentMb`, default 18 MB) keep a
+  notification from becoming a file transfer; a non-regular file (FIFO, device) is refused
+  rather than read.
+- **The recipient cannot be influenced by mail.** `mail.to` comes from the config only; a
+  command reply cannot change it (`setup` is refused by the dispatcher), and the send path has no
+  Cc/Bcc.
+
+Residual risk, plainly: anything the agent can read and re-materialise inside the project can be
+mailed to **you**, up to the cap, including a file that happens to contain secrets and archives
+whose contents the allowlist cannot inspect. There is no per-account send budget, so a model that
+is instructed to send repeatedly can consume a provider's daily quota. The real defence remains
+tool scoping and not running the agent in a directory full of secrets.
+
 ## 7. Reporting
 
 Email the maintainer at the address in `package.json`'s `author`

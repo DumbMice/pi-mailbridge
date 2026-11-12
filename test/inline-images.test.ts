@@ -1,6 +1,7 @@
 import { test } from "node:test"
+import { execFileSync } from "node:child_process"
 import assert from "node:assert/strict"
-import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -197,4 +198,68 @@ test("a symlink out of the project is not attached", () => {
 	// A real file in the project is unaffected.
 	const ok = inlineLocalImages('<a href="inside.log">log</a>', { root })
 	assert.equal(ok.attachments.length, 1)
+})
+
+test("a FIFO is refused instead of hanging the send", { skip: process.platform === "win32" }, () => {
+	// A named pipe reports size 0, passes every size check, and then blocks readFileSync until a
+	// writer appears - which would hang the notification and the poll tick awaiting it.
+	const root = dir()
+	// Node has no mkfifo; the platform tool is the honest way to create one.
+	execFileSync("mkfifo", [join(root, "pipe.log")])
+	const started = Date.now()
+	const result = inlineLocalImages('<a href="pipe.log">p</a>', { root })
+	assert.ok(Date.now() - started < 1000, "must return immediately")
+	assert.equal(result.attachments.length, 0)
+	assert.deepEqual(result.skipped.map((s) => s.reason), ["unreadable"])
+	assert.match(result.html, /not a regular file/)
+})
+
+test("the project-directory guard fails closed", () => {
+	// Three ways it used to fail open, all of them the same mistake: trusting a root it could not
+	// verify, or treating an unguarded root as a project.
+	const root = dir()
+	writeFileSync(join(root, "notes.md"), "hello")
+
+	// 1. Unresolvable root (deleted worktree, stale cwd): nothing is attachable.
+	const stale = inlineLocalImages('<a href="/etc/hostname">h</a>', { root: "/nonexistent/worktree" })
+	assert.equal(stale.attachments.length, 0)
+	assert.deepEqual(stale.skipped.map((s) => s.reason), ["outside-root"])
+
+	// 2. Project root = your home directory: `~/.config/pi-mailbridge/config.json` is then
+	//    "inside the project", is `.json`, and mailing it mails the mailbox password. Nothing is
+	//    attached from a home-rooted launch (see SECURITY §6b: start pi in a project).
+	const home = dir()
+	writeFileSync(join(home, "notes.md"), "fine")
+	const realHome = process.env.HOME
+	process.env.HOME = home
+	try {
+		const fromHome = inlineLocalImages('<a href="notes.md">n</a>', { root: home })
+		assert.equal(fromHome.attachments.length, 0, "cwd = $HOME attaches nothing")
+		assert.deepEqual(fromHome.skipped.map((s) => s.reason), ["outside-root"])
+
+		// And a root of "/" is the same mistake at a larger scale.
+		const fromRoot = inlineLocalImages('<a href="/etc/hostname">h</a>', { root: "/" })
+		assert.equal(fromRoot.attachments.length, 0)
+	} finally {
+		if (realHome === undefined) delete process.env.HOME
+		else process.env.HOME = realHome
+	}
+
+	// A normal project directory still works.
+	assert.equal(inlineLocalImages('<a href="notes.md">n</a>', { root }).attachments.length, 1)
+
+	// 3. The daemon's own directories are refused even when they are under the root.
+	const stateDir = join(home, ".local", "state", "pi-mailbridge")
+	mkdirSync(stateDir, { recursive: true })
+	writeFileSync(join(stateDir, "uid-cursor.json"), "{}")
+	process.env.XDG_STATE_HOME = join(home, ".local", "state")
+	process.env.XDG_CONFIG_HOME = join(home, ".config")
+	try {
+		const secret = inlineLocalImages('<a href=".local/state/pi-mailbridge/uid-cursor.json">c</a>', { root: home })
+		assert.equal(secret.attachments.length, 0, "state dir is never attached")
+		assert.deepEqual(secret.skipped.map((s) => s.reason), ["outside-root"])
+	} finally {
+		delete process.env.XDG_STATE_HOME
+		delete process.env.XDG_CONFIG_HOME
+	}
 })

@@ -31,6 +31,7 @@ import { createHash } from "node:crypto"
 import { readFileSync, realpathSync, statSync } from "node:fs"
 import { isAbsolute, resolve } from "node:path"
 import { homedir } from "node:os"
+import { configDir, stateDir } from "../store/paths.ts"
 
 export interface InlineAttachment {
 	filename: string
@@ -149,10 +150,39 @@ function safeRealpath(path: string): string | undefined {
 	}
 }
 
-/** Is this resolved file inside the project directory, following symlinks? */
-function insideRoot(path: string, root: string, rootReal: string | undefined): boolean {
+/** stat that follows symlinks; undefined when the path does not resolve. */
+function safeStat(path: string): ReturnType<typeof statSync> | undefined {
+	try {
+		return statSync(path)
+	} catch {
+		return undefined
+	}
+}
+
+/**
+ * Is this resolved file safe to attach?
+ *
+ * Three rules, all fail-closed:
+ *   - it must resolve, and it must land inside the project directory (a symlink out is refused);
+ *   - the project directory itself must be a real project, not `/` or your home - with cwd = ~
+ *     the config file is "inside the project" and the allowlist would happily mail the password;
+ *   - the daemon's own config and state directories are never attached, whatever the cwd.
+ */
+function insideRoot(path: string, rootReal: string | undefined): boolean {
+	if (!rootReal) return false
+	// A path that does not resolve yet (a missing file, a dangling link) is compared in its
+	// resolved-lexical form so the caller's stat can report "not found"; a path that resolves to
+	// somewhere else - `ln -s /proc/self/fd/0` - is compared at its real location and refused.
 	const target = safeRealpath(path) ?? path
-	if (rootReal === undefined) return true
+
+	const home = safeRealpath(homedir())
+	if (rootReal === "/" || (home !== undefined && rootReal === home)) return false
+
+	for (const dir of [configDir(), stateDir()]) {
+		const real = safeRealpath(dir)
+		if (real && (target === real || target.startsWith(`${real}/`))) return false
+	}
+
 	const prefix = rootReal.endsWith("/") ? rootReal : `${rootReal}/`
 	return target === rootReal || target.startsWith(prefix)
 }
@@ -229,12 +259,24 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 		}
 
 		const path = resolvePath(src, root)
-		if (!insideRoot(path, root, rootReal)) {
+		if (!insideRoot(path, rootReal)) {
 			skipped.push({ src, reason: "outside-root" })
 			return note(alt || "image", "not attached, outside the project")
 		}
 		let bytes: Buffer
 		try {
+			// Existence first, so the note says "not found" rather than "unreadable"; then the
+			// type, because a FIFO or a device reports size 0 and blocks the read forever, which
+			// would hang the send (and the poll tick that awaits it).
+			const st = safeStat(path)
+			if (!st) {
+				skipped.push({ src, reason: "not-found" })
+				return note(alt || "image", "not attached, file not found")
+			}
+			if (!st.isFile()) {
+				skipped.push({ src, reason: "unreadable" })
+				return note(alt || "image", "not attached, not a regular file")
+			}
 			if (size(path) > maxBytes) {
 				skipped.push({ src, reason: "too-large" })
 				return note(alt || "image", `${Math.round(size(path) / 1024)} KB, over the ${Math.round(maxBytes / 1024)} KB limit`)
@@ -288,7 +330,7 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 			return `${inner} ${note("not attached", text)}`
 		}
 		if (attachments.length >= maxCount) return refuse("too-many", "too many attachments")
-		if (!insideRoot(path, root, rootReal)) return refuse("outside-root", "outside the project")
+		if (!insideRoot(path, rootReal)) return refuse("outside-root", "outside the project")
 		const filename = safeFilename(href, "file")
 		const ext = filename.includes(".") ? filename.split(".").pop()!.toLowerCase() : ""
 		const contentType = ALLOWED_FILE_EXTENSIONS[ext]
@@ -296,11 +338,18 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 
 		let bytes: Buffer
 		try {
+			const st = safeStat(path)
+			if (!st) return refuse("not-found", "file not found")
+			if (!st.isFile()) return refuse("unreadable", "not a regular file")
 			const bytesOnDisk = size(path)
 			if (bytesOnDisk > MAX_FILE_BYTES || total + bytesOnDisk > maxTotal) {
 				return refuse("too-large", `${Math.round(bytesOnDisk / 1024)} KB, over the limit`)
 			}
 			bytes = read(path)
+			// The file can grow between stat and read. Re-check, as the image branch does.
+			if (bytes.length > MAX_FILE_BYTES || total + bytes.length > maxTotal) {
+				return refuse("too-large", `${Math.round(bytes.length / 1024)} KB, over the limit`)
+			}
 		} catch {
 			skipped.push({ src: href, reason: "not-found" })
 			return `${inner} ${note("not attached", "file not found")}`
