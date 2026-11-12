@@ -22,6 +22,18 @@ import { readMode, writeMode, isMode, type Mode } from "../store/mode-store.ts"
 import { createRegistry, type Registry } from "../store/registry.ts"
 
 export const MAX_BODY_BYTES = 1_000_000
+/** A body that is not JSON: the caller's fault, and the only 400 the handler emits. */
+class BadBodyError extends Error {}
+
+async function readJson(req: import("node:http").IncomingMessage): Promise<unknown> {
+	const text = await readBody(req)
+	try {
+		return JSON.parse(text)
+	} catch {
+		throw new BadBodyError("body is not valid JSON")
+	}
+}
+
 export const MAX_SSE_CLIENTS = 100
 /** Heartbeat entries kept; sessions that vanished are pruned on /health anyway. */
 export const MAX_PINGS = 256
@@ -237,7 +249,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					return send(200, { mode: readMode(env) })
 
 				case "POST /claim": {
-					const body = asRecord(JSON.parse(await readBody(req)))
+					const body = asRecord(await readJson(req))
 					const uid = Number(body?.uid)
 					const instanceId = typeof body?.instanceId === "string" ? body.instanceId : ""
 					if (!Number.isInteger(uid) || !instanceId) return fail(400, "bad_request")
@@ -249,7 +261,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				}
 
 				case "POST /ack": {
-					const body = asRecord(JSON.parse(await readBody(req)))
+					const body = asRecord(await readJson(req))
 					const uid = Number(body?.uid)
 					const instanceId = typeof body?.instanceId === "string" ? body.instanceId : ""
 					if (!Number.isInteger(uid) || !instanceId) return fail(400, "bad_request")
@@ -283,7 +295,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				}
 
 				case "POST /register": {
-					const body = asRecord(JSON.parse(await readBody(req)))
+					const body = asRecord(await readJson(req))
 					const sessionId = typeof body?.sessionId === "string" ? body.sessionId : ""
 					if (!sessionId) return fail(400, "bad_request")
 					const result = registry.register(sessionId)
@@ -292,7 +304,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				}
 
 				case "DELETE /register": {
-					const body = asRecord(JSON.parse(await readBody(req)))
+					const body = asRecord(await readJson(req))
 					const sessionId = typeof body?.sessionId === "string" ? body.sessionId : ""
 					if (!sessionId) return fail(400, "bad_request")
 					registry.release(sessionId)
@@ -300,7 +312,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				}
 
 				case "POST /ping": {
-					const body = asRecord(JSON.parse(await readBody(req)))
+					const body = asRecord(await readJson(req))
 					const instanceId = typeof body?.instanceId === "string" ? body.instanceId : ""
 					if (!instanceId) return fail(400, "bad_request")
 					pings.set(instanceId, now())
@@ -316,7 +328,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				}
 
 				case "POST /bye": {
-					const body = asRecord(JSON.parse(await readBody(req)))
+					const body = asRecord(await readJson(req))
 					const instanceId = typeof body?.instanceId === "string" ? body.instanceId : ""
 					if (!instanceId) return fail(400, "bad_request")
 					pings.delete(instanceId)
@@ -344,7 +356,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				}
 
 				case "POST /mode": {
-					const body = asRecord(JSON.parse(await readBody(req)))
+					const body = asRecord(await readJson(req))
 					if (!isMode(body?.mode)) return fail(400, "bad_request")
 					const mode = writeMode(env, body.mode, now())
 					broadcast({ type: "mode", mode })
@@ -353,7 +365,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				}
 
 				case "POST /send": {
-					const body = asRecord(JSON.parse(await readBody(req)))
+					const body = asRecord(await readJson(req))
 					const subject = typeof body?.subject === "string" ? body.subject : ""
 					const text = typeof body?.text === "string" ? body.text : ""
 					const config = deps.getConfig?.() ?? deps.config
@@ -422,9 +434,9 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 		} catch (error) {
 			const message = (error as Error).message
 			if (message === "request body too large") return fail(413, "body_too_large")
-			// A JSON body we cannot parse is the client's fault; anything else (a store write
-			// failure, an internal throw) is ours and must not be reported as a bad request.
-			if (/JSON|Unexpected token|Unexpected end/i.test(message)) return fail(400, "bad_request", { message })
+			// Classified by cause, not by prose: a store write failure mentions `threads.json`,
+			// and a substring match on "json" reported it as the client's fault.
+			if (error instanceof BadBodyError) return fail(400, "bad_request", { message })
 			return fail(500, "internal", { message })
 		}
 	}

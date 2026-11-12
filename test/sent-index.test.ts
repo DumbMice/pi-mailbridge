@@ -136,3 +136,33 @@ test("header parsing handles folding and missing values", () => {
 	assert.equal(stampedIdFromHeaders("X-Pi-Mailbridge-Id: <abc@qq.com>\r\n"), "abc@qq.com")
 	assert.equal(stampedIdFromHeaders("X-Pi-Mailbridge: notification\r\n"), undefined)
 })
+
+test("a repeated capture for the same message shares the one in flight", async () => {
+	// The queue can hold a capture for a minute; a duplicate request must not queue another
+	// connection behind it.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-sent-")) }
+	let connects = 0
+	const make = () =>
+		captureDeliveredMessageId({
+			config: config("Sent Messages"),
+			mintedId: "share-me@qq.com",
+			subject: "x",
+			sessionId: "sess-share",
+			env,
+			retryDelaysMs: [10],
+			connect: async () => {
+				connects++
+				return {
+					connect: async () => {},
+					mailboxOpen: async () => {},
+					search: async () => [1],
+					fetchOne: async () => ({ source: sentCopy("share-me@qq.com", "tencent_SHARED@qq.com") }),
+					logout: async () => {},
+				}
+			},
+		})
+	const [a, b] = await Promise.all([make(), make()])
+	assert.equal(a, "tencent_SHARED@qq.com")
+	assert.equal(b, "tencent_SHARED@qq.com")
+	assert.equal(connects, 1, "one connection for both")
+})

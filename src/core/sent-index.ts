@@ -30,7 +30,7 @@ const CAPTURE_WINDOW_MS = 30 * 60_000
 /** How many recent sent messages to inspect per attempt. */
 const CAPTURE_SCAN = 20
 /** Backoff between attempts: providers append asynchronously. */
-const DEFAULT_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 30_000] as const
+const DEFAULT_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 30_000, 30_000, 30_000] as const
 
 export interface CaptureOptions {
 	config: ResolvedConfig
@@ -75,14 +75,26 @@ export function stampedIdFromHeaders(headers: string): string | undefined {
 export async function captureDeliveredMessageId(options: CaptureOptions): Promise<string | undefined> {
 	const folder = options.config.mail.imap.sentFolder
 	if (!folder) return undefined
-	return serialise(() => attempt(options, folder))
+	return serialise(options.mintedId, () => attempt(options, folder))
 }
 
-/** Captures are serialised: a burst of notifications must not open a connection each. */
+/**
+ * One capture in flight at a time, and identical requests share it.
+ *
+ * A burst of notifications must not open one connection each, and a capture can hold the
+ * queue for a minute; coalescing means a repeated request for the same minted id costs
+ * nothing extra.
+ */
 let queue: Promise<unknown> = Promise.resolve()
-function serialise<T>(run: () => Promise<T>): Promise<T> {
+const inFlightByMintedId = new Map<string, Promise<string | undefined>>()
+
+function serialise<T>(key: string, run: () => Promise<T>): Promise<T> {
+	const existing = inFlightByMintedId.get(key)
+	if (existing) return existing as Promise<T>
 	const next = queue.then(run, run)
 	queue = next.catch(() => undefined)
+	inFlightByMintedId.set(key, next as Promise<string | undefined>)
+	next.catch(() => undefined).finally(() => inFlightByMintedId.delete(key))
 	return next
 }
 

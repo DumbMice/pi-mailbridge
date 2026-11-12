@@ -6,6 +6,8 @@
 
 export interface ScanSummary {
 	at: number
+	/** When the daemon last *checked*, which may be later than the last scan that saw mail. */
+	checkedAt?: number
 	examined: number
 	persisted: number
 	rejected: number
@@ -49,7 +51,7 @@ export function formatScan(summary: ScanSummary | null | undefined): string[] {
 	const deferred = entries.some(([reason]) => DEFERRED.has(reason))
 
 	return [
-		`last scan: ${new Date(summary.at).toLocaleTimeString()} — examined ${summary.examined}, kept ${summary.persisted}, rejected ${summary.rejected}`,
+		`last scan with mail: ${new Date(summary.at).toLocaleTimeString()} — examined ${summary.examined}, kept ${summary.persisted}, rejected ${summary.rejected}`,
 		`rejections: ${refused || "none"}`,
 		...(handled ? [`handled: ${handled}`] : []),
 		...(dropped ? [`attachments dropped: ${dropped}`] : []),

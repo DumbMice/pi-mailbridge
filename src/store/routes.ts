@@ -114,12 +114,16 @@ function withLock<T>(env: NodeJS.ProcessEnv, run: () => T): T {
 				return run()
 			} finally {
 				closeSync(fd)
-				// Only unlink our own lock: a lock we lost to a steal must not be deleted, or a
-				// third writer walks into a critical section another process is still inside.
+				// Release by renaming the lock aside and checking the *renamed* file: rename is
+				// atomic, so a stealer that swapped the lock in between cannot have its own lock
+				// deleted by us (read-then-unlink had that window).
 				try {
-					if (readFileSync(lock, "utf8") === owner) unlinkSync(lock)
+					const aside = `${lock}.mine.${process.pid}.${randomBytes(4).toString("hex")}`
+					renameSync(lock, aside)
+					if (readFileSync(aside, "utf8") === owner) unlinkSync(aside)
+					else renameSync(aside, lock) // we took somebody else's: put it back
 				} catch {
-					/* already gone */
+					/* already gone, or the path was recreated: leave it alone */
 				}
 			}
 		} catch (error) {

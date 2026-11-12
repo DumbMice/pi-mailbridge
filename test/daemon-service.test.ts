@@ -1001,3 +1001,36 @@ test("a malformed body is still a 400", async () => {
 		await service.close()
 	}
 })
+
+test("a store write failure is a 500 even though the path says .json", async () => {
+	// The previous classifier matched the substring "json" and so reported EACCES on
+	// threads.json as a bad request - the exact case the split was written for.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-eacces-")) }
+	const { chmodSync } = await import("node:fs")
+	const { statePath } = await import("../src/store/paths.ts")
+	const { addPending } = await import("../src/store/pending-store.ts")
+	// A record so /ack has something to remove, then make the dir unwritable.
+	addPending(env, { uid: 1, sessionId: "s", from: "you@example.com", subject: "x", body: "y", receivedAt: 1 })
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env,
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
+		send: async () => ({ messageId: "<x@qq.com>" }),
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	const dir = join(statePath(env, "x"), "..")
+	try {
+		chmodSync(dir, 0o500)
+		const res = await fetch(`http://127.0.0.1:${port}/send`, {
+			method: "POST",
+			headers: { ...auth(), "content-type": "application/json" },
+			// A sessionId makes the daemon record the outbound id in threads.json, which now fails.
+			body: JSON.stringify({ subject: "[pi:abc123] x", text: "y", sessionId: "s" }),
+		})
+		assert.equal(res.status, 500, `a write failure must not read as bad_request (got ${res.status})`)
+	} finally {
+		chmodSync(dir, 0o700)
+		await service.close()
+	}
+})
