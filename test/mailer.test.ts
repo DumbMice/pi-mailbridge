@@ -156,3 +156,27 @@ test("sendMail tolerates a transport that returns nothing", async () => {
 	const result = await sendMail(config(), { to: "you@example.com", subject: "s", text: "b" }, { transportFactory: factory })
 	assert.deepEqual(result, {})
 })
+
+test("threading headers are set when provided", async () => {
+	const t = fakeTransport()
+	await sendMail(
+		config(),
+		{
+			to: "you@example.com",
+			subject: "pi: x",
+			text: "b",
+			inReplyTo: "<prev@qq.com>",
+			references: ["<root@qq.com>"],
+		},
+		{ transportFactory: t.factory },
+	)
+	assert.equal(t.sent[0]!.inReplyTo, "<prev@qq.com>")
+	assert.equal(t.sent[0]!.references, "<root@qq.com>")
+})
+
+test("no threading headers for the first message of a session", async () => {
+	const t = fakeTransport()
+	await sendMail(config(), { to: "you@example.com", subject: "pi: x", text: "b" }, { transportFactory: t.factory })
+	assert.equal(t.sent[0]!.inReplyTo, undefined)
+	assert.equal(t.sent[0]!.references, undefined)
+})

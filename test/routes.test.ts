@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { registerRoute, resolveRoute, routeIdFromSubject, ROUTE_RE, routeCount } from "../src/store/routes.ts"
+import { ensureRouteForSession, registerRoute, resolveRoute, routeIdFromSubject, ROUTE_RE, routeCount } from "../src/store/routes.ts"
 import { buildSettleSubject } from "../src/core/settle.ts"
 import { stampSubject } from "../src/core/token.ts"
 
@@ -84,4 +84,51 @@ test("the whole subject stays short", () => {
 	const long = buildSettleSubject(context, Buffer.alloc(32, 1))
 	assert.ok(long.length > subject.length)
 	assert.match(long, /^\[pi:[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\]/)
+})
+
+// --- one route per session, so the subject is stable ----------------------
+
+test("a session keeps one route id across many notifications", () => {
+	const e = env()
+	const first = ensureRouteForSession({ sessionId: SESSION, subject: "pi: fix-login", device: "ybc-linux", env: e })
+	const second = ensureRouteForSession({ sessionId: SESSION, subject: "pi: fix-login", device: "ybc-linux", env: e })
+	const third = ensureRouteForSession({ sessionId: SESSION, subject: "pi: fix-login", device: "ybc-linux", env: e })
+
+	assert.equal(first, second)
+	assert.equal(second, third)
+	assert.equal(routeCount(e), 1, "one route, not one per message")
+})
+
+test("distinct sessions get distinct routes", () => {
+	const e = env()
+	const a = ensureRouteForSession({ sessionId: SESSION, subject: "a", env: e })
+	const b = ensureRouteForSession({ sessionId: "other-session", subject: "b", env: e })
+	assert.notEqual(a, b)
+})
+
+test("reusing a route refreshes its expiry", () => {
+	const e = env()
+	const id = ensureRouteForSession({ sessionId: SESSION, subject: "x", env: e, ttlHours: 1, now: 0 })
+	ensureRouteForSession({ sessionId: SESSION, subject: "x", env: e, ttlHours: 1, now: 3_000_000 })
+	assert.ok(resolveRoute(id, { env: e, now: 3_500_000 }), "still live after the refresh")
+})
+
+test("a stable route means an identical subject, which is what clients group on", () => {
+	const e = env()
+	const context = {
+		sessionId: SESSION,
+		sessionName: "fix-login",
+		device: "ybc-linux",
+		cwd: "/home/ybc",
+		lastAssistantText: "turn one",
+		turns: 1,
+	}
+	const secret = Buffer.alloc(32, 1)
+
+	const firstTag = ensureRouteForSession({ sessionId: SESSION, subject: "pi: ctx", device: "ybc-linux", env: e })
+	const first = buildSettleSubject(context, secret, firstTag)
+	const secondTag = ensureRouteForSession({ sessionId: SESSION, subject: "pi: ctx", device: "ybc-linux", env: e })
+	const second = buildSettleSubject({ ...context, lastAssistantText: "turn two", turns: 2 }, secret, secondTag)
+
+	assert.equal(first, second, "threading by conversation topic needs a byte-identical subject")
 })

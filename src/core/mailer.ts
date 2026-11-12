@@ -23,6 +23,10 @@ export interface OutboundMessage {
 	text: string
 	/** Base directory for relative image paths; normally the agent's project dir. */
 	cwd?: string
+	/** RFC 5322 threading: the message this one answers. */
+	inReplyTo?: string
+	/** RFC 5322 threading: the conversation chain, oldest first. */
+	references?: string[]
 	/** Defaults to the SMTP user. */
 	from?: string
 }
@@ -104,6 +108,10 @@ export async function sendMail(
 		// plain-text-only notifications produced reply threads of raw repeated text.
 		text: message.text,
 		html: rendered.html,
+		// Thread every notification for a session into one conversation. Subject alone is
+		// enough for Outlook's conversation topic; these headers are what Gmail uses.
+		...(message.inReplyTo ? { inReplyTo: message.inReplyTo } : {}),
+		...(message.references?.length ? { references: message.references.join(" ") } : {}),
 		// Local images become cid: attachments; a bare file path would arrive broken.
 		...(rendered.attachments.length > 0 ? { attachments: rendered.attachments } : {}),
 	})) as { messageId?: string } | undefined

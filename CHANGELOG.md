@@ -125,6 +125,26 @@ IDLE event - the opposite of what ARCHITECTURE.md promises.
 - spawn.ts: a detached daemon now appends to `daemon.log` instead of discarding stdio.
   `stdio: "ignore"` is why this failure was invisible; the log is what found it.
 
+### All notifications for a session thread into one conversation
+
+Each notification used to be its own thread: the route id changed per message, so no two
+subjects matched, and no `In-Reply-To`/`References` were set.
+
+Two changes make one conversation per session:
+
+- **One route per session**, reused and refreshed, instead of one per message. The subject
+  is then byte-identical across a session's notifications, which is what Outlook's
+  conversation topic keys on.
+- **RFC 5322 headers**: `In-Reply-To` is the session's previous outbound Message-ID and
+  `References` is its root, both derived from the outbound id registry that already
+  existed for reply routing.
+
+The extension passes `sessionId` on `/send`; the daemon looks the thread up before
+sending, so the ids are read before the new message is recorded.
+
+Threading is worth it for more than tidiness: a reply is now `In-Reply-To` a message we
+already recorded, so the reply-chain fallback and the subject route agree.
+
 ### The signature block no longer prints `--` twice
 
 Reported from a rendered notification: the block showed a top border *and* the literal

@@ -123,3 +123,18 @@ export function lookupChain(env: NodeJS.ProcessEnv, ids: readonly string[]): Thr
 export function threadCount(env: NodeJS.ProcessEnv): number {
 	return load(env).length
 }
+
+/**
+ * The message ids for one session, oldest first use: `root` is what every later message
+ * references, `last` is what the next one replies to. Together they let a mail client
+ * keep all notifications for a session in one conversation.
+ */
+export function sessionThread(
+	env: NodeJS.ProcessEnv,
+	sessionId: string,
+): { rootMessageId?: string; lastMessageId?: string } {
+	if (!sessionId) return {}
+	const mine = load(env).filter((r) => r.sessionId === sessionId)
+	if (mine.length === 0) return {}
+	return { rootMessageId: mine[0]!.messageId, lastMessageId: mine[mine.length - 1]!.messageId }
+}

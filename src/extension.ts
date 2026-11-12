@@ -22,7 +22,7 @@ import { buildTokenProvider } from "./core/token-source.ts"
 import { createOpenidClient } from "./core/oauth-openid.ts"
 import { createDeviceCodeProvider } from "./core/oauth-device.ts"
 import { fileTokenStore } from "./store/oauth-store.ts"
-import { registerRoute } from "./store/routes.ts"
+import { ensureRouteForSession, registerRoute } from "./store/routes.ts"
 import { fileURLToPath } from "node:url"
 
 const POLL_MS = 10_000
@@ -245,13 +245,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				await client?.send({
 					subject: message.subject,
 					text: message.text,
-					...(ctx ? { cwd: ctx.cwd } : {}),
+					...(ctx ? { cwd: ctx.cwd, sessionId: ctx.sessionManager.getSessionId() } : {}),
 				})
 			},
 			secret: () => secret,
 			config: config.notify,
+			// One route per session, so the subject stays identical and clients keep one thread.
 			tagFor: (context) =>
-				registerRoute({
+				ensureRouteForSession({
 					sessionId: context.sessionId,
 					...(context.device ? { device: context.device } : {}),
 					subject: `pi: ${context.sessionName ?? context.cwd}`,
@@ -553,7 +554,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				"Reply above this line with your answer.",
 			].join("\n")
 
-			const tag = registerRoute({
+			const tag = ensureRouteForSession({
 				sessionId,
 				device: config.device.name,
 				subject: String(params["subject"] ?? "pi: decision"),
@@ -563,6 +564,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				subject: `[pi:${tag}] ${String(params["subject"] ?? "pi: decision")}`,
 				text: body,
 				cwd: c.cwd,
+				sessionId,
 			})
 			if (!sent.ok) {
 				await client.release(sessionId)
@@ -585,7 +587,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			}
 			const secret = secretFn()
 			if (!secret) return { content: [{ type: "text", text: "Mailbridge secret missing." }], details: {} }
-			const tag = registerRoute({
+			const tag = ensureRouteForSession({
 				sessionId: sessionContext()?.sessionId ?? "",
 				device: config.device.name,
 				subject: String(params["subject"] ?? "pi: update"),
@@ -595,6 +597,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				subject: `[pi:${tag}] ${String(params["subject"] ?? "pi: update")}`,
 				text: String(params["message"] ?? ""),
 				...((sessionContext()?.cwd ?? undefined) ? { cwd: sessionContext()!.cwd } : {}),
+				...(sessionContext()?.sessionId ? { sessionId: sessionContext()!.sessionId } : {}),
 			})
 			return {
 				content: [{ type: "text", text: sent.ok ? "Sent." : "Could not send." }],

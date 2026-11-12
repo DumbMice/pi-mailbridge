@@ -113,6 +113,37 @@ export function registerRoute(options: RegisterRouteOptions): string {
 	return id
 }
 
+/**
+ * One route per **session**, reused and refreshed on every notification.
+ *
+ * Per-message ids made every subject unique, which defeats the conversation grouping
+ * that mail clients do by subject - each notification became its own thread. Keeping the
+ * id stable per session means the subject is byte-identical across notifications, so
+ * Outlook's conversation topic and Gmail's subject grouping both keep one thread, and
+ * the RFC 5322 headers we also set have something stable to point at.
+ */
+export function ensureRouteForSession(options: RegisterRouteOptions): string {
+	const env = options.env ?? process.env
+	const now = options.now ?? Date.now()
+	const ttlHours = options.ttlHours ?? 30 * 24
+
+	const items = load(env)
+	const existing = items.find((r) => r.sessionId === options.sessionId && r.expiresAt > now)
+	if (existing) {
+		// Refresh so a long-lived session keeps its id, and keep the subject current.
+		existing.expiresAt = now + ttlHours * 3600_000
+		if (existing.device !== options.device) {
+			if (options.device) existing.device = options.device
+			else delete existing.device
+		}
+		existing.subject = options.subject
+		save(env, items)
+		return existing.id
+	}
+
+	return registerRoute({ ...options, env, now, ttlHours })
+}
+
 export interface ResolveRouteOptions {
 	/** The scanning device; a route minted elsewhere does not resolve here. */
 	device?: string

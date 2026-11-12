@@ -113,3 +113,17 @@ test("stores are isolated per state dir", () => {
 	assert.equal(isJournaled(b, 1), false)
 	assert.equal(readCursor(b), 0)
 })
+
+// --- session threading -----------------------------------------------------
+
+test("sessionThread reports the root and the latest message id", async () => {
+	const { recordOutbound, sessionThread } = await import("../src/store/threads.ts")
+	const e = env()
+	recordOutbound(e, { messageId: "<a@qq.com>", sessionId: "s1", subject: "one" })
+	recordOutbound(e, { messageId: "<b@qq.com>", sessionId: "s1", subject: "two" })
+	recordOutbound(e, { messageId: "<c@qq.com>", sessionId: "s2", subject: "other" })
+
+	assert.deepEqual(sessionThread(e, "s1"), { rootMessageId: "a@qq.com", lastMessageId: "b@qq.com" })
+	assert.deepEqual(sessionThread(e, "s2"), { rootMessageId: "c@qq.com", lastMessageId: "c@qq.com" })
+	assert.deepEqual(sessionThread(e, "unknown"), {})
+})
