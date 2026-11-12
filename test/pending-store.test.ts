@@ -288,3 +288,10 @@ test("a claim is refused when the record belongs to a space the mailbox has left
 	assert.deepEqual(claimPending(e, 7, "A", Date.now(), 1111, 2222), { ok: false, reason: "stale-space" })
 	assert.equal(pendingSize(e), 1)
 })
+
+test("the journal is capped", async () => {
+	const { JOURNAL_CAP, journalSize } = await import("../src/store/journal.ts")
+	const e = env()
+	for (let uid = 1; uid <= JOURNAL_CAP + 5; uid++) journal(e, uid, 1111)
+	assert.equal(journalSize(e), JOURNAL_CAP, "the oldest acked uids are trimmed")
+})

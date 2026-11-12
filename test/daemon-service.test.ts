@@ -892,3 +892,42 @@ test("a malformed request target does not crash the daemon", async () => {
 		await service.close()
 	}
 })
+
+test("the SSE client cap is enforced", async () => {
+	// Bounded resources are a stated invariant; the cap was untested.
+	const { MAX_SSE_CLIENTS } = await import("../src/daemon/service.ts")
+	const { request } = await import("node:http")
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-sse-")) },
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
+		send: async () => ({ messageId: "<x@qq.com>" }),
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	const openStreams: { destroy(): void }[] = []
+	const open = (): Promise<number> =>
+		new Promise((resolve) => {
+			let status = -1
+			const req = request(
+				{ host: "127.0.0.1", port, path: "/events", method: "GET", headers: { authorization: `Bearer ${TOKEN}` } },
+				(res) => {
+					status = res.statusCode ?? 0
+					if (status === 200) openStreams.push(res)
+					res.resume()
+					resolve(status)
+				},
+			)
+			req.on("error", () => resolve(-1))
+			req.end()
+		})
+	try {
+		const statuses: number[] = []
+		for (let i = 0; i < MAX_SSE_CLIENTS + 1; i++) statuses.push(await open())
+		assert.equal(statuses.filter((s) => s === 503).length, 1, "exactly one client is refused")
+		assert.equal(statuses.filter((s) => s === 200).length, MAX_SSE_CLIENTS)
+	} finally {
+		for (const res of openStreams) res.destroy()
+		await service.close()
+	}
+})

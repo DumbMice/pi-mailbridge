@@ -195,3 +195,14 @@ test("a lock left by a dead process is stolen within the retry budget", async ()
 	assert.match(id, /^[0-9a-f]{6}$/, "minting succeeded despite the stale lock")
 })
 
+
+test("the route store is capped", async () => {
+	// An unbounded store is a memory leak; the cap also bounds the file the scanner reads.
+	const { ROUTES_CAP } = await import("../src/store/routes.ts")
+	const e = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-routes-cap-")) }
+	for (let i = 0; i < ROUTES_CAP + 5; i++) {
+		ensureRouteForSession({ sessionId: `s-${i}`, subject: "x", env: e })
+	}
+	const { routeCount } = await import("../src/store/routes.ts")
+	assert.equal(routeCount(e), ROUTES_CAP, "oldest routes are trimmed at the cap")
+})
