@@ -238,7 +238,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 | Any IMAP/SMTP host (self-hosted, Posteo, Fastmail, QQ, 163, Zoho…) | `LOGIN` app password | ✅ works |
 | Gmail | `XOAUTH2` or app password | ✅ works |
 | Microsoft 365 / work accounts | `XOAUTH2` | ✅ usually works |
-| **Personal** `@outlook.com` / `@hotmail.com` | `XOAUTH2` | ⚠️ see below |
+| **Personal** `@outlook.com` / `@hotmail.com` | `XOAUTH2` | ⚠️ two obstacles — see below |
 
 **Outlook needs OAuth2, not a password.** Microsoft retired Basic Authentication on
 2024-09-16, so an app password no longer authenticates. This package ships a
@@ -260,6 +260,23 @@ pi-mailbridge --auth      # prints a URL + code, waits for approval
 One-time setup (free, ~2 min): register an app in Entra, enable *Allow public
 client flows*, copy the client id. Full walkthrough, including the scope tables
 and the Gmail equivalent: **[docs/OAUTH.md](./docs/OAUTH.md)**.
+
+#### Personal Outlook has *two* obstacles
+
+1. **No Entra tenant.** A fresh Hotmail/MSA has no directory, so
+   `entra.microsoft.com` says "account does not exist" — app registration needs a
+   tenant. Fix: free Azure signup (card/phone usually required), or a work tenant
+   you already have with *personal accounts* in the supported account types.
+2. **The servers may refuse the token anyway.** See below.
+
+**If you only need a dedicated pi mailbox, use Gmail.** Google Cloud has no tenant
+concept, and Gmail's IMAP/OAuth2 is the most reliable of the three:
+
+```
+/mailbridge setup pi-yourname@gmail.com to you@hotmail.com force
+```
+
+Details: [docs/OAUTH.md](./docs/OAUTH.md).
 
 #### The personal-Outlook caveat
 

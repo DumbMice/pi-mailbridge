@@ -81,6 +81,15 @@ the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
 - `/mailbridge check` now warns when `oauth` is configured but neither account
   uses `XOAUTH2`, which would otherwise be silently ignored.
 
+### Docs: personal Outlook needs an Entra tenant
+
+Corrected a misleading instruction. A new Hotmail address is a Microsoft account,
+not a tenant; signing in to the Entra admin centre lands in the shared "Microsoft
+Services" tenant and reports "account does not exist". Registering an app requires
+a directory (free Azure signup, or a work tenant). docs/OAUTH.md now explains the
+distinction, the three routes, and recommends Gmail for a dedicated pi mailbox —
+which needs no tenant and avoids the personal-Outlook IMAP/SMTP refusals too.
+
 ### DMARC: trust the delivering relay, pin only when possible
 
 `trustedAuthservId` is now optional. Unset means the **topmost**

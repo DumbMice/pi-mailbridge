@@ -39,6 +39,59 @@ For Gmail: [Google Cloud console](https://console.cloud.google.com) → APIs &
 Services → Credentials → *Create OAuth client ID* → **TVs and Limited Input
 devices** (that is Google's name for device flow) → enable the Gmail API.
 
+## Why can't I log into Entra with my new Hotmail address?
+
+Because it is two different systems:
+
+| | What it is | What it's for |
+| --- | --- | --- |
+| **Microsoft account (MSA)** | the identity behind `you@hotmail.com` | signing in to Outlook, and the **device-code flow** |
+| **Microsoft Entra tenant** | a *directory* that holds app registrations | `entra.microsoft.com`, `portal.azure.com` |
+
+A brand-new Hotmail address has **no tenant**. When you sign in to the Entra
+admin centre with it, Microsoft drops you into the shared **"Microsoft Services"
+tenant**, where you are not a member — hence "this account does not exist".
+Microsoft's own answer says it plainly:
+
+> Within the default tenant, there is no linked directory for administrative
+> actions such as app registration.
+
+Nothing is wrong with your mailbox. You just do not have a directory to put an app in.
+
+### Your three options
+
+**A. Switch the pi mailbox to Gmail (recommended).** Google Cloud has no tenant
+concept — any Google account can create an OAuth client, free, in about two
+minutes:
+
+```
+/mailbridge setup pi-yourname@gmail.com to you@hotmail.com force
+```
+
+`--setup` discovers `imap.gmail.com` / `smtp.gmail.com` and attaches the Google
+preset automatically. This also dodges a second, independent problem: personal
+`outlook.com` mailboxes frequently refuse IMAP/SMTP OAuth2 at the server (see the
+caveat below). Two obstacles replaced by zero.
+
+**B. Get a free Entra tenant for the Hotmail account.** Sign up for a free Azure
+account with that MSA; Microsoft creates a default directory where you are global
+admin, and app registration then works there. Honest caveats: signup usually asks
+for a card or phone verification, and some new personal accounts are refused
+outright — it is the step people most often get stuck on.
+
+**C. Use a tenant you already have.** If you have a work/school account with an
+Entra tenant, register the app there instead. Set *Supported account types* to
+include **personal Microsoft accounts**, and the device flow will still accept the
+Hotmail identity. Remember **Allow public client flows → Yes**.
+
+### What the app registration needs, wherever it lives
+
+- **Allow public client flows → Yes** (device code is a public-client flow;
+  without it you get `AADSTS7000218: the request body must contain 'client_assertion'`)
+- Supported account types including **personal Microsoft accounts**, if the pi
+  mailbox is `@hotmail.com`/`@outlook.com`
+- No client secret, no redirect URI
+
 ## Configuration
 
 ```json
