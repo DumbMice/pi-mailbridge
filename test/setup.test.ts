@@ -1,11 +1,12 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, readFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { runSetup } from "../src/core/setup.ts"
 import { buildSetupConfig } from "../src/core/discover.ts"
+import { configPath } from "../src/store/paths.ts"
 
 const env = () => ({ XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "pmb-setup-")) })
 
@@ -182,4 +183,45 @@ test("the auto-detected Sent folder cannot be triggered by a lookalike host", ()
 		const config = buildSetupConfig("someone@example.com", "you@example.com", discovered(host))
 		assert.equal(config.mail.imap.sentFolder, "Sent Messages", `${host} is QQ/Foxmail`)
 	}
+})
+
+test("setup refuses a bad human address instead of writing it", async () => {
+	// `to` is where every notification goes and the only sender the allowlist accepts. A typo
+	// used to be written verbatim: mails to a nonexistent address, every reply rejected.
+	const dir = mkdtempSync(join(tmpdir(), "setup-to-"))
+	const env = { XDG_CONFIG_HOME: dir }
+	const result = await runSetup({ address: "pi@example.com", to: "typo-at-example.com", env })
+	assert.equal(result.ok, false)
+	assert.match(result.steps.join("\n"), /not an email address: typo-at-example.com/)
+	assert.equal(existsSync(configPath(env)), false, "and nothing was written")
+})
+
+test("setup force keeps the machine's device name", async () => {
+	// Records are stamped with the device that scanned them; renaming the machine on `force`
+	// made already-queued replies undeliverable, with only a status line to say so.
+	const dir = mkdtempSync(join(tmpdir(), "setup-device-"))
+	const env = { XDG_CONFIG_HOME: dir }
+	mkdirSync(join(dir, "pi-mailbridge"), { recursive: true })
+	writeFileSync(
+		configPath(env),
+		JSON.stringify({ device: { name: "my-laptop" }, mail: { to: "you@example.com" } }),
+	)
+
+	// Discovery is stubbed through the injected fetch: a minimal autoconfig document.
+	const xml = `<?xml version="1.0"?><clientConfig version="1.1"><emailProvider id="example.com">
+		<incomingServer type="imap"><hostname>imap.example.com</hostname><port>993</port><socketType>SSL</socketType>
+		<authentication>password-cleartext</authentication><username>%EMAILADDRESS%</username></incomingServer>
+		<outgoingServer type="smtp"><hostname>smtp.example.com</hostname><port>465</port><socketType>SSL</socketType>
+		<authentication>password-cleartext</authentication><username>%EMAILADDRESS%</username></outgoingServer>
+	</emailProvider></clientConfig>`
+	const result = await runSetup({
+		address: "pi@example.com",
+		to: "you@example.com",
+		force: true,
+		env,
+		fetchImpl: (async () => new Response(xml, { status: 200 })) as unknown as typeof fetch,
+	})
+	assert.equal(result.ok, true, result.steps.join("\n"))
+	const written = JSON.parse(readFileSync(configPath(env), "utf8")) as { device?: { name?: string } }
+	assert.equal(written.device?.name, "my-laptop", "the identity survives force")
 })

@@ -1314,3 +1314,47 @@ test("the status panel says when replies are held for another device", async () 
 	assert.match(panel, /held for another device: 3/, panel)
 	assert.match(panel, /renamed device\.name/, "and names the likely cause")
 })
+
+test("session_start replaces a stale daemon once, not twice", async () => {
+	// The replacement path already builds the runtime and starts polling; session_start then fell
+	// through and built a second one, orphaning the first notifier (a settle armed there could
+	// then fire alongside the new one).
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on", apiVersion: 0 })
+	let clients = 0
+	let modes = 0
+	let ensures = 0
+	const rawClient = daemon.client as unknown as { mode: () => Promise<unknown> }
+	const realMode = rawClient.mode.bind(rawClient)
+	// Each runtime build asks the daemon for its mode; a shutdown-only client does not.
+	rawClient.mode = async () => {
+		modes += 1
+		return realMode()
+	}
+	const pi = fakePi(ctx(notes))
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => {
+			clients += 1
+			return daemon.client
+		},
+		// First sight: an incompatible daemon is answering. After it is shut down there is
+		// nothing to reuse, so the next call spawns (and reports healthy).
+		ensureDaemon: async () => {
+			ensures += 1
+			return ensures === 1 ? { healthy: false, incompatible: true, apiVersion: 0 } : true
+		},
+		probeHealth: async () => false,
+		versionCheckMs: 0,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.equal(modes, 1, "one runtime, built once")
+	assert.equal(daemon.shutdowns, 1, "the stale daemon was replaced")
+})

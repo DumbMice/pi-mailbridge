@@ -4,7 +4,7 @@
 // entry points cannot drift. It writes the config file and reports what it did;
 // it never starts a process and never prompts.
 
-import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 
 import { shortHostname } from "./config.ts"
@@ -48,7 +48,26 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
 		}
 	}
 
+	// The human's address is where every notification goes and the only sender the allowlist
+	// accepts. A typo here is a config that mails nowhere and rejects every reply, so check it
+	// rather than writing it.
+	if (!domainOf(to)) {
+		return { ok: false, steps: [`not an email address: ${to}`], next: "pass `to <your-address>`" }
+	}
+
 	const target = configPath(env)
+	// A device name is an identity, not a mail setting: `force` must not rename the machine,
+	// because records already scanned under the old name would never be offered again.
+	const previousDevice = (() => {
+		try {
+			const parsed = JSON.parse(readFileSync(target, "utf8")) as { device?: { name?: unknown } }
+			const name = parsed?.device?.name
+			return typeof name === "string" && name.trim() ? name.trim() : undefined
+		} catch {
+			return undefined
+		}
+	})()
+
 	if (existsSync(target) && !options.force) {
 		return {
 			ok: false,
@@ -75,7 +94,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
 	const built = buildSetupConfig(address, to, discovered)
 	const config = {
 		...built,
-		device: { name: shortHostname() },
+		device: { name: previousDevice ?? shortHostname() },
 		daemon: { host: "127.0.0.1", port: 4177 },
 		notify: { onSettled: true, debounceMs: 10_000, notifyOnAborted: false },
 		tuning: { idleRenewMs: 25 * 60 * 1000, backoffInitialMs: 1000, backoffMaxMs: 60_000 },

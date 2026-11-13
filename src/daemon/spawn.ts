@@ -90,6 +90,8 @@ export interface EnsureDaemonResult {
 	incompatible?: boolean
 	/** Why the spawn failed, when it did (EAGAIN, ENOENT, a sandbox refusal). */
 	error?: string
+	/** The protocol the answering daemon spoke, when one answered and was not reused. */
+	apiVersion?: number
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
@@ -109,7 +111,7 @@ export async function ensureDaemon(options: EnsureDaemonOptions): Promise<Ensure
 		// Reuse only a daemon this build can talk to. An incompatible one is reported so the
 		// caller can replace it, instead of being adopted and failing on the first request.
 		if (apiCompatible(API_VERSION, found.apiVersion)) return { started: false, healthy: true }
-		return { started: false, healthy: false, incompatible: true }
+		return { started: false, healthy: false, incompatible: true, apiVersion: found.apiVersion }
 	}
 
 	const spawn = options.spawnImpl ?? nodeSpawn

@@ -89,7 +89,10 @@ export interface MailbridgeDeps {
 	/** Build a daemon client for a base URL and bearer token. */
 	makeClient?: (baseUrl: string, token: string) => DaemonClient
 	/** Make sure the daemon is up. */
-	ensureDaemon?: (baseUrl: string, scriptPath: string) => Promise<boolean>
+	ensureDaemon?: (
+		baseUrl: string,
+		scriptPath: string,
+	) => Promise<boolean | { healthy: boolean; incompatible?: boolean; error?: string; apiVersion?: number }>
 	/** Injected by tests: is something answering on this base URL? */
 	probeHealth?: (options: { baseUrl: string }) => Promise<boolean>
 	/** How often to re-check the daemon's protocol. Defaults to a minute. */
@@ -266,19 +269,24 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 * reloads this module while the daemon keeps executing what it started with. A version it
 	 * cannot resolve routing ids against is worse than no daemon, because replies are consumed.
 	 */
-	async function replaceOutdatedDaemon(): Promise<boolean> {
+	async function replaceOutdatedDaemon(known?: { apiVersion?: number }): Promise<boolean> {
 		// Once a respawn has proved the mismatch is not ours to fix, stop trying.
 		if (protocolStuck) return false
 		if (Date.now() - lastVersionCheck < (deps.versionCheckMs ?? VERSION_CHECK_MS)) return false
 		lastVersionCheck = Date.now()
-		const health = await client?.health()
-		if (!health?.ok || apiCompatible(API_VERSION, health.data.apiVersion)) return false
+		// No client yet (a fresh session that found a daemon from another install) is exactly the
+		// case this must handle: ask the daemon directly, or use what the spawn probe already saw.
+		const health = client ? await client.health() : undefined
+		const theirs = known?.apiVersion ?? (health?.ok ? health.data.apiVersion : undefined)
+		if (apiCompatible(API_VERSION, theirs)) return false
 
 		ctx?.ui.notify(
-			`mailbridge: replacing the running daemon (protocol ${health.data.apiVersion ?? "0"} → ${API_VERSION})`,
+			`mailbridge: replacing the running daemon (protocol ${theirs ?? "0"} → ${API_VERSION})`,
 			"info",
 		)
-		await client?.shutdown()
+		// To stop it we need a client, even if this session has no runtime yet.
+		const stopping = client ?? buildClient()
+		await stopping?.shutdown().catch(() => undefined)
 		client = undefined
 		runner = undefined
 
@@ -343,20 +351,28 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		return true
 	}
 
+	/** A client for the current base URL, or undefined when there is no secret yet. */
+	function buildClient(secret: Buffer | undefined = secretFn()): DaemonClient | undefined {
+		if (!secret) return undefined
+		const token = secret.toString("base64url")
+		const makeClient =
+			deps.makeClient ??
+			((base: string, tok: string) => createDaemonClient({ baseUrl: base, token: tok, device: config.device.name }))
+		return makeClient(clientBase ?? currentBaseUrl(), token)
+	}
+
 	async function startRuntime(): Promise<boolean> {
 		const current = ctx
 		if (!current) return false
 		const secret = secretFn()
 		if (!secret) return false
 
-		const token = secret.toString("base64url")
-		const makeClient =
-			deps.makeClient ??
-			((base, tok) => createDaemonClient({ baseUrl: base, token: tok, device: config.device.name }))
 		clientBase = currentBaseUrl()
-		client = makeClient(clientBase, token)
+		client = buildClient(secret)
+		if (!client) return false
+		const active = client
 
-		const initialMode = await client.mode()
+		const initialMode = await active.mode()
 		// A session_shutdown can land during that await. Without this the runtime is rebuilt
 		// around a dead ctx: the poll keeps pinging and the daemon's idle exit can never fire.
 		if (!ctx) {
@@ -379,7 +395,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			mode: () => emailMode,
 			context: sessionContext,
 			send: async (message) => {
-				const sent = await client?.send({
+				const sent = await active.send({
 					subject: message.subject,
 					text: message.text,
 					// Exempt from the notification budget: a burst of `notify_user` mail must not
@@ -419,9 +435,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				// Pass every argument through. This adapter has silently dropped one before
 				// (uidValidity), which disabled the stale-space guard on the only production
 				// client while the store's own test stayed green.
-				claim: (uid, id, uidValidity) => client!.claim(uid, id, uidValidity),
-				ack: (uid, id, sessionId, uidValidity) => client!.ack(uid, id, sessionId, uidValidity),
-				pending: () => client!.pending(),
+				claim: (uid, id, uidValidity) => active.claim(uid, id, uidValidity),
+				ack: (uid, id, sessionId, uidValidity) => active.ack(uid, id, sessionId, uidValidity),
+				pending: () => active.pending(),
 			},
 			instanceId,
 			sessionId: () => ctx?.sessionManager.getSessionId(),
@@ -473,7 +489,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		// and the daemon reaps itself when no ping arrives in that time. A client without ping
 		// (tests, older shape) is not a reason to skip the drain.
 		try {
-			await client?.ping(instanceId)
+			await active.ping(instanceId)
 		} catch {
 			/* the drain below is what decides */
 		}
@@ -524,8 +540,16 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 * Spawn-or-reuse, keeping the reason. `incompatible` means something answered but spoke
 	 * another protocol - the replacement path, not the dead-daemon path.
 	 */
-	async function ensureDaemonDetailed(): Promise<{ healthy: boolean; incompatible?: boolean; error?: string }> {
-		if (deps.ensureDaemon) return { healthy: await deps.ensureDaemon(currentBaseUrl(), daemonScript()) }
+	async function ensureDaemonDetailed(): Promise<{
+		healthy: boolean
+		incompatible?: boolean
+		error?: string
+		apiVersion?: number
+	}> {
+		if (deps.ensureDaemon) {
+			const result = await deps.ensureDaemon(currentBaseUrl(), daemonScript())
+			return typeof result === "boolean" ? { healthy: result } : result
+		}
 		return ensureDaemon({ baseUrl: currentBaseUrl(), scriptPath: daemonScript(), env })
 	}
 
@@ -564,13 +588,16 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					: `mailbridge: daemon not reachable${ensured.error ? ` (${ensured.error})` : ""}; replies will not arrive`,
 				"warning",
 			)
-			// An incompatible daemon is the version-replacement path, not a dead one.
-			if (!ensured.incompatible || !(await replaceOutdatedDaemon())) {
-				// Keep polling even with no runtime: the tick retries the spawn, which is the
-				// only automatic recovery a session has.
-				if (ctx) startPolling()
+			// An incompatible daemon is the replacement path, not a dead one. It succeeds or it
+			// does not; either way this session must not then build a runtime on top of it.
+			if (ensured.incompatible) {
+				await replaceOutdatedDaemon(ensured)
 				return
 			}
+			// Keep polling even with no runtime: the tick retries the spawn, which is the only
+			// automatic recovery a session has.
+			if (ctx) startPolling()
+			return
 		}
 
 		if (!(await startRuntime())) {
