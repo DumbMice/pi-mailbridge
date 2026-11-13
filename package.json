@@ -1,5 +1,5 @@
 {
-  "name": "pi-mailbridge",
+  "name": "@dumbmice/pi-mailbridge",
   "version": "0.1.0",
   "description": "Drive Pi coding-agent sessions from your mailbox: get an email when an agent settles, reply to resume that exact session.",
   "keywords": [
@@ -15,6 +15,14 @@
     "afk"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dumbmice/pi-mailbridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dumbmice/pi-mailbridge/issues"
+  },
+  "homepage": "https://github.com/dumbmice/pi-mailbridge#readme",
   "author": {
     "name": "Yang Bangcheng",
     "email": "yangbangcheng@bigai.ai"

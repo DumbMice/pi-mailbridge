@@ -46,7 +46,7 @@ Everything else ports essentially as-is.
 | `mailer.js` | 86 | `src/core/mailer.ts` | Ported — `[omo:…]` → `[pi:…]`, nodemailer transport |
 | `config.js` | 184 | `src/core/config.ts` | Ported — layered config + env overrides |
 | `messages.js` | 102 | *(inlined)* | Folded into the modules that emit the text (`commands.ts`, `settle.ts`, `smoke.ts`) — no separate table |
-| `install.js` | 168 | **dropped** | opencode-specific installer; pi installs via `pi install npm:pi-mailbridge` |
+| `install.js` | 168 | **dropped** | opencode-specific installer; pi installs via `pi install npm:@dumbmice/pi-mailbridge` |
 | `store/paths.js` | 88 | `src/store/paths.ts` | Ported — XDG state dir |
 | `store/secret.js` | 116 | `src/store/secret.ts` | Ported — HMAC key file, first-writer-wins |
 | `store/pending-store.js` | 215 | `src/store/pending-store.ts` | Ported — durable pending replies |

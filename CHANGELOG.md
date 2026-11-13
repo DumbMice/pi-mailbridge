@@ -257,7 +257,7 @@ runner existed, and the replacement clears it.
 
 ### The package ships a build, because Node cannot strip types inside node_modules
 
-`pi install npm:pi-mailbridge` was broken in a way no local test could see: the extension loads
+`pi install npm:@dumbmice/pi-mailbridge` was broken in a way no local test could see: the extension loads
 through jiti (so TypeScript works), but the daemon it spawns ran `node --experimental-strip-types`
 on `src/daemon/main.ts` from inside `node_modules`, and Node refuses that with
 `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`. The first pi session after a usable config existed then showed "daemon not reachable;

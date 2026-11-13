@@ -20,6 +20,7 @@ const packageJson = JSON.parse(read("../package.json")) as {
 	files: string[]
 	pi: { extensions: string[] }
 	peerDependencies: Record<string, string>
+	repository?: { url?: string }
 }
 
 const readme = read("../README.md")
@@ -39,6 +40,24 @@ function leafKeys(value: unknown, prefix = ""): string[] {
 test("package.json declares the pi extension entry point", () => {
 	assert.deepEqual(packageJson.pi.extensions, ["./src/extension.ts"])
 	assert.ok(existsSync(new URL("../src/extension.ts", import.meta.url)))
+})
+
+test("the published name, its scope and the README's install command agree", () => {
+	// Three places name the package and only one of them is checked by npm. A rename that misses
+	// the README greets every new user with `pi install` failing on a name that does not exist.
+	assert.match(packageJson.name, /^@[a-z0-9-]+\/[a-z0-9-]+$/, "a scoped name: npm needs --access public")
+	const [scope, bare] = packageJson.name.slice(1).split("/")
+	assert.ok(scope && bare, "slug/bare parts")
+	assert.ok(
+		readme.includes(`pi install npm:${packageJson.name}`),
+		`README must install npm:${packageJson.name}`,
+	)
+	assert.ok(
+		(packageJson.repository?.url ?? "").includes(`/${scope}/${bare}`),
+		`repository must point at ${scope}/${bare}`,
+	)
+	// The command and the state directory keep the bare name: they are the product, not the scope.
+	assert.ok(readme.includes("pi-mailbridge --smoke"), "the CLI keeps the bare name")
 })
 
 test("the published file list excludes tests, state and secrets", () => {

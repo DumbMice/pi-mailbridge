@@ -426,7 +426,7 @@ test("the README says how to remove the package and its state", () => {
 	const readme = doc("README.md")
 	const section = /## Turning it off for good[\s\S]*?(?=\n## )/.exec(readme)?.[0]
 	assert.ok(section, "README should have an uninstall section")
-	assert.match(section, /pi remove npm:pi-mailbridge|however you installed it/, "says how to remove it")
+	assert.match(section, /pi remove npm:@dumbmice\/pi-mailbridge|however you installed it/, "says how to remove it")
 	assert.match(section, /state\/pi-mailbridge/, "and says where the state lives")
 	assert.match(section, /config\/pi-mailbridge/, "including the credentials")
 })

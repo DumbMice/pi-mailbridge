@@ -5,7 +5,8 @@ Answer your coding agent from your mailbox.
 When a [pi](https://pi.dev) session needs a decision, it emails you. You reply from your phone,
 your work laptop, a webmail tab — anything that can read mail — and **that same session
 continues**, with your answer as the next message. Notifications also carry rendered Markdown,
-screenshots inline, and any local file the agent linked, attached with its real name.
+screenshots embedded in the body where the agent put them, and any local file it linked attached
+with its real name.
 
 ![A pi-mailbridge notification in a mail client: a decision request with rendered Markdown, a recommendation, and a build log attached](./docs/images/notification.png)
 
@@ -30,14 +31,14 @@ Requires **Node.js ≥ 22.6**. `pi`'s own Node is fine. The daemon ships compile
 strip TypeScript inside `node_modules`); the pi extension itself is loaded by pi's jiti loader.
 
 ```bash
-pi install npm:pi-mailbridge
+pi install npm:@dumbmice/pi-mailbridge
 ```
 
 ## Lifecycle: who starts what
 
 | Event | What happens |
 | --- | --- |
-| `pi install npm:pi-mailbridge` | **Nothing runs.** The package is placed; no config, no daemon, no state directory. |
+| `pi install npm:@dumbmice/pi-mailbridge` | **Nothing runs.** The package is placed; no config, no daemon, no state directory. |
 | first pi session after a usable config exists | the extension probes `/health` and, if nothing answers, spawns the daemon detached — this is why a daemon can appear without you running `setup` in that session |
 | `/mailbridge setup` | writes the config, then starts (or reloads) the daemon and wires this session to it |
 | `/mailbridge smoke` | re-read the config in the running daemon (mail password, allowlist) |
@@ -268,8 +269,8 @@ A notification carries what it needs to be useful away from the desk:
 
 | In the mail body | What arrives |
 | --- | --- |
-| `![shot](./shot.png)` | the image, inline, up to 5 MB each |
-| `[the log](./build.log)` | `build.log` as an attachment, named after the file, listed as `the log [attached: build.log]` |
+| `![shot](./shot.png)` | the image **inline** — embedded in the body where the agent put it, via `Content-ID` (`<img src="cid:…">`), so it renders exactly there instead of sitting in the attachment tray. PNG/JPEG/GIF/WebP only, up to 5 MB each |
+| `[the log](./build.log)` | `build.log` as an **attachment** — nothing renders a PDF or a zip inside a mail body, so it is named beside the link: `the log [attached: build.log]` |
 
 Up to 10 attachments, 15 MB each for a linked file and 5 MB for an inline image, 18 MB in total
 by default (`notify.maxAttachmentMb`). Attachments are
@@ -552,7 +553,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 #    If you started it yourself, stop that process first.
 
 # 2. the package — the reverse of however you installed it, e.g.
-#    pi remove npm:pi-mailbridge
+#    pi remove npm:@dumbmice/pi-mailbridge
 
 # 3. everything it wrote: credentials, routing ids, queued replies
 rm -rf ~/.local/state/pi-mailbridge ~/.config/pi-mailbridge
