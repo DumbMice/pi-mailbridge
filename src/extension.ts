@@ -1005,14 +1005,19 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// A config reload cannot replace running code, so after an update the
 					// daemon would keep executing the old version. Stop the process and let
 					// the supervisor start a fresh one.
+					// Park the poll first. It runs every ten seconds and the wait below lasts up to
+					// five, so a tick landing inside it would hear the dying daemon's ping fail,
+					// spawn or attach a replacement, and make `survivor` true - reporting a failure
+					// for the restart this command just performed. Every exit below re-arms it.
+					stopPolling()
 					// To stop it we need a client even when this session has no runtime yet - the
 					// same rule the protocol replacement follows, and the remedy its own warning
 					// names.
 					const stopping = client ?? buildClient()
 					// `ok` only means it acknowledged, and a 401 or a timeout means nothing was
 					// confirmed at all - so none of them decides the outcome. `status: 0` with a
-					// network code is a refused connection: nothing was listening, which is not a
-					// failure to stop, and is the commonest way to run this command.
+					// network code is a fetch that never got a reply (refused, or the process died
+					// first): not a failure to stop, and the commonest way to run this command.
 					let nothingToStop = false
 					let survivor = false
 					if (stopping) {
@@ -1037,6 +1042,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 							}
 						}
 						if (!(await replaceRuntime())) {
+							// The loop was parked above; this session still needs it to retry.
+							startPolling()
 							c.ui.notify(
 								"daemon restarted, but this session could not attach — run /mailbridge restart again",
 								"warning",
@@ -1047,6 +1054,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						// because a command, unlike the poll tick, has no finally to do it.
 						startPolling()
 					}
+					if (!ensured.healthy) startPolling()
 					// Tell the user what happened, not what was attempted: an answering daemon that
 					// was never stopped is not a restart.
 					let message: string
@@ -1061,18 +1069,20 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						// between the two processes or a supervisor restarted it. Not a failure, but
 						// "with the current code" is not something this session can claim.
 						level = "warning"
-						message = "the old daemon was already gone; something is serving its port — run this again if it still misbehaves"
+						message =
+							"the old daemon was already gone, but something is still serving its port — try again, or close pi if it keeps answering"
 					} else if (survivor) {
 						// `ok:true` is not proof of exit: a shutdown that is still logging out of IMAP
 						// keeps answering, and so does a timeout. Only the port can say.
 						level = "error"
 						message = "a daemon is still answering after the stop request — try again, or close pi if it keeps answering"
 					} else if (!stopping) {
-						// No key means no client, and a daemon that was already running has one from
-						// its own startup: this session has just minted a different key, so "restarted"
-						// is not something it can claim.
+						// No key and no client when the stop was tried, so this session did not stop
+						// anything and cannot say what was served before. State the observation, not
+						// a cause: the daemon may equally have minted the key itself just now.
 						level = "warning"
-						message = "daemon is up, but this session minted a new key — if a daemon was already running, stop it and run this again"
+						message =
+							"daemon is up, but this session had no key when it tried to stop anything — if an older daemon was serving, stop it and run this again"
 					} else {
 						message = nothingToStop
 							? "the old daemon was already gone; a new one is up with the current code"

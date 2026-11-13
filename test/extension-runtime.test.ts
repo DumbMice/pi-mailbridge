@@ -95,13 +95,20 @@ function ctx(notes: string[] = []): ExtensionCtxLike {
 }
 
 function fakeTimers() {
-	const queue: { handler: () => void; ms: number }[] = []
+	const queue: { id: number; handler: () => void; ms: number }[] = []
+	let nextId = 1
 	const timers: SettleTimers = {
 		setTimeout(handler, ms) {
-			queue.push({ handler, ms })
-			return queue.length
+			const id = nextId++
+			queue.push({ id, handler, ms })
+			return id
 		},
-		clearTimeout() {},
+		clearTimeout(handle) {
+			// A real cancellation, so "the loop is parked" is observable: a no-op clearTimeout
+			// makes a cancelled tick indistinguishable from a live one.
+			const at = queue.findIndex((q) => q.id === handle)
+			if (at >= 0) queue.splice(at, 1)
+		},
 	}
 	return { queue, timers }
 }
@@ -1528,6 +1535,52 @@ test("/mailbridge restart trusts the port over the shutdown reply", async () => 
 	}
 })
 
+test("/mailbridge restart parks the tick before it stops the daemon", async () => {
+	// A tick that lands in the five-second wait hears the dying daemon's ping fail, spawns or
+	// attaches a replacement, and makes the command's own probe see a survivor - a failure
+	// reported for a restart that worked. The loop is parked before the stop, which is the only
+	// thing that stops a timer-driven tick from landing in that window.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const daemon = fakeDaemon({ mode: "on" })
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	const ticksWhileWaiting: number[] = []
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		// Called only from the wait after the stop: what is queued at that moment is exactly the
+		// question.
+		probeHealth: async () => {
+			ticksWhileWaiting.push(t.queue.filter((q) => q.ms === 10_000).length)
+			return false
+		},
+		stopWaitMs: 0,
+		timers: t.timers,
+		pollMs: 10_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+	assert.equal(t.queue.filter((q) => q.ms === 10_000).length, 1, "session_start armed one tick")
+
+	await captured.get("mailbridge")!("restart", ctx(notes))
+	for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.ok(ticksWhileWaiting.length > 0, "the wait ran")
+	assert.ok(
+		ticksWhileWaiting.every((n) => n === 0),
+		`no tick may be armed while the stop is being confirmed: ${JSON.stringify(ticksWhileWaiting)}`,
+	)
+	assert.equal(t.queue.filter((q) => q.ms === 10_000).length, 1, "and one is armed afterwards")
+	assert.match(notes.join("\n"), /restarted with the current code/)
+})
+
 test("every restart outcome carries the right level", async () => {
 	// `notify` takes a level and no test pinned it, so a failure reported at info (or the
 	// reverse) was invisible.
@@ -1535,6 +1588,7 @@ test("every restart outcome carries the right level", async () => {
 		name: string
 		reply?: { ok: false; status: number; code?: string }
 		healthy: boolean
+		incompatible?: boolean
 		probe?: boolean
 		want: string
 	}[] = [
@@ -1542,6 +1596,7 @@ test("every restart outcome carries the right level", async () => {
 		{ name: "already gone", reply: { ok: false, status: 0, code: "network" }, healthy: true, want: "info" },
 		{ name: "survived", reply: { ok: false, status: 401 }, healthy: true, probe: true, want: "error" },
 		{ name: "did not come back", healthy: false, want: "error" },
+		{ name: "still on another protocol", healthy: false, incompatible: true, want: "error" },
 		// The port still answers although nothing was confirmed: a warning, not silence.
 		{ name: "already gone but answering", reply: { ok: false, status: 0, code: "network" }, healthy: true, probe: true, want: "warning" },
 	]
@@ -1561,7 +1616,7 @@ test("every restart outcome carries the right level", async () => {
 			loadConfig: config,
 			secret: () => SECRET,
 			makeClient: () => daemon.client,
-			ensureDaemon: async () => c.healthy,
+			ensureDaemon: async () => (c.incompatible ? { healthy: false, incompatible: true, apiVersion: 0 } : c.healthy),
 			// The survivor is what the port says, not the reply.
 			probeHealth: async () => c.probe ?? false,
 			stopWaitMs: 0,
@@ -1578,6 +1633,9 @@ test("every restart outcome carries the right level", async () => {
 		}
 		await captured.get("mailbridge")!("restart", context)
 		assert.equal(levels.at(-1), c.want, `"${c.name}" must be ${c.want}: ${JSON.stringify(notes)}`)
+		if (c.name === "still on another protocol") {
+			assert.match(notes.join("\n"), /still on another protocol \(0 → 1\)/, "and name the pair")
+		}
 	}
 })
 
