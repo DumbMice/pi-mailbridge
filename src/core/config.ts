@@ -317,6 +317,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 		}
 	}
 
+	// The one setting that removes the loopback assumption. SECURITY.md says "do not"; saying it
+	// only in the docs means a hand-edited config gets no feedback at all.
+	const host = String(resolved.daemon.host ?? "").trim().toLowerCase()
+	if (host && !(host === "localhost" || host === "::1" || host === "[::1]" || host === "127.0.0.1" || host.startsWith("127."))) {
+		warnings.push(
+			`daemon.host is "${resolved.daemon.host}", not loopback — there is no TLS and the bearer token is the only guard; leave it at 127.0.0.1 unless you know why`,
+		)
+	}
+
 	const imap = resolved.mail.imap
 	if (!imap.host || !imap.user) warnings.push("mail.imap.host and mail.imap.user are required")
 	if (!resolved.mail.to) warnings.push("mail.to is required")

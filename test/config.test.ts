@@ -21,6 +21,26 @@ test("a string allowFrom is rejected at load instead of killing the scan per mes
 	assert.ok(cfg.warnings.some((w) => w.includes("allowFrom must be an array")))
 })
 
+test("a non-loopback daemon.host warns, because nothing else would say so", () => {
+	// SECURITY.md says "do not"; a hand-edited config got no feedback at all, while the port
+	// right beside it was validated.
+	const load = (host: string) => {
+		const dir = mkdtempSync(join(tmpdir(), "cfg-host-"))
+		const env = { XDG_CONFIG_HOME: dir }
+		mkdirSync(join(dir, "pi-mailbridge"), { recursive: true })
+		writeFileSync(configPath(env), JSON.stringify({ daemon: { host } }))
+		return loadConfig(env)
+	}
+	const exposed = load("0.0.0.0")
+	assert.ok(exposed.warnings.some((w) => /daemon\.host/.test(w) && /not loopback/.test(w)))
+	assert.equal(exposed.daemon.host, "0.0.0.0", "the value is kept; this is a warning, not a repair")
+
+	for (const host of ["127.0.0.1", "::1", "localhost"]) {
+		const quiet = load(host)
+		assert.ok(!quiet.warnings.some((w) => /daemon\.host/.test(w)), `${host} must not warn`)
+	}
+})
+
 test("a non-numeric debounceMs falls back and warns", () => {
 	const dir = mkdtempSync(join(tmpdir(), "pmb-config-"))
 	const env = { XDG_CONFIG_HOME: dir }
