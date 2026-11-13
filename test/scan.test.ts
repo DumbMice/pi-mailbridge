@@ -800,6 +800,33 @@ test("a reply whose only content was an over-cap attachment is persisted with a 
 	})
 })
 
+test("an attachment-only stub can also make room by expiring, not just stall", () => {
+	// The stub path skipped the age-expiry recovery the real-record path has, so on a full queue it
+	// stalled where a record with a body would have recovered - contradicting the documented rule
+	// that a refusal is a stall the queue digs itself out of.
+	const e = env()
+	for (let uid = 1; uid <= PENDING_CAP; uid++) {
+		addPending(e, {
+			uid,
+			sessionId: "gone",
+			from: "you@example.com",
+			subject: "x",
+			body: "y",
+			receivedAt: Date.now() - 8 * 24 * 3600_000,
+		})
+	}
+	const big = { filename: "shot.png", contentType: "image/png", content: Buffer.alloc(1_500_000) }
+	return scanAndProcess(config(), {
+		source: source([msg(PENDING_CAP + 1, { text: "", attachments: [big] })]),
+		secret: SECRET,
+		env: e,
+	}).then((r) => {
+		assert.equal(r.reasons["expired"], 1, "the undeliverable backlog was expired")
+		assert.equal(r.persisted, 1, "and the stub was accepted")
+		assert.equal(r.reasons["pending-full"], undefined, "no stall")
+	})
+})
+
 test("an attachment-only stub is delivered, not counted as rejected", () => {
 	// rejected++ here read as "mail lost" in the panel while the agent did receive the note.
 	const e = env()

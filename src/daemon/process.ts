@@ -251,7 +251,31 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			continue
 		}
 
-		// A body cap as well as a message cap: the pending store is re-read on every poll and
+		/**
+	 * Persist, and if the queue is full make room by expiring records nothing can deliver any more.
+	 *
+	 * Shared by both insertion sites. The age-expiry recovery is the only relief a full queue has,
+	 * and the attachment-only stub used to skip it: a byte-full queue stalled there where a real
+	 * record would have recovered, which contradicted ARCHITECTURE's promise that refusal is a
+	 * stall the queue digs itself out of.
+	 */
+	function persistWithPressure(record: PendingRecord): boolean {
+		if (addPending(env, record).ok) return true
+		const expired = expirePending(env)
+		if (expired.length === 0) return false
+		// Not a rejection of *this* message: the reason says what was dropped, and the counts stay
+		// usable ("examined 1, rejected 0"), which they did not when the expiry was counted as one.
+		bump(result.reasons, "expired")
+		// Free a slot only when nothing else is queued for that session, or a live record would
+		// lose its reservation.
+		const stillQueued = new Set(listPending(env).map((r) => r.sessionId))
+		for (const gone of expired) {
+			if (!stillQueued.has(gone.sessionId)) deps.onDropped?.(gone.sessionId)
+		}
+		return addPending(env, record).ok
+	}
+
+	// A body cap as well as a message cap: the pending store is re-read on every poll and
 		// on every /health, so one enormous reply would be paid for repeatedly.
 		const stripped = stripQuoted(message.text)
 		// Marked, not silently cut: the agent must be able to tell that its instruction is
@@ -291,8 +315,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 					...(uidValidity === undefined ? {} : { uidValidity }),
 					device: config.device.name,
 				}
-				const persisted = addPending(env, stub)
-				if (!persisted.ok) {
+				if (!persistWithPressure(stub)) {
 					// Same rule as a real record: do not advance past it, retry when there is room.
 					bump(result.reasons, "pending-full")
 					break
@@ -323,30 +346,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		}
 
 		// Persist BEFORE the cursor moves. A crash here leaves the mail unseen.
-		const added = addPending(env, { ...record, device: config.device.name })
-		if (!added.ok) {
-			// The queue is full. Before stalling every future reply, drop records nothing can
-			// deliver any more - a session that has not come back in a week. This is the only
-			// place age-based expiry runs, because it is the only place the loss buys progress.
-			const expired = expirePending(env)
-			if (expired.length > 0) {
-				// Not a rejection of *this* message: the reason says what was dropped, and the
-				// counts stay usable ("examined 1, rejected 1"), which they did not when the
-				// expiry was counted here and the refusal below counted it again.
-				bump(result.reasons, "expired")
-				// The same rule as the UID-space drop: free a slot only when nothing else is
-				// queued for that session, or a live record would lose its reservation.
-				const stillQueued = new Set(listPending(env).map((r) => r.sessionId))
-				for (const gone of expired) {
-					if (!stillQueued.has(gone.sessionId)) deps.onDropped?.(gone.sessionId)
-				}
-				const retry = addPending(env, { ...record, device: config.device.name })
-				if (retry.ok) {
-					result.persisted++
-					result.cursor = advanceCursor(env, uid)
-					continue
-				}
-			}
+		if (!persistWithPressure({ ...record, device: config.device.name })) {
 			// The queue is full. STOP the batch: advancing past this UID would lose it, and
 			// so would processing a later UID (the cursor is monotonic, so it would jump
 			// over this one). The mail stays unread and the whole batch is retried once
