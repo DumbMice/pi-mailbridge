@@ -1111,8 +1111,7 @@ test("the documented queue bounds match the constants they describe", () => {
 	// repo's mechanism for keeping prose honest. Derive them from the constants and match the whole
 	// sentence: asserting that "8 MB" appears somewhere let one of three occurrences drift.
 	const spaced = String(pendingCap).replace(/\B(?=(\d{3})+(?!\d))/g, " ")
-	const megabytes = `${pendingMaxBytes / 1024 / 1024} MB`
-	const flat = (text: string): string => text.replace(/\s+/g, " ")
+	const megabytes = `${Math.round(pendingMaxBytes / 1024 / 1024)} MB`
 
 	assert.ok(
 		flat(doc("README.md")).includes(`1 000 undelivered replies, or ${megabytes}`),

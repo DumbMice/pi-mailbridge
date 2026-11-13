@@ -6,6 +6,7 @@ import { join } from "node:path"
 
 import {
 	MAX_ATTACHMENTS,
+	MAX_NAME_CHARS,
 	MAX_TOTAL_BYTES,
 	normalizeMime,
 	selectAttachments,
@@ -126,4 +127,22 @@ test("an attachment-only reply does not start with an empty text block", () => {
 	assert.ok(Array.isArray(content))
 	assert.equal(content.length, 1)
 	assert.equal(content[0]!.type, "image")
+})
+
+test("an enormous filename is capped, because it is persisted with the record", () => {
+	// The MIME filename parameter has no upstream bound, and the name goes into pending.json. A
+	// multi-megabyte one could push a record past the store's byte ceiling and be refused forever.
+	const huge = "n".repeat(2_000_000)
+	const { accepted } = selectAttachments([{ filename: huge, contentType: "image/png", content: Buffer.from("x") }])
+	assert.equal(accepted.length, 1)
+	assert.ok(accepted[0]!.name.length <= MAX_NAME_CHARS, `capped to ${accepted[0]!.name.length}`)
+	// A normal name is untouched, and an absent one still gets a placeholder.
+	assert.equal(
+		selectAttachments([{ filename: "shot.png", contentType: "image/png", content: Buffer.from("x") }]).accepted[0]!.name,
+		"shot.png",
+	)
+	assert.match(
+		selectAttachments([{ contentType: "image/png", content: Buffer.from("x") }]).accepted[0]!.name,
+		/^attachment-1$/,
+	)
 })

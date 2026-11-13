@@ -17,7 +17,7 @@ import {
 } from "../src/store/pending-store.ts"
 import { PENDING_MAX_BYTES, recordBytes } from "../src/store/pending-store.ts"
 import { MAX_BODY_CHARS, MAX_SUBJECT_CHARS, persistedSubject } from "../src/daemon/process.ts"
-import { MAX_ATTACHMENTS, MAX_TOTAL_BYTES } from "../src/core/attachments.ts"
+import { MAX_ATTACHMENTS, MAX_NAME_CHARS, MAX_TOTAL_BYTES } from "../src/core/attachments.ts"
 import { advanceCursor, readCursor, resetCursor } from "../src/store/uid-cursor.ts"
 import { statePath } from "../src/store/paths.ts"
 import { isJournaled, journal, journalSize } from "../src/store/journal.ts"
@@ -372,7 +372,7 @@ test("the default ceiling is exercised, and it is above the largest record we ac
 		subject: persistedSubject("s".repeat(8 * 1024 * 1024)),
 		body: "a".repeat(MAX_BODY_CHARS),
 		attachments: Array.from({ length: MAX_ATTACHMENTS }, (_, i) => ({
-			name: `a${i}.png`,
+			name: "n".repeat(MAX_NAME_CHARS),
 			mimeType: "image/png",
 			size: Math.floor(MAX_TOTAL_BYTES / MAX_ATTACHMENTS),
 			data: "x".repeat(Math.ceil((MAX_TOTAL_BYTES * 4) / 3 / MAX_ATTACHMENTS)),

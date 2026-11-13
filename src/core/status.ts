@@ -52,7 +52,10 @@ const EXPIRED = new Set(["expired"])
  * with a green suite, because the only assertion matched the words "queue full".
  */
 export function queueLimits(): string {
-	return `${PENDING_CAP} replies or ${Math.round(PENDING_MAX_BYTES / 1024 / 1024)} MB queued`
+	// Grouped like the docs ("1 000"), not `1000`: the panel and the troubleshooting table are read
+	// side by side, and two spellings of one number read as two different limits.
+	const grouped = String(PENDING_CAP).replace(/\B(?=(\d{3})+(?!\d))/g, " ")
+	return `${grouped} replies or ${Math.round(PENDING_MAX_BYTES / 1024 / 1024)} MB queued`
 }
 
 export function formatScan(summary: ScanSummary | null | undefined): string[] {

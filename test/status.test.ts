@@ -62,12 +62,17 @@ test("staleness stays visible after the first message", () => {
 test("the queue line names both bounds, from the constants rather than from prose", () => {
 	const lines = formatScan({ ...base, rejected: 0, reasons: { "pending-full": 1 } })
 	const line = lines.find((l) => /queue full/.test(l)) ?? ""
-	assert.ok(line.includes(String(PENDING_CAP)), `names the record cap: ${line}`)
+	// Grouped like the docs: "1 000", not "1000".
+	const groupedCap = String(PENDING_CAP).replace(/\B(?=(\d{3})+(?!\d))/g, " ")
+	assert.ok(line.includes(groupedCap), `names the record cap: ${line}`)
 	assert.ok(
 		line.includes(`${Math.round(PENDING_MAX_BYTES / 1024 / 1024)} MB`),
 		`and the byte ceiling: ${line}`,
 	)
-	assert.equal(queueLimits(), `${PENDING_CAP} replies or ${Math.round(PENDING_MAX_BYTES / 1024 / 1024)} MB queued`)
+	assert.equal(
+		queueLimits(),
+		`${String(PENDING_CAP).replace(/\B(?=(\d{3})+(?!\d))/g, " ")} replies or ${Math.round(PENDING_MAX_BYTES / 1024 / 1024)} MB queued`,
+	)
 })
 
 test("an expiry is not reported as a rejection", () => {

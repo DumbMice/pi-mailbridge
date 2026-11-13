@@ -16,6 +16,15 @@ export const ALLOWED_TEXT_MIMES = ["text/plain", "text/markdown", "application/j
 
 export const MAX_ATTACHMENTS = 4
 export const MAX_TOTAL_BYTES = 1_000_000
+/**
+ * Longest filename we keep.
+ *
+ * The name is persisted with the record and there is no upstream bound on the MIME `filename`
+ * parameter - a message at the 8 MB message ceiling can carry a multi-megabyte one. Unbounded, it
+ * was the last field that could push a record past `PENDING_MAX_BYTES` and be refused on every
+ * scan with nothing to expire. Outbound already caps names (`safeFilename`, inline-images.ts).
+ */
+export const MAX_NAME_CHARS = 200
 
 export type UserContent =
 	| { type: "text"; text: string }
@@ -76,7 +85,9 @@ export function selectAttachments(
 
 	for (const item of raw) {
 		const mimeType = normalizeMime(item.contentType)
-		const name = (item.filename ?? "").trim() || `attachment-${accepted.length + dropped.length + 1}`
+		const name =
+			(item.filename ?? "").trim().slice(0, MAX_NAME_CHARS) ||
+			`attachment-${accepted.length + dropped.length + 1}`
 
 		if (!isImage(mimeType) && !isText(mimeType)) {
 			dropped.push({ name, reason: "mime-not-allowed" })
