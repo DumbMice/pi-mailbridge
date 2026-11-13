@@ -1531,11 +1531,19 @@ test("/mailbridge restart trusts the port over the shutdown reply", async () => 
 test("every restart outcome carries the right level", async () => {
 	// `notify` takes a level and no test pinned it, so a failure reported at info (or the
 	// reverse) was invisible.
-	const cases: { name: string; reply?: { ok: false; status: number; code?: string }; healthy: boolean; want: string }[] = [
+	const cases: {
+		name: string
+		reply?: { ok: false; status: number; code?: string }
+		healthy: boolean
+		probe?: boolean
+		want: string
+	}[] = [
 		{ name: "restarted", healthy: true, want: "info" },
 		{ name: "already gone", reply: { ok: false, status: 0, code: "network" }, healthy: true, want: "info" },
-		{ name: "survived", reply: { ok: false, status: 401 }, healthy: true, want: "error" },
+		{ name: "survived", reply: { ok: false, status: 401 }, healthy: true, probe: true, want: "error" },
 		{ name: "did not come back", healthy: false, want: "error" },
+		// The port still answers although nothing was confirmed: a warning, not silence.
+		{ name: "already gone but answering", reply: { ok: false, status: 0, code: "network" }, healthy: true, probe: true, want: "warning" },
 	]
 	for (const c of cases) {
 		const t = fakeTimers()
@@ -1555,7 +1563,7 @@ test("every restart outcome carries the right level", async () => {
 			makeClient: () => daemon.client,
 			ensureDaemon: async () => c.healthy,
 			// The survivor is what the port says, not the reply.
-			probeHealth: async () => c.reply?.status === 401,
+			probeHealth: async () => c.probe ?? false,
 			stopWaitMs: 0,
 			timers: t.timers,
 			pollMs: 60_000,
@@ -1602,7 +1610,7 @@ test("/mailbridge restart against an already-stopped daemon reports a restart, n
 
 	await captured.get("mailbridge")!("restart", ctx(notes))
 	const said = notes.join("\n")
-	assert.ok(!/could not stop the old one/.test(said), `nothing survived to fail on: ${said}`)
+	assert.ok(!/close pi and start it again/.test(said), `nothing survived to fail on: ${said}`)
 	assert.ok(/already gone; a new one is up/.test(said), `it must report the restart: ${said}`)
 })
 

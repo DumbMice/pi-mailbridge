@@ -313,11 +313,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		// `/shutdown` answers before it closes the listener, so an immediate probe finds the
 		// dying daemon and "reuses" it - the replacement then reports success while the old
 		// protocol is still being served. Wait for the port to stop answering.
-		const base = clientBase ?? currentBaseUrl()
-		const deadline = Date.now() + (deps.stopWaitMs ?? 5_000)
-		while (Date.now() < deadline && (await probe({ baseUrl: base }))) {
-			await new Promise((resolve) => setTimeout(resolve, 100))
-		}
+		await waitForPortToClose(clientBase ?? currentBaseUrl())
 
 		// A failed respawn must not end the poll loop: with `runner` gone, a re-arm tied to it
 		// would stop the only thing that notices the daemon is missing.
@@ -1013,15 +1009,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// same rule the protocol replacement follows, and the remedy its own warning
 					// names.
 					const stopping = client ?? buildClient()
-					// `ok` means it acknowledged. `status: 0` means nothing took the connection: the
-					// daemon was already gone, which is not a failure to stop it - and the most
-					// common way to run this command. A 401 or a timeout is a real refusal.
-					let stopRefused = false
+					// `ok` only means it acknowledged, and a 401 or a timeout means nothing was
+					// confirmed at all - so none of them decides the outcome. `status: 0` with a
+					// network code is a refused connection: nothing was listening, which is not a
+					// failure to stop, and is the commonest way to run this command.
 					let nothingToStop = false
 					let survivor = false
 					if (stopping) {
 						const result = await stopping.shutdown().catch(() => undefined)
-						stopRefused = Boolean(result && !result.ok && result.status !== 0)
 						nothingToStop = Boolean(result && !result.ok && result.status === 0 && result.code === "network")
 						client = undefined
 						runner = undefined
@@ -1061,11 +1056,17 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						message = ensured.incompatible
 							? `daemon is still on another protocol (${ensured.apiVersion ?? "0"} → ${API_VERSION}) — close pi and start it again`
 							: `daemon did not come back${ensured.error ? ` (${ensured.error})` : ""} — run /mailbridge restart again`
-					} else if (survivor && !nothingToStop) {
+					} else if (survivor && nothingToStop) {
+						// The stop was refused, yet something answers: either the connection failed
+						// between the two processes or a supervisor restarted it. Not a failure, but
+						// "with the current code" is not something this session can claim.
+						level = "warning"
+						message = "the old daemon was already gone; something is serving its port — run this again if it still misbehaves"
+					} else if (survivor) {
 						// `ok:true` is not proof of exit: a shutdown that is still logging out of IMAP
 						// keeps answering, and so does a timeout. Only the port can say.
 						level = "error"
-						message = "a daemon is still answering after the stop request — close pi and start it again"
+						message = "a daemon is still answering after the stop request — try again, or close pi if it keeps answering"
 					} else if (!stopping) {
 						// No key means no client, and a daemon that was already running has one from
 						// its own startup: this session has just minted a different key, so "restarted"
