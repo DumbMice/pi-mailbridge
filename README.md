@@ -41,7 +41,7 @@ pi install npm:pi-mailbridge
 | first pi session after a usable config exists | the extension probes `/health` and, if nothing answers, spawns the daemon detached — this is why a daemon can appear without you running `setup` in that session |
 | `/mailbridge setup` | writes the config, then starts (or reloads) the daemon and wires this session to it |
 | `/mailbridge smoke` / `restart` | reuse, reload or replace the running daemon |
-| `pi-mailbridge --setup` (headless) | writes the config and exits — **no daemon**; start it yourself, or let a session start it |
+| `pi-mailbridge --setup` (headless) | writes the config and exits — **no daemon**. Start it yourself, and run `/mailbridge restart` in an already-open session so that session attaches |
 | last pi session closes | the daemon exits after `daemon.idleTimeoutSecs` (120 s) — always; there is no "stay resident" switch |
 
 A session attaches to whatever already answers on the port — a daemon started by hand or by an

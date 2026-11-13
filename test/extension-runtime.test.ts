@@ -171,6 +171,7 @@ function fakeDaemon(
 			daemonUp = false
 			return ok({ ok: true })
 		},
+		bye: async () => ok({ ok: true, clients: 0 }),
 		claim: async (uid: number, _id: string, uidValidity?: number) => {
 			claimArgs.push(uidValidity)
 			return ok({ ok: true })
@@ -1163,4 +1164,62 @@ test("a failed replacement leaves a session that can still recover", async () =>
 	next?.handler()
 	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
 	assert.ok(ensures > afterFailure, "a session with no client still tries to get one")
+})
+
+test("quitting pi inside the settle debounce still mails", async () => {
+	// The shutdown handler used to cancel the debounce, so a settle that happened shortly before
+	// pi exited was never mailed - which made a one-shot run (`pi -p`) send nothing at all.
+	const t = fakeTimers()
+	const daemon = fakeDaemon({ mode: "on" })
+	const pi = boot(daemon, t.timers)
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	await pi.fire("agent_settled", { aborted: false })
+	assert.equal(daemon.sent.length, 0, "nothing sent while the debounce is pending")
+
+	await pi.fire("session_shutdown")
+	for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.equal(daemon.sent.length, 1, "the pending settle is flushed, not dropped")
+	assert.match(daemon.sent[0]!.subject, /waiting for you/i)
+})
+
+test("a settle that already sent is not sent twice on shutdown", async () => {
+	const t = fakeTimers()
+	const daemon = fakeDaemon({ mode: "on" })
+	const pi = boot(daemon, t.timers)
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	await pi.fire("agent_settled", { aborted: false })
+	// Let the debounce fire.
+	for (const timer of t.queue.filter((q) => q.ms === 10_000)) timer.handler()
+	for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
+	assert.equal(daemon.sent.length, 1)
+
+	await pi.fire("session_shutdown")
+	for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
+	assert.equal(daemon.sent.length, 1, "flush of nothing sends nothing")
+})
+
+test("a settle pending when the daemon is respawned is flushed, not dropped", async () => {
+	// The respawn branch rebuilds the notifier. Cancelling the old one threw away a settle that
+	// had not had its debounce yet - the one mail this product exists to send.
+	const t = fakeTimers()
+	const daemon = fakeDaemon({ mode: "on" })
+	const pi = boot(daemon, t.timers)
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	await pi.fire("agent_settled", { aborted: false })
+	assert.equal(daemon.sent.length, 0, "still inside the debounce")
+
+	// The daemon goes away; the poll tick brings it back (boot polls every 60 s, while the settle
+	// debounce is 10 s - picking the 10 s timer here fired the debounce instead of the tick).
+	daemon.setDaemonUp(false)
+	t.queue.find((q) => q.ms === 60_000)?.handler()
+	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.equal(daemon.sent.length, 1, "the pending settle went out through the rebuilt notifier")
 })

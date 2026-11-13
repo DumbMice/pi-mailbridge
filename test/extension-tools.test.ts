@@ -141,6 +141,8 @@ function harness(
 		secret: () => SECRET,
 		makeClient: () => client as never,
 		ensureDaemon: async () => true,
+		// Never reach a real port from a unit test.
+		probeHealth: async () => false,
 		timers,
 		pollMs: 60_000,
 	})

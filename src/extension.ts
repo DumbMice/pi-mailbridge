@@ -214,8 +214,12 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						lastRespawnAttempt = now
 						const healthy = await ensureDaemonSafe()
 						if (healthy) {
-							notifier?.cancel()
+							// A settle waiting on its debounce is the one mail this product exists
+							// to send. startRuntime() rebuilds the notifier, so flush the old one
+							// after the client is live again - never cancel it.
+							const stale = notifier
 							await startRuntime()
+							await stale?.flush().catch(() => undefined)
 						}
 					}
 					// Fall through to the reschedule below: returning here is what stopped the
@@ -277,7 +281,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		await client?.shutdown()
 		client = undefined
 		runner = undefined
-		notifier?.cancel()
+		// Same rule as the respawn path: flush a pending settle instead of dropping it.
+		const stale = notifier
 		notifier = undefined
 
 		// `/shutdown` answers before it closes the listener, so an immediate probe finds the
@@ -298,6 +303,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			)
 			return true
 		}
+		await stale?.flush().catch(() => undefined)
 
 		// If the respawn brought back another protocol again, this session is older than the
 		// package on disk. Replacing forever would kill the bridge once a minute, silently.
@@ -431,6 +437,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			onError: (error) => ctx?.ui.notify(`mailbridge: reply not delivered (${error.message})`, "warning"),
 		})
 
+		// Ping before the first drain: a drain of several replies can outlast the idle window,
+		// and the daemon reaps itself when no ping arrives in that time. A client without ping
+		// (tests, older shape) is not a reason to skip the drain.
+		try {
+			await client?.ping(instanceId)
+		} catch {
+			/* the drain below is what decides */
+		}
 		// Catch-up on connect, but only when the channel is actually open: `off` must not
 		// be bypassed by a session starting up.
 		if (emailMode === "on") await runner.drain()
@@ -518,10 +532,18 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				"warning",
 			)
 			// An incompatible daemon is the version-replacement path, not a dead one.
-			if (!ensured.incompatible || !(await replaceOutdatedDaemon())) return
+			if (!ensured.incompatible || !(await replaceOutdatedDaemon())) {
+				// Keep polling even with no runtime: the tick retries the spawn, which is the
+				// only automatic recovery a session has.
+				if (ctx) startPolling()
+				return
+			}
 		}
 
-		if (!(await startRuntime())) return
+		if (!(await startRuntime())) {
+			if (ctx) startPolling()
+			return
+		}
 		startPolling()
 
 		// A daemon that was already running may have read the config before the user edited
@@ -626,6 +648,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			const statusReport = async () => {
 				const secret = secretFn()
 				const health = client ? await client.health() : undefined
+				// No client in *this* session is not the same as no daemon on the port.
+				const alive = health?.ok ? true : await probe({ baseUrl: clientBase ?? currentBaseUrl() })
 				const pending = client ? await client.pending() : undefined
 				// The daemon is a separate process with its own lifetime; after `pi update` it can
 				// be an older build, so name it here rather than making the user read /health.
@@ -638,7 +662,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					: ""
 				c.ui.notify(
 					[
-						`daemon: ${health?.ok ? "healthy" : "unreachable"} (${clientBase ?? currentBaseUrl()})${build}`,
+						`daemon: ${health?.ok ? "healthy" : alive ? "running, but not attached to this session" : "unreachable"} (${clientBase ?? currentBaseUrl()})${build}`,
 						`device: ${config.device.name}`,
 						`mode: ${health?.ok ? health.data.mode : "(unknown)"}`,
 						`imap: ${health?.ok ? (health.data as { imap?: string }).imap ?? "unknown" : "(unknown)"}`,

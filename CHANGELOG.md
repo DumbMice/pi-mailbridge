@@ -73,9 +73,8 @@ now explicit and tested:
 **Upgrading a single-mailbox config:** if `security.allowSelfReplies` is already `true` and
 every reply reports `dmarc-missing`, set `security.requireDmarcPass: false`. Setup writes that
 for new configs; it never rewrites an existing one. `/mailbridge check` and
-`pi-mailbridge --check` both report it — and because a supervisor typically preflights with `--check`
-as `ExecStartPre`, that combination stops the unit from starting rather than starting a
-daemon that rejects every reply.
+`pi-mailbridge --check` both report it and exit non-zero, so a CI job or a process manager can
+gate on it rather than start a daemon that rejects every reply.
 
 ### A reply can no longer sit unscanned behind a silent IDLE
 
@@ -232,9 +231,9 @@ different one and leave the session reporting "unreachable".
 - `/mailbridge on` with no runtime (the "copy config.example.json yourself" path) now builds one
   before reporting ON; previously it wrote `mode.json`, toasted "ON", and nothing could mail or
   deliver until `setup`/`restart`.
-- `daemon.idleTimeoutSecs` below 5 and `security.tokenTtlHours` below 1 are refused with a
-  warning. A zero timeout made the daemon exit a second after the first ping (looks like a crash
-  loop); a NaN TTL made every route immortal.
+- `daemon.idleTimeoutSecs` below 30 (three poll intervals) and `security.tokenTtlHours` below 1
+  are refused with a warning. A timeout under the polling period reaps the daemon between pings,
+  which looks like a crash loop; a NaN TTL made every route immortal.
 - a journal written before `UIDVALIDITY` tagging no longer answers "already seen" once the live
   numbering is known — after a renumbering that could skip a new message whose UID was reused.
 - a failed `/reload` restores the token provider as well as the config.
@@ -363,9 +362,8 @@ changes because nothing could replace a running process. Stopping also means no 
 means no watcher - nothing fetches and parses every incoming message for a session that
 cannot claim it. Mail that arrives meanwhile is covered by the catch-up scan.
 
-the idle rule is
-disabled until the first client has ever pinged, so an externally started daemon never
-exits merely because pi is closed.
+idleness counts from the daemon's own start until a session pings, then from the last ping,
+so a daemon nobody pings exits one grace period after it starts.
 
 ### Fixed: the catch-up scan never ran, and the daemon logged nothing
 
