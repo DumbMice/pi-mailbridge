@@ -1,0 +1,85 @@
+# Publish to npm with trusted publishing (OIDC). No token secret exists.
+#
+# npm binds a publish to THIS file: on npmjs.com the package's Trusted Publisher names the
+# repository and the workflow filename, and the registry accepts a publish only when the OIDC
+# identity GitHub issues for the run matches. Renaming this file therefore breaks publishing
+# until the same rename is made on npmjs.com.
+#
+# Requirements this file relies on (all verified against docs.npmjs.com/trusted-publishers):
+#   - npm CLI >= 11.5.1, Node >= 22.14.0   -> node 22 below, npm upgraded in a step
+#   - `id-token: write`                    -> the OIDC exchange
+#   - a GitHub-hosted runner               -> self-hosted is not supported
+#   - repository.url matching this repo     -> package.json says
+#                                             git+https://github.com/DumbMice/pi-mailbridge.git
+#   - the package must already exist       -> 0.1.0 was published by hand first
+#
+# There is deliberately no `registry-url` on setup-node: that writes an .npmrc holding
+# `_authToken=${NODE_AUTH_TOKEN}`, and with the variable unset npm fails to expand it instead of
+# falling back to OIDC.
+#
+# The gate is `prepublishOnly` in package.json (build + typecheck + test), so a local
+# `npm publish` cannot skip it either. This job does not repeat it: one definition, one failure
+# message, and CI cannot drift from what a maintainer runs.
+
+name: publish
+
+on:
+  # Tag -> publish. `git tag v0.1.1 && git push origin v0.1.1` is the whole release.
+  push:
+    tags: ["v*"]
+  # Manual runs: dry-run is the default, so the first click cannot publish by accident.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pack and validate only (no upload)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write # OIDC identity for trusted publishing; nothing else is granted
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          # Not cached on purpose: a release build should not depend on a cache another
+          # workflow could write.
+
+      - name: Require the npm that can do OIDC
+        run: |
+          npm install --global npm@^11.5.1
+          node -v
+          npm -v
+          node -e 'const [a,b]=require("child_process").execSync("npm -v").toString().trim().split(".").map(Number); if (a<11||(a===11&&b<5)) { console.error("npm >= 11.5.1 is required for trusted publishing"); process.exit(1) }'
+
+      # The tag is the version. A mismatch here would publish a version nobody tagged, or fail
+      # after the gate has already run for the wrong sha.
+      - name: The tag must be the package version
+        if: github.event_name == 'push'
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "tag ${GITHUB_REF_NAME} is not v${version} from package.json" >&2
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - name: Publish (dry run)
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: npm publish --access public --dry-run
+
+      - name: Publish
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
+        run: npm publish --access public --provenance

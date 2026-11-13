@@ -17,12 +17,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dumbmice/pi-mailbridge.git"
+    "url": "git+https://github.com/DumbMice/pi-mailbridge.git"
   },
   "bugs": {
-    "url": "https://github.com/dumbmice/pi-mailbridge/issues"
+    "url": "https://github.com/DumbMice/pi-mailbridge/issues"
   },
-  "homepage": "https://github.com/dumbmice/pi-mailbridge#readme",
+  "homepage": "https://github.com/DumbMice/pi-mailbridge#readme",
   "author": {
     "name": "Yang Bangcheng",
     "email": "yangbangcheng@bigai.ai"

@@ -52,12 +52,34 @@ test("the published name, its scope and the README's install command agree", () 
 		readme.includes(`pi install npm:${packageJson.name}`),
 		`README must install npm:${packageJson.name}`,
 	)
+	// Case-insensitive: GitHub's canonical case is `DumbMice`, npm's scope must be lowercase, and
+	// npm's trusted publishing compares the URL against the OIDC claim (GitHub's case).
 	assert.ok(
-		(packageJson.repository?.url ?? "").includes(`/${scope}/${bare}`),
+		(packageJson.repository?.url ?? "").toLowerCase().includes(`/${scope}/${bare}`),
 		`repository must point at ${scope}/${bare}`,
 	)
 	// The command and the state directory keep the bare name: they are the product, not the scope.
 	assert.ok(readme.includes("pi-mailbridge --smoke"), "the CLI keeps the bare name")
+})
+
+test("the release workflow can actually publish: OIDC, no token, matching name", () => {
+	// Each of these breaks publishing only at release time, which is the worst moment to find
+	// out. npm binds the publish to this filename, so it is asserted too.
+	const workflow = read("../.github/workflows/publish.yml")
+	assert.match(workflow, /id-token: write/, "trusted publishing needs an OIDC token")
+	assert.match(workflow, /contents: read/)
+	// setup-node's registry-url writes _authToken=${NODE_AUTH_TOKEN}; with no token set, npm
+	// fails to expand it instead of using OIDC.
+	assert.doesNotMatch(workflow, /registry-url:/, "no token .npmrc in an OIDC workflow")
+	assert.match(workflow, /npm publish --access public/)
+	assert.match(workflow, /npm \^?11\.5\.1|npm@\^11\.5\.1/, "npm >= 11.5.1 does the OIDC exchange")
+	assert.match(workflow, /node-version: "22"/)
+	// The npm Trusted Publisher form asks for the repository and the workflow filename; the
+	// package's own repository.url must match, and its case is GitHub's.
+	assert.ok(
+		(packageJson.repository?.url ?? "").includes("github.com/DumbMice/pi-mailbridge"),
+		"repository.url must match the repository the workflow runs in",
+	)
 })
 
 test("the published file list excludes tests, state and secrets", () => {
