@@ -1877,10 +1877,17 @@ test("/mailbridge restart re-arms the poll when it cannot attach", async () => {
 	await pi.fire("session_start")
 	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
 
-	await captured.get("mailbridge")!("restart", ctx(notes))
+	const levels: string[] = []
+	const c = ctx(notes)
+	c.ui.notify = (message: string, level?: string) => {
+		notes.push(message)
+		levels.push(level ?? "info")
+	}
+	await captured.get("mailbridge")!("restart", c)
 	for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
 
 	assert.match(notes.join("\n"), /could not attach/)
+	assert.equal(levels.at(-1), "warning", "attaching failed, but the daemon is up: a warning")
 	assert.equal(t.queue.filter((q) => q.ms === 10_000).length, 1, "and the loop is armed again")
 })
 
