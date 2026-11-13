@@ -124,6 +124,15 @@ nothing — and neither name appeared in `/mailbridge help`. They are subcommand
 work as a mail reply, except `/mailbridge on`: with the mode off nothing is scanned or drained, so
 it can only be re-opened from the terminal. Nothing was published, so there is no alias to carry.
 
+### A supervised daemon is restarted by its supervisor, not by a session
+
+Replacing a systemd-owned daemon was a trap: `/shutdown` exits 0, `Restart=on-failure` does not
+bring it back, and the daemon a session spawns instead inherits that session's environment, where
+`exitWhenIdle` is true - so the mailbox stopped being watched as soon as pi closed, while the unit
+read `inactive`. A session now leaves a supervised daemon (`idleExitEnabled: false` on `/health`)
+alone and says to run `systemctl --user restart pi-mailbridge`, once. systemd remains optional:
+the daemon can also be run by hand, by a container entrypoint, or by pi.
+
 ### The extension spawns the build, and a replacement checks what it got
 
 The build shipped for `bin` and the unit, but the extension - the path `pi install` actually uses -

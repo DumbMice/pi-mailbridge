@@ -239,6 +239,11 @@ is usable, the extension probes `/health` and spawns the daemon detached when no
 `/mailbridge setup` does the same after writing the config, while headless `--setup` only writes
 the file. The daemon is not tied to the mode: `on`/`off` gate scanning and delivery, not existence.
 
+**A supervisor is respected.** `exitWhenIdle: false` in `/health` marks a daemon that something
+else owns (the shipped unit). A session will not shut such a daemon down for a protocol mismatch:
+it would exit 0, `Restart=on-failure` would leave it down, and the spawned replacement would not
+belong to the unit. It asks the operator to restart it where it is managed.
+
 **It stops when the last session does.** Every session pings `/ping` on its poll tick
 (10s) and sends `/bye` on `session_shutdown`. Once no ping has arrived for
 `daemon.idleTimeoutSecs` (default 120), the daemon exits. This is deliberate:

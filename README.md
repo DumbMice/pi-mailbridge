@@ -45,6 +45,13 @@ pi install npm:pi-mailbridge
 | last pi session closes | the daemon exits after `daemon.idleTimeoutSecs` (120 s), unless `daemon.exitWhenIdle: false` |
 | `systemctl --user start pi-mailbridge` | the unit runs the daemon directly and keeps it resident (`exitWhenIdle: false`) |
 
+**systemd is optional.** Nothing in the package requires it, and the daemon does not depend on being
+spawned by pi: the unit, a container entrypoint, or `node …/dist/daemon/main.js` all work, and a
+session reuses whatever already answers on the port. What changes under a supervisor is *who
+restarts it*: a supervised daemon is never shut down by a session — that would exit 0,
+`Restart=on-failure` would not bring it back, and the replacement would not belong to the unit — so
+a protocol mismatch there says `systemctl --user restart pi-mailbridge` instead.
+
 After `pi update` the session notices a daemon on a different **protocol** — `/health` carries
 `apiVersion` — and replaces it (once a minute at most). A different package *version* on the same
 protocol is left alone. Without that, a new extension

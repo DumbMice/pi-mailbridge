@@ -256,6 +256,8 @@ export function createDaemonClient(options: DaemonClientOptions) {
 				apiVersion?: number
 				/** Additive features inside that contract. */
 				capabilities?: string[]
+				/** False when a supervisor owns the daemon (it must not be shut down by us). */
+				idleExitEnabled?: boolean
 				/** "connected" | "disconnected" | "unknown" */
 				imap?: string
 			}>("GET", "/health"),
