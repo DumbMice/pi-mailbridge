@@ -218,8 +218,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 							// to send. startRuntime() rebuilds the notifier, so flush the old one
 							// after the client is live again - never cancel it.
 							const stale = notifier
-							await startRuntime()
-							await stale?.flush().catch(() => undefined)
+							if (await startRuntime()) await stale?.flush().catch(() => undefined)
 						}
 					}
 					// Fall through to the reschedule below: returning here is what stopped the
@@ -894,6 +893,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// daemon would keep executing the old version. Stop the process and let
 					// the supervisor start a fresh one.
 					const ensure = deps.ensureDaemon ?? ((base: string, script: string) => ensureDaemon({ baseUrl: base, scriptPath: script, env }).then((r) => r.healthy))
+					// A settle waiting on its debounce would be dropped by the runtime that follows.
+					const stale = notifier
+					notifier = undefined
 					if (client) {
 						await client.shutdown()
 						// `/shutdown` answers before it closes the listener, so a fixed sleep can
@@ -910,6 +912,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						// This session never had a runtime (started before the config existed).
 						await ensureRuntime(c.ui)
 					}
+					if (healthy) await stale?.flush().catch(() => undefined)
 					c.ui.notify(
 						healthy ? "daemon restarted with the current code" : "daemon did not come back — run /mailbridge restart again",
 						healthy ? "info" : "error",

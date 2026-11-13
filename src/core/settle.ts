@@ -165,7 +165,9 @@ export function createSettleNotifier(deps: SettleNotifierDeps): SettleNotifier {
 		async flush() {
 			const context = pendingContext
 			cancel()
-			if (context) await deliver(context)
+			// The same gate the debounce callback applies, for the same reason: the mode can have
+			// been turned off during the window, and a flush must not bypass that.
+			if (context && deps.mode() === "on") await deliver(context)
 		},
 
 		isPending() {

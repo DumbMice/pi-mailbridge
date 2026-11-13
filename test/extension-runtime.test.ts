@@ -1223,3 +1223,35 @@ test("a settle pending when the daemon is respawned is flushed, not dropped", as
 
 	assert.equal(daemon.sent.length, 1, "the pending settle went out through the rebuilt notifier")
 })
+
+test("a settle pending across /mailbridge restart is flushed, not dropped", async () => {
+	// The restart path replaced the runtime wholesale; the last of the three replacement paths to
+	// stop cancelling a debounced settle.
+	const t = fakeTimers()
+	const daemon = fakeDaemon({ mode: "on" })
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx())
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		probeHealth: async () => false,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	await pi.fire("agent_settled", { aborted: false })
+	assert.equal(daemon.sent.length, 0, "inside the debounce")
+
+	await captured.get("mailbridge")!("restart", ctx())
+	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.equal(daemon.sent.length, 1, "the pending settle went out")
+})
