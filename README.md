@@ -56,9 +56,10 @@ protocol is left alone. Without that, a new extension
 would mint routing ids an old daemon cannot resolve, and replies would be rejected with the
 cursor already past them.
 
-The replacement is: shut the old daemon down (`POST /shutdown`), spawn the compiled daemon that is
-already on disk (`dist/daemon/main.js` — no build runs at runtime; the package is built once, at
-publish time, and `pi install` receives the build), and have this session re-create its client. Queued
+The replacement is: shut the old daemon down (`POST /shutdown`), spawn the daemon entry this copy of
+the package carries — the compiled `dist/daemon/main.js` for an installed package (no build runs at
+runtime: it is built once, at publish time), or `src/daemon/main.ts` when you run from a checkout —
+and have this session re-create its client. Queued
 replies, the cursor and the journal are on disk and untouched, so the gap costs nothing but the
 seconds the old daemon spent not watching IMAP; the mode survives because it is a file. If the respawn fails, the session warns and keeps polling, retrying within a minute;
 `/mailbridge restart` forces it.

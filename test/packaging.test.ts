@@ -87,13 +87,15 @@ test("the CLI runs a checkout's sources, and an install's build", () => {
 	// The same stale-build trap as src/daemon/script.ts, in the command a new user runs first:
 	// `pi-mailbridge --check` used to import dist/ whenever it existed, so a checkout without a
 	// fresh build silently ran old code. Run for real, in both layouts, with markers.
-	const layout = (installed: boolean): string => {
+	const layout = (installed: boolean, withBuild = true): string => {
 		const dir = mkdtempSync(join(tmpdir(), "pmb-bin-"))
 		const pkg = installed ? join(dir, "node_modules", "pi-mailbridge") : join(dir, "pkg")
 		mkdirSync(join(pkg, "bin"), { recursive: true })
 		cpSync(join(root, "bin", "pi-mailbridge.mjs"), join(pkg, "bin", "pi-mailbridge.mjs"))
-		mkdirSync(join(pkg, "dist", "daemon"), { recursive: true })
-		writeFileSync(join(pkg, "dist", "daemon", "main.js"), 'console.log("MARKER-BUILD"); export function main() {}\n')
+		if (withBuild) {
+			mkdirSync(join(pkg, "dist", "daemon"), { recursive: true })
+			writeFileSync(join(pkg, "dist", "daemon", "main.js"), 'console.log("MARKER-BUILD"); export function main() {}\n')
+		}
 		mkdirSync(join(pkg, "src", "daemon"), { recursive: true })
 		writeFileSync(join(pkg, "src", "daemon", "main.ts"), 'console.log("MARKER-SOURCE"); export function main() {}\n')
 		try {
@@ -101,11 +103,16 @@ test("the CLI runs a checkout's sources, and an install's build", () => {
 				encoding: "utf8",
 			})
 		} catch (error) {
-			// The stub exits 0; a throw would be the failure this test is looking for.
-			return String((error as { stdout?: string }).stdout ?? "")
+			// A non-zero exit (the incomplete install) still has something to say on stderr.
+			const { stdout = "", stderr = "" } = error as { stdout?: string; stderr?: string }
+			return `${stdout}${stderr}`
 		}
 	}
 	assert.match(layout(true), /MARKER-BUILD/, "an install must run the build")
+	// An install with no build has nothing runnable: the .ts would fail with Node's
+	// "unsupported inside node_modules" error, which names neither the problem nor the fix.
+	const brokenInstall = layout(true, false)
+	assert.match(brokenInstall, /no compiled build/, "an incomplete install must say so")
 	// The source branch spawns with inherited stdio, so the absence of the build marker is the
 	// observable: it did not take the dist path.
 	assert.doesNotMatch(layout(false), /MARKER-BUILD/, "a checkout must not run the build")

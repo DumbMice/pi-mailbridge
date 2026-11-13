@@ -26,7 +26,7 @@ if (runCompiled) {
 		console.error(`pi-mailbridge: fatal: ${error instanceof Error ? error.message : String(error)}`)
 		process.exit(1)
 	})
-} else if (existsSync(fileURLToPath(source))) {
+} else if (!installed && existsSync(fileURLToPath(source))) {
 	const { spawn } = await import("node:child_process")
 	const child = spawn(
 		process.execPath,
@@ -34,6 +34,11 @@ if (runCompiled) {
 		{ stdio: "inherit" },
 	)
 	child.on("exit", (code) => process.exit(code ?? 1))
+} else if (installed) {
+	// Spawning the .ts from here would fail with ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING,
+	// which tells a user nothing about the real problem: the install is incomplete.
+	console.error("pi-mailbridge: this install has no compiled build (dist/); reinstall the package")
+	process.exit(1)
 } else {
 	console.error("pi-mailbridge: no dist/ or src/ found beside this bin; reinstall the package")
 	process.exit(1)
