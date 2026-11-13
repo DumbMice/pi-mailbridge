@@ -1149,8 +1149,13 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					}
 					// A 401 proves only that something answered *then*. If it exited inside the
 					// stop window, the restart worked and must not be reported as a failure.
+					// One probe per base: when the refusing base *is* the configured port, `survivor`
+					// already answers this, and asking twice can disagree.
+					const refusalBase = refusedBase ?? currentBaseUrl()
 					const rejectionSurvived = rejected
-						? await probe({ baseUrl: refusedBase ?? currentBaseUrl() })
+						? refusalBase === currentBaseUrl()
+							? survivor
+							: await probe({ baseUrl: refusalBase })
 						: false
 					const ensured = await ensureDaemonDetailed()
 					if (ensured.healthy) {
@@ -1185,17 +1190,17 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// was never stopped is not a restart.
 					let message: string
 					let level: "info" | "warning" | "error" = "info"
-					if (!ensured.healthy) {
+					if (rejected && rejectionSurvived) {
+						// First: it explains a failed respawn (the rejecting daemon holds the lock,
+						// so the new one exits 0) and it is the only advice that works.
+						level = "error"
+						message =
+							"the daemon rejected this session's key, so it could not be stopped — stop it (or let it idle out) and start pi again"
+					} else if (!ensured.healthy) {
 						level = "error"
 						message = ensured.incompatible
 							? `daemon is still on another protocol (${ensured.apiVersion ?? "0"} → ${API_VERSION}) — close pi and start it again`
 							: `daemon did not come back${ensured.error ? ` (${ensured.error})` : ""} — run /mailbridge restart again`
-					} else if (rejected && rejectionSurvived) {
-						// It answered 401 on the base this session asked to stop, and it is still
-						// answering: not a wedged daemon, so retrying cannot help.
-						level = "error"
-						message =
-							"the daemon rejected this session's key, so it could not be stopped — stop it (or let it idle out) and start pi again"
 					} else if (survivor && joinExpired) {
 						// The poll was still starting a daemon when the budget ran out, so the thing
 						// on the port may be its spawn rather than something that survived the stop.

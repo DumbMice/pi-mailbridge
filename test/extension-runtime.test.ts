@@ -2116,14 +2116,8 @@ test("a 401 from a daemon that exits during the stop is not a failure", async ()
 	const notes: string[] = []
 	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
 	const daemon = fakeDaemon({ mode: "on" })
-	let up = true
-	daemon.client.shutdown = async () => {
-		// It refuses the bearer and then finishes exiting on its own.
-		queueMicrotask(() => {
-			up = false
-		})
-		return { ok: false as const, status: 401 }
-	}
+	let probes = 0
+	daemon.client.shutdown = async () => ({ ok: false as const, status: 401 })
 	const pi = fakePi(ctx(notes))
 	pi.registerCommand = (name, spec) => {
 		captured.set(name, spec.handler)
@@ -2134,8 +2128,13 @@ test("a 401 from a daemon that exits during the stop is not a failure", async ()
 		secret: () => SECRET,
 		makeClient: () => daemon.client,
 		ensureDaemon: async () => true,
-		probeHealth: async () => up,
-		stopWaitMs: 0,
+		// It answers once (the stop found it), then finishes exiting inside the window - the
+		// sequence the 401 diagnosis has to survive.
+		probeHealth: async () => {
+			probes += 1
+			return probes === 1
+		},
+		stopWaitMs: 300,
 		joinTickMs: 0,
 		timers: t.timers,
 		pollMs: 60_000,
