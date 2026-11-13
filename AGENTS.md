@@ -107,6 +107,28 @@ doc.
 
 ## Publishing
 
-`npm publish --access public` after: tests green, `docs/MAPPING.md` publish
-checklist satisfied, no `config.json` or `secret.key` in the tarball
-(`npm pack --dry-run` to verify).
+A tag publishes; nothing does it from a laptop any more. Bump `package.json` (and the two version
+mentions in the README), date the changelog, then:
+
+```bash
+git tag -a v<version> -m "pi-mailbridge <version>" && git push origin main --tags
+```
+
+`.github/workflows/publish.yml` runs the gate, refuses a version already on the registry, and
+publishes with **npm trusted publishing** (OIDC + provenance, `--access public`) - there is no
+`NPM_TOKEN` anywhere. First publish of a new package still has to happen by hand, because npm can
+only attach a trusted publisher to a package that exists.
+
+Two traps that have already cost a version each:
+
+- **the registry lags the green workflow by ~2 minutes** - poll
+  `registry.npmjs.org/@dumbmice%2fpi-mailbridge/<version>` before concluding anything, and remember
+  `npm view` caches locally (`--prefer-online`);
+- **a published README cannot be edited.** The package page renders the *latest* version's README,
+  so any README fix is a new version. Get it right before tagging.
+
+README images must be **absolute and reachable by the reader**: npm renders the README out of the
+tarball with no base URL, and `raw.githubusercontent.com` is unreachable on many mainland networks
+(that is why 0.1.3 moved them to `cdn.jsdelivr.net/npm/@dumbmice/pi-mailbridge@latest/…`, which
+also serves the published bytes). `test/packaging.test.ts` fails on a relative path or on the raw
+host, so this cannot quietly regress.
