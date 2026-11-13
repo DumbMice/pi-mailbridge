@@ -1,8 +1,6 @@
 # Changelog
 
-## Unreleased
-
-Three changes that have not shipped yet. The version is deliberately not bumped.
+## 0.1.4 — 2026-11-13
 
 - **`/mailbridge` no longer freezes the agent process on a lock.** `ensureRouteForSession` ran under
   `routes.lock` for every notification, and the wait sleeps the calling thread - measured at 3012 ms
@@ -19,9 +17,17 @@ Three changes that have not shipped yet. The version is deliberately not bumped.
   produced a record bigger than the queue's ceiling, which would then be refused on every scan with
   nothing to expire.
 
+- **The persisted subject and attachment filenames are capped** (300 and 200 characters). Both are
+  mail-controlled and were unbounded; a multi-megabyte header or MIME filename produced a record
+  larger than the queue's new ceiling, which would then be refused on every scan with nothing to
+  expire - a permanent stall. Bodies were already capped; the display fields were not.
+- **The attachment-only path can now dig itself out of a full queue.** It skipped the age-expiry
+  that the record path runs, so it stalled where a reply with a body would have recovered.
+
 Also: a non-loopback `daemon.host` is now reported by `/mailbridge check` and fails
 `pi-mailbridge --check` (it was silent), and the panel names both queue bounds instead of a count
-that could not explain a byte-full queue.
+that could not explain a byte-full queue; an expiry is listed as its own line rather than under
+"rejections" beside `rejected 0`.
 
 ## 0.1.3 — 2026-11-13
 
