@@ -19,6 +19,7 @@ const packageJson = JSON.parse(read("../package.json")) as {
 	version: string
 	files: string[]
 	pi: { extensions: string[] }
+	main: string
 	peerDependencies: Record<string, string>
 	repository?: { url?: string }
 }
@@ -80,6 +81,19 @@ test("the release workflow can actually publish: OIDC, no token, matching name",
 		(packageJson.repository?.url ?? "").includes("github.com/DumbMice/pi-mailbridge"),
 		"repository.url must match the repository the workflow runs in",
 	)
+})
+
+test("`main` names a file a plain-Node consumer can import", () => {
+	// It used to point at ./src/extension.ts, which throws
+	// ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING from inside node_modules. pi itself never reads
+	// `main` (it uses pi.extensions through jiti), so the field only ever misled everyone else.
+	assert.equal(packageJson.main, "./dist/extension.js")
+	assert.ok(
+		packageJson.files.includes("dist"),
+		"the build must ship, or `main` points at nothing in the tarball",
+	)
+	// Tests run after `pretest` builds, so the target exists here too.
+	assert.ok(existsSync(new URL(packageJson.main, new URL("..", import.meta.url))), "main must resolve")
 })
 
 test("the published file list excludes tests, state and secrets", () => {

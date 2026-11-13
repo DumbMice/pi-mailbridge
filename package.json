@@ -48,7 +48,7 @@
       "./src/extension.ts"
     ]
   },
-  "main": "./src/extension.ts",
+  "main": "./dist/extension.js",
   "scripts": {
     "daemon": "node --experimental-strip-types src/daemon/main.ts",
     "typecheck": "tsc --noEmit",
