@@ -24,15 +24,16 @@
 </defs>
 
 <!-- pi session -->
-<rect x="16" y="196" width="196" height="120" rx="14" fill="#fff" stroke="#cbd4de" stroke-width="1.5"/>
-<g transform="translate(32,212)">
+<rect x="16" y="190" width="196" height="150" rx="14" fill="#fff" stroke="#cbd4de" stroke-width="1.5"/>
+<g transform="translate(32,206)">
   <rect class="ic" x="0" y="0" width="30" height="23" rx="4"/>
   <path class="ic" d="M5 6 l5 5 -5 5"/>
   <path class="ic" d="M14 16 h7"/>
 </g>
-<text class="h" x="72" y="230">pi session</text>
-<text class="b" x="32" y="270">asks, notifies</text>
-<text class="b" x="32" y="294">injects, acks</text>
+<text class="h" x="72" y="224">pi session</text>
+<text class="b" x="32" y="258">finishes a turn</text>
+<text class="b" x="32" y="282">→ one mail</text>
+<text class="b" x="32" y="306">reply: next message</text>
 
 <!-- daemon -->
 <rect x="360" y="136" width="376" height="268" rx="16" fill="#f6f9f7" stroke="#84b097" stroke-width="1.6"/>
@@ -113,7 +114,7 @@
 <!-- 7 ack -->
 <path class="flow-g" d="M216 320 H352" marker-end="url(#g)"/>
 <circle cx="330" cy="320" r="12" fill="#2f6f4f"/><text class="num" x="325" y="325">7</text>
-<text class="s" x="222" y="340">ack</text>
+<text class="s" x="222" y="340">ack → seen</text>
 
 <!-- footer -->
 <line x1="24" y1="428" x2="976" y2="428" stroke="#e2e8ef"/>

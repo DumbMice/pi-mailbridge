@@ -565,11 +565,13 @@ that is the credential that actually reaches your mailbox.
 
 ![Diagram: the pi session sends through the local daemon over SMTP to your mailbox; you reply from any device; the daemon reads it over IMAP, authorizes, routes and persists it; the session claims it, injects it, and acknowledges, which marks the mail seen](./docs/images/flow.svg)
 
-The numbered path is the whole product: **1** the session hands a question to the daemon, **2**
-the daemon sends it over SMTP, **3** it lands in your mailbox and reaches you on any device, **4**
-you reply, **5** the daemon reads the reply over IMAP and runs it through the gates below the
-diagram, **6** the session claims and injects it as a follow-up, **7** it acknowledges, and only
-then is the mail marked seen and journalled.
+The numbered path is the whole product. **1** The agent finishes its turn and goes idle — that is
+the normal case, one mail per finished turn — or it stops to ask you a question; either way the
+session hands that mail to the daemon. **2** The daemon sends it over SMTP. **3** It reaches you on
+any device. **4** You reply. **5** The daemon reads the reply over IMAP and runs it through the
+gates printed under the diagram. **6** The session claims it and continues: your reply is the next
+message, not a new conversation. **7** It acknowledges — and only then is the mail marked seen and
+journalled.
 
 One daemon per machine owns the mailbox; sessions never touch IMAP. `smoke` and `prime` are the
 deliberate exceptions — each opens one short-lived connection. Design notes, the failure-mode
