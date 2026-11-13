@@ -598,6 +598,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 */
 	async function ensureDaemonDetailed(): Promise<{
 		healthy: boolean
+		/** True when this call spawned the process, rather than finding one. */
+		started?: boolean
 		incompatible?: boolean
 		error?: string
 		apiVersion?: number
@@ -1084,13 +1086,18 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						// keeps answering, and so does a timeout. Only the port can say.
 						level = "error"
 						message = "a daemon is still answering after the stop request — try again, or close pi if it keeps answering"
+					} else if (!stopping && ensured.started) {
+						// First run: no key existed, so there was nothing to stop, and this call is
+						// what created both. Reporting that as a warning would greet every headless
+						// setup with a caveat about a daemon that never existed.
+						message = "daemon started with the current code"
 					} else if (!stopping) {
-						// No key and no client when the stop was tried, so this session did not stop
-						// anything and cannot say what was served before. State the observation, not
-						// a cause: the daemon may equally have minted the key itself just now.
+						// No key and no client when the stop was tried, and a daemon was already
+						// there - so this session cannot say what it was serving. State the
+						// observation, not a cause: it may have minted its key a moment ago.
 						level = "warning"
 						message =
-							"daemon is up, but this session had no key when it tried to stop anything — if an older daemon was serving, stop it and run this again"
+							"a daemon was already up, but this session had no key when it tried to stop anything — stop it and run this again"
 					} else {
 						message = nothingToStop
 							? "the old daemon was already gone; a new one is up with the current code"

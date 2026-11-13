@@ -17,15 +17,20 @@
 - **A 401 read as "mode off".** A rotated `secret.key` made every call fail; the session silently
   stopped notifying and draining while the panel said "daemon: healthy". It now says the bearer was
   rejected, once, and leaves the mode alone.
-- **`/mailbridge restart` reported what it attempted, not what happened.** Five separate lies in
-  one command: a replacement that failed left no poll loop while the toast said "retrying"; it
-  skipped the stop entirely when the session had no client, then advised running it again; a
-  refused `401` and an acknowledged-but-still-logging-out daemon both read as "restarted"; and a
-  daemon that had already exited read as "could not stop the old one". The port is now the
-  authority for every outcome, each one carries the right level, and the poll is parked while the
-  stop is confirmed, so a tick cannot manufacture a survivor mid-command.
-- the frozen endpoint list missed `DELETE /register` (the call that frees a decision slot), so a
-  change to it needed no protocol bump; the snapshot regex now covers `DELETE`.
+- **The frozen endpoint list missed `DELETE /register`** (the call that frees a decision slot), so
+  a change to it needed no protocol bump; the snapshot regex now covers `DELETE`.
+
+### A restart that reported the attempt, not the outcome
+
+- **`/mailbridge restart` could not tell five outcomes apart.** It skipped the stop entirely when
+  the session had no client (then advised running it again); an `ok` reply from `/shutdown`, a
+  refusal, and a timeout all read as "restarted" even though `/shutdown` answers *before* it
+  closes the listener, so a daemon still logging out of IMAP keeps `/health` alive; a daemon that
+  had already exited read as "could not stop the old one"; and the protocol-replacement path it
+  shares said "retrying" after a failure that had left no poll loop to retry with. The port is now
+  the authority for every outcome, each one carries the level it deserves, the loop is parked
+  while the stop is confirmed (including a tick already in flight), and it is re-armed in a
+  `finally` so a throw cannot leave the session without it.
 
 
 ### Four bug classes fixed at the root, not at the symptom

@@ -1664,6 +1664,47 @@ test("/mailbridge restart re-arms the poll when it cannot attach", async () => {
 	assert.equal(t.queue.filter((q) => q.ms === 10_000).length, 1, "and the loop is armed again")
 })
 
+test("the documented headless setup reads as a plain start, not a warning", async () => {
+	// `pi-mailbridge --setup` then `/mailbridge restart` in an open session (README's table): no
+	// key existed when the session started, so nothing could be stopped, and this call creates
+	// both the key and the daemon. It used to be reported as a caveat about a daemon that was
+	// never there.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-headless-")) }
+	const t = fakeTimers()
+	const notes: string[] = []
+	const levels: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	let usable = false
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env,
+		loadConfig: () => (usable ? config() : { ...config(), mail: { ...config().mail, to: "" } }),
+		secret: () => readSecret(env),
+		makeClient: () => fakeDaemon({ mode: "on" }).client,
+		// This call is what starts it, and the report must know that.
+		ensureDaemon: async () => ({ healthy: true, started: true }),
+		probeHealth: async () => false,
+		stopWaitMs: 0,
+		timers: t.timers,
+		pollMs: 10_000,
+	})
+	await pi.fire("session_start")
+	usable = true
+
+	const c = ctx(notes)
+	c.ui.notify = (message: string, level?: string) => {
+		notes.push(message)
+		levels.push(level ?? "info")
+	}
+	await captured.get("mailbridge")!("restart", c)
+
+	assert.match(notes.join("\n"), /daemon started with the current code/)
+	assert.equal(levels.at(-1), "info", "a first start is not a caveat")
+})
+
 test("/mailbridge restart says when it had no key to stop anything with", async () => {
 	// No key at start means no client, so no stop was attempted. That is an observation, not a
 	// cause: the daemon may have minted the key itself a moment ago. Nothing tested this cell.
