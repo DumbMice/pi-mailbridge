@@ -370,6 +370,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				const sent = await client?.send({
 					subject: message.subject,
 					text: message.text,
+					// Exempt from the notification budget: a burst of `notify_user` mail must not
+					// be able to silence "your agent is waiting".
+					kind: "settle",
 					...(ctx ? { cwd: ctx.cwd, sessionId: ctx.sessionManager.getSessionId() } : {}),
 				})
 				// A non-ok result used to be discarded here, so a refused or timed-out send
@@ -377,7 +380,13 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				// `sent === undefined` means there is no client at all; reporting that as a
 				// success would make "nothing was sent" indistinguishable from "sent".
 				if (!sent) throw new Error("send failed (daemon unavailable)")
-				if (!sent.ok) throw new Error(`send failed (${sent.code ?? sent.status})`)
+				if (!sent.ok) {
+					throw new Error(
+						sent.code === "send_budget"
+							? "notification budget exhausted (10 a minute)"
+							: `send failed (${sent.code ?? sent.status})`,
+					)
+				}
 			},
 			secret: () => secret,
 			config: { ...config.notify, tokenTtlHours: config.security.tokenTtlHours },
@@ -1000,7 +1009,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					sessionId,
 				})
 				if (!outcome.ok) {
-					return { content: [{ type: "text", text: "Could not send the email; ask in the terminal instead." }], details: {} }
+					const why =
+						outcome.code === "send_budget"
+							? "Could not send the email: the notification budget is exhausted (10 a minute); ask in the terminal instead"
+							: "Could not send the email; ask in the terminal instead"
+					return { content: [{ type: "text", text: why }], details: {} }
 				}
 				sent = true
 			} catch (error) {
@@ -1049,7 +1062,16 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				...(sessionContext()?.sessionId ? { sessionId: sessionContext()!.sessionId } : {}),
 			})
 			return {
-				content: [{ type: "text", text: sent.ok ? "Sent." : "Could not send." }],
+				content: [
+					{
+						type: "text",
+						text: sent.ok
+							? "Sent."
+							: sent.code === "send_budget"
+								? "Not sent: the notification budget is exhausted (10 a minute)."
+								: "Could not send.",
+					},
+				],
 				details: {},
 			}
 		},

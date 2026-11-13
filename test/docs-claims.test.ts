@@ -1031,3 +1031,17 @@ test("the two version axes are documented and kept distinct", () => {
 	assert.match(schema, /export const STATE_VERSION = 1/)
 })
 
+
+test("the send budget and device filter are documented where a client author looks", () => {
+	// These are wire behaviours: a client that does not know about 429 or 409 mishandles them.
+	const arch = doc("docs/ARCHITECTURE.md")
+	assert.match(arch, /send_budget/, "the endpoint table names the 429 code")
+	assert.match(arch, /foreign-device/, "and the 409 code")
+	assert.match(flat(doc("docs/SECURITY.md")), /ten notifications a minute|send_budget/, "SECURITY states the cap")
+})
+
+test("no doc still claims there is no send budget", () => {
+	for (const { file, text } of allProse()) {
+		assert.doesNotMatch(text, /no per-account send budget/i, `${file} denies the budget`)
+	}
+})

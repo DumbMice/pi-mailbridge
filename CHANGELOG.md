@@ -16,9 +16,11 @@ that happen to share a `device.name`, no longer hand each other's replies around
 stops shipping the whole queue over loopback every 10 s.
 
 **Unbounded sending.** `/send` has a one-minute budget of ten mails, refused with `429
-send_budget`. A model-driven `notify_user` loop can no longer spend a provider's daily quota and
-silence the notifications that matter. The budget refuses rather than queues: the agent sees the
-error, and the human is not mailed a backlog of stale notifications later.
+send_budget`. A model-driven `notify_user` loop can no longer mail without bound in a minute - the eleventh is
+refused, not queued, so the agent sees the error and no stale backlog is mailed later. A settle
+notification is exempt: the burst must not be able to silence "your agent is waiting". A sustained
+loop can still reach a daily cap (ten a minute is 600 an hour), so tool scoping remains the
+defence.
 
 
 ### The daemon always exits when idle; no residency switch

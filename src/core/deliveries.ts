@@ -33,6 +33,7 @@ export type DeliveryOutcome =
 	| "inject-failed"
 	| "claim-unconfirmed"
 	| "stale-space"
+	| "foreign-device"
 	| "not-found"
 
 export interface DeliveryRunnerDeps {
@@ -138,6 +139,20 @@ export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 					deps.onError?.(new Error("reply belongs to an earlier UID space; it will be dropped"), record)
 				}
 				return "stale-space"
+			}
+			// A record this daemon does not own (another machine's, or one stamped under a
+			// device name that has since changed) cannot be delivered by retrying. Say it once:
+			// silence here is how a queued reply is lost without a trace.
+			if (claim.code === "foreign-device") {
+				const key = injectionKey(record)
+				if (!reported.has(key)) {
+					reported.add(key)
+					deps.onError?.(
+						new Error("reply was scanned under another device name; it will not be delivered here"),
+						record,
+					)
+				}
+				return "foreign-device"
 			}
 			// Only a definite 404 means the record is gone. Anything else - a timeout, a
 			// network error, a rotated secret (401) - leaves the outcome unknown, and calling

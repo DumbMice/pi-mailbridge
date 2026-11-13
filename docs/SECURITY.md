@@ -103,16 +103,16 @@ A legitimate email can still contain text that reads like instructions
   whether IMAP is connected — no mail content, no addresses, no subjects.
 - Bearer token from `secret.key`, mode `0600`, created first-writer-wins,
   compared in constant time.
-- Body cap 1 MB; registry cap 10 000; SSE client cap 100.
+- Body cap 1 MB; registry cap 10 000; SSE client cap 100; ten notifications a minute; ten notifications a minute.
 - `EADDRINUSE` on start is treated as "already running" — an attacker cannot
   displace a running daemon by racing the port, because the loser exits.
 - The token never appears in logs, error strings, or the notification email.
 
 ### What the bearer token authorises
 
-Beyond sending, the token can `GET /pending` (reply bodies and attachments), `/claim` and `/ack`
-any record — which *discards* a queued reply without delivering it — flip the mode, and shut the
-daemon down. Treat `secret.key` as equivalent to the mailbox password.
+Beyond sending, the token can `GET /pending` (this device's reply bodies and attachments), `/claim`
+and `/ack` a record this device scanned — which *discards* a queued reply without delivering it —
+flip the mode, and shut the daemon down. Treat `secret.key` as equivalent to the mailbox password.
 
 ## 5. Mailbox hygiene
 
@@ -254,9 +254,11 @@ model output. The controls, all fail-closed:
 
 Residual risk, plainly: anything the agent can read and re-materialise inside the project can be
 mailed to the address the daemon sends to, up to the cap, including a file that happens to contain secrets and archives
-whose contents the allowlist cannot inspect. There is no per-account send budget, so a model that
-is instructed to send repeatedly can consume a provider's daily quota. The real defence remains
-tool scoping and not running the agent in a directory full of secrets.
+whose contents the allowlist cannot inspect. Sending is capped at ten
+notifications a minute per daemon (`429 send_budget`), refused rather than queued, and a settle
+notification is exempt so a burst cannot silence "your agent is waiting". That stops bursts, not a
+sustained loop: ten a minute is 600 an hour and the budget resets when the daemon restarts, so tool
+scoping remains the defence.
 
 ## 7. Reporting
 

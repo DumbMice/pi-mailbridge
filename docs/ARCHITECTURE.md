@@ -72,15 +72,15 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 | --- | --- | --- |
 | GET | `/health` | liveness probe; **unauthenticated** by design (mode, pending count, the decision-registry size, emitted as both `sessions` and `registry` — sessions *with an outstanding decision*, not live sessions; live ones are `clients` — ping timing, SSE subscribers, the last scan's summary, `configLoadedAt`, `version`, `apiVersion` and `capabilities`; no content, no addresses) |
 | GET | `/events` | SSE: `delivery`, `mode` (no client uses it; sessions poll) |
-| GET | `/pending` | the delivery channel: polled every 10 s, and replayed on reconnect |
-| POST | `/claim` | `{uid, instanceId, uidValidity?}` — atomic claim; refused as `stale-space` when the record belongs to another UID space |
+| GET | `/pending` | the delivery channel: polled every 10 s, replayed on reconnect; returns the daemon's own device's records plus untagged ones |
+| POST | `/claim` | `{uid, instanceId, uidValidity?}` — atomic claim; refused as `stale-space` for another UID space and `foreign-device` for a record another device scanned |
 | POST | `/ack` | `{uid, instanceId, uidValidity?}` — claimant-only; refused as `stale-space` when the record (or the caller) belongs to another UID space; journals in the **record's** space, then `\Seen` + prune |
 | POST | `/register` | reserve a session's single outstanding decision |
 | POST | `/bye` | a session is leaving; the daemon exits when the last one goes |
 | POST | `/ping` | heartbeat, the other half of the idle exit |
 | DELETE | `/register` | release the reservation |
 | GET/POST | `/mode` | global `on`/`off`, persisted + broadcast |
-| POST | `/send` | send mail (the daemon owns SMTP config) |
+| POST | `/send` | send one mail; ten a minute (`kind: "settle"` is exempt), then `429 send_budget` | send mail (the daemon owns SMTP config) |
 | POST | `/reload` | re-read config: stop the watcher, reload, redial. On failure it restores the previous config and warns; a refused connect returns `ok` with a warning |
 | POST | `/shutdown` | stop the daemon (used by the restart path) |
 

@@ -259,16 +259,14 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					return undefined
 				}
 
-				case "GET /pending":
+				case "GET /pending": {
 					// Filtered: a whole-file payload of another machine's mail is both wrong to
-					// deliver and wastefully large.
-					const url = new URL(req.url ?? "/", "http://127.0.0.1")
-					const device = url.searchParams.get("device")
-					const config = deps.getConfig?.()
-					const mine = device ?? config?.device.name
-					return send(200, {
-						pending: mine ? listPendingForDevice(env, mine) : listPending(env),
-					})
+					// deliver and wastefully large. The daemon's own live config is the authority -
+					// the same one /claim uses - so a client holding a stale device name (renamed,
+					// or rewritten by `setup`) cannot ask for records it will then be refused.
+					const mine = deps.getConfig?.()?.device.name
+					return send(200, { pending: mine ? listPendingForDevice(env, mine) : listPending(env) })
+				}
 
 				case "GET /mode":
 					return send(200, { mode: readMode(env) })
@@ -397,12 +395,6 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				}
 
 				case "POST /send": {
-					// A budget, not a rate limiter: an injected agent can ask for unbounded mail, and
-					// a provider that starts refusing (or a daily quota that runs out) silences the
-					// notifications that matter. Count and refuse rather than queue.
-					if (!sendBudget.take(Date.now())) {
-						return fail(429, "send_budget")
-					}
 					const body = asRecord(await readJson(req))
 					const subject = typeof body?.subject === "string" ? body.subject : ""
 					const text = typeof body?.text === "string" ? body.text : ""
@@ -413,6 +405,13 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					// sessionId lets the sender thread this mail into the session's conversation.
 					const sessionId = typeof body?.sessionId === "string" ? body.sessionId : undefined
 					if (!subject || !text) return fail(400, "bad_request")
+					// A budget, not a rate limiter: an injected agent can ask for unbounded mail.
+					// A settle notification is exempt - it is the one mail that says the agent is
+					// waiting, and a legitimate `notify_user` burst must not silence it.
+					const kind = body?.kind === "settle" ? "settle" : "notification"
+					if (kind !== "settle" && !sendBudget.take(Date.now())) {
+						return fail(429, "send_budget")
+					}
 
 					// Thread every notification for a session into one conversation: reply to
 					// the previous message, reference the session root. Read BEFORE sending,

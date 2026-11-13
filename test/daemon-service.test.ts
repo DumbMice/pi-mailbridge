@@ -1055,17 +1055,18 @@ test("/pending returns only this device's records", async () => {
 		// A record from before the field existed is still offered (nobody knows whose it is).
 		addPending(h.env, { uid: 3, sessionId: "s3", from: "y@e.com", subject: "e", body: "f", receivedAt: 3 })
 
-		const forAlpha = (await (await fetch(`${h.base}/pending?device=alpha`, { headers: auth() })).json()) as {
+		// The daemon's own config decides - the same authority /claim uses - so a client's stale
+		// name cannot ask for records it would then be refused.
+		const mine = (await (await fetch(`${h.base}/pending`, { headers: auth() })).json()) as {
 			pending: { uid: number }[]
 		}
-		assert.deepEqual(forAlpha.pending.map((r) => r.uid).sort(), [1, 3], "alpha's own plus the untagged one")
+		assert.deepEqual(mine.pending.map((r) => r.uid), [3], "this daemon's device only, plus untagged")
 
-		// No `device` param (an older client): the daemon answers for *its own* device, not for
-		// everything in the file.
-		const unfiltered = (await (await fetch(`${h.base}/pending`, { headers: auth() })).json()) as {
+		// A client-supplied device param is ignored, so it cannot diverge from /claim.
+		const spoofed = (await (await fetch(`${h.base}/pending?device=alpha`, { headers: auth() })).json()) as {
 			pending: { uid: number }[]
 		}
-		assert.deepEqual(unfiltered.pending.map((r) => r.uid), [3], "this daemon's device only, plus untagged")
+		assert.deepEqual(spoofed.pending.map((r) => r.uid), [3], "the daemon answers for itself")
 	} finally {
 		await h.close()
 	}
@@ -1105,6 +1106,49 @@ test("the send budget refuses an eleventh mail in a minute", async () => {
 		assert.equal(refused.status, 429)
 		assert.equal(((await refused.json()) as { error: { code: string } }).error.code, "send_budget")
 		assert.equal(h.sent.length, 10, "nothing beyond the budget reached the transport")
+	} finally {
+		await h.close()
+	}
+})
+
+test("a rejected body does not spend the send budget", async () => {
+	// Charging before validation means ten malformed requests exhaust the minute and a real
+	// notification is refused.
+	const h = await boot()
+	try {
+		for (let i = 0; i < 12; i += 1) {
+			const bad = await fetch(`${h.base}/send`, {
+				method: "POST",
+				headers: auth({ "content-type": "application/json" }),
+				body: JSON.stringify({ subject: "", text: "" }),
+			})
+			assert.equal(bad.status, 400)
+		}
+		const good = await fetch(`${h.base}/send`, {
+			method: "POST",
+			headers: auth({ "content-type": "application/json" }),
+			body: JSON.stringify({ subject: "s", text: "t" }),
+		})
+		assert.equal(good.status, 200, "the budget was not consumed by rejected requests")
+	} finally {
+		await h.close()
+	}
+})
+
+test("a settle notification is exempt from the send budget", async () => {
+	// The budget exists to stop a model-driven loop, not to silence "your agent is waiting" -
+	// which is exactly what a legitimate notify_user burst would otherwise do.
+	const h = await boot()
+	try {
+		const send = (kind?: string) =>
+			fetch(`${h.base}/send`, {
+				method: "POST",
+				headers: auth({ "content-type": "application/json" }),
+				body: JSON.stringify({ subject: "s", text: "t", ...(kind ? { kind } : {}) }),
+			})
+		for (let i = 0; i < 10; i += 1) assert.equal((await send()).status, 200, `notification ${i + 1}`)
+		assert.equal((await send()).status, 429, "the budget is exhausted for notifications")
+		assert.equal((await send("settle")).status, 200, "but a settle still goes out")
 	} finally {
 		await h.close()
 	}

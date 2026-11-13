@@ -287,8 +287,15 @@ export function createDaemonClient(options: DaemonClientOptions) {
 		// A notification can carry a few hundred KB of inlined images and the daemon awaits
 		// the whole SMTP transaction, so a slow-but-healthy relay must not be cut off: the
 		// generic 15 s ceiling would drop the one mail this product exists to deliver.
-		send: (message: { to?: string; subject: string; text: string; cwd?: string; sessionId?: string }) =>
-			call<{ ok: boolean }>("POST", "/send", message, SEND_TIMEOUT_MS),
+		send: (message: {
+			/** "settle" is exempt from the daemon's notification budget. */
+			kind?: "settle" | "notification"
+			to?: string
+			subject: string
+			text: string
+			cwd?: string
+			sessionId?: string
+		}) => call<{ ok: boolean }>("POST", "/send", message, SEND_TIMEOUT_MS),
 		/** Re-read config and restart the watcher (after setup or auth). */
 		// Includes an IMAP logout, an XOAUTH2 token fetch and a fresh dial.
 		reload: () => call<{ ok: boolean; warning?: string }>("POST", "/reload", undefined, RELOAD_TIMEOUT_MS),
