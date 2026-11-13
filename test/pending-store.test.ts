@@ -370,7 +370,9 @@ test("the default ceiling is exercised, and it is above the largest record we ac
 		// The scanner's real maximum: an over-long header is truncated at persistence time
 		// (`persistedSubject`), so this is the largest subject that can reach the store.
 		subject: persistedSubject("s".repeat(8 * 1024 * 1024)),
-		body: "a".repeat(MAX_BODY_CHARS),
+		// Control characters, which JSON escapes six-fold: the real worst case for a body that is
+		// at the character cap. A plain "a" models a third of it.
+		body: "\u0001".repeat(MAX_BODY_CHARS),
 		attachments: Array.from({ length: MAX_ATTACHMENTS }, (_, i) => ({
 			name: "n".repeat(MAX_NAME_CHARS),
 			mimeType: "image/png",

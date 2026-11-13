@@ -1114,7 +1114,7 @@ test("the documented queue bounds match the constants they describe", () => {
 	const megabytes = `${Math.round(pendingMaxBytes / 1024 / 1024)} MB`
 
 	assert.ok(
-		flat(doc("README.md")).includes(`1 000 undelivered replies, or ${megabytes}`),
+		flat(doc("README.md")).includes(`${spaced} undelivered replies, or ${megabytes}`),
 		"README's pending-full row must state both bounds",
 	)
 	assert.ok(

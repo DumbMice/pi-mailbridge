@@ -167,6 +167,10 @@ export function recordBytes(record: PendingRecord): number {
  *     grow the count).
  *   - `PENDING_MAX_BYTES` of serialised records. A replacement is re-measured rather than trusted:
  *     an over-size replay would otherwise be the one way past the ceiling.
+ *
+ * `claimPending` is the one writer that does not measure: it adds `claimedBy` (an instance id from
+ * a request body, itself capped at 1 MB) and `claimedAt` to one record. The scanner never sets
+ * those, so a stored record can only grow by a bounded field at claim time.
  */
 export function addPending(
 	env: NodeJS.ProcessEnv,
