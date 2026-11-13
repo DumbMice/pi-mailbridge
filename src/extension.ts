@@ -334,6 +334,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			if (found.ok) theirs = found.apiVersion ?? 0
 		}
 		if (theirs === undefined || apiCompatible(API_VERSION, theirs)) return false
+		// The awaits above can take seconds; a command may have parked the loop in the meantime.
+		if (pollPaused) return false
 
 		ctx?.ui.notify(
 			`mailbridge: replacing the running daemon (protocol ${theirs ?? "0"} → ${API_VERSION})`,
@@ -349,10 +351,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		// dying daemon and "reuses" it - the replacement then reports success while the old
 		// protocol is still being served. Wait for the port to stop answering.
 		await waitForPortToClose(clientBase ?? currentBaseUrl())
+		// Stopped, and parked: the command that parked the loop owns the respawn, and spawning
+		// here would hand it the survivor it is measuring.
+		if (pollPaused) return false
 
 		// A failed respawn must not end the poll loop: with `runner` gone, a re-arm tied to it
 		// would stop the only thing that notices the daemon is missing.
 		const ensured = await ensureDaemonDetailed()
+		if (pollPaused) return false
 		if (!ensured.healthy || !(await replaceRuntime())) {
 			ctx?.ui.notify(
 				ensured.incompatible

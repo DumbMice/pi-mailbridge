@@ -1710,6 +1710,63 @@ test("a tick suspended in its respawn when restart begins does not rebuild the r
 	assert.equal(modeReads, 1, "only the restart rebuilt the runtime")
 })
 
+test("a tick suspended inside replaceOutdatedDaemon does not respawn under a restart", async () => {
+	// `replaceOutdatedDaemon` stops the daemon, waits, spawns and rebuilds - all in awaits that a
+	// command can park the loop across. Left unpaused it would do the command's work and hand it
+	// the "still answering" evidence it measures.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const daemon = fakeDaemon({ mode: "on" })
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	let release: (() => void) | undefined
+	let held = false
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		probeHealth: async () => {
+			release?.()
+			return false
+		},
+		stopWaitMs: 0,
+		timers: t.timers,
+		pollMs: 10_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	// The daemon speaks an older protocol, and the tick's health read is held so the tick is
+	// suspended inside the replacement when the command starts.
+	daemon.client.health = async () => {
+		if (!held) {
+			held = true
+			await new Promise<void>((resolve) => {
+				release = resolve
+			})
+		}
+		return { ok: true as const, data: { ok: true, mode: "on", pending: 0, apiVersion: 0 } }
+	}
+	const before = daemon.shutdowns
+	t.queue.find((q) => q.ms === 10_000)?.handler()
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+
+	await captured.get("mailbridge")!("restart", ctx(notes))
+	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.ok(held, "the tick really was suspended inside the replacement")
+	// Only the command stopped the daemon; the suspended tick must not do it (and respawn) too.
+	// (The earlier check inside replaceOutdatedDaemon is what catches this one; the checks after
+	// its own shutdown and spawn are defence in depth for the windows this test cannot hold open.)
+	assert.equal(daemon.shutdowns - before, 1, `one stop, by the command (${daemon.shutdowns - before})`)
+	assert.match(notes.join("\n"), /restarted with the current code/)
+})
+
 test("a restart clears the one-shot 401 notice, so a new rejection is reported", async () => {
 	// The notice is once per session by design (it is not a per-poll nag). A restart exists to
 	// repair exactly this, so if the key is still wrong afterwards the user must hear it again -
