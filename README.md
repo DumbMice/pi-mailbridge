@@ -50,6 +50,12 @@ carries its version — and replaces it (once a minute at most). Without that, a
 would mint routing ids an old daemon cannot resolve, and replies would be rejected with the
 cursor already past them.
 
+The replacement is: shut the old daemon down (`POST /shutdown`), respawn from this package, rebuild
+this session's client. Queued replies, the cursor and the journal are on disk and untouched, so the
+gap costs nothing but the seconds the old daemon spent not watching IMAP; the mode survives because
+it is a file. If the respawn fails, the session warns and keeps polling, retrying within a minute;
+`/mailbridge restart` forces it.
+
 The daemon exists whether or not email mode is on; `/mailbridge on` and `off` gate scanning and
 delivery, not the process. So a hung daemon is never "because the mode is off", and the mode being
 off does not stop it from answering `/health`.

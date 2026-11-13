@@ -990,3 +990,35 @@ test("status names the daemon's build, and flags a stale one", async () => {
 	assert.match(panel, /this session is \d+\.\d+\.\d+/, "and names the session's build when they differ")
 	assert.match(panel, /replacing it/)
 })
+
+test("a replacement that cannot respawn keeps the poll loop alive", async () => {
+	// The loop used to be re-armed only when a runner existed. A replacement clears the runner
+	// first, so a failed respawn stopped the one thing that could notice - permanently, until a
+	// new session.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on", daemonVersion: "0.0.0-old" })
+	const pi = fakePi(ctx(notes))
+	let ensures = 0
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		// The first probe (session start) succeeds; the respawn the replacement needs does not.
+		ensureDaemon: async () => {
+			ensures += 1
+			return ensures === 1
+		},
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+
+	const tick = t.queue.shift()
+	tick?.handler()
+	for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.ok(notes.some((n) => /did not come back after the update/.test(n)), `notes: ${JSON.stringify(notes)}`)
+	assert.ok(t.queue.length >= 1, "the poll loop must still be armed")
+})

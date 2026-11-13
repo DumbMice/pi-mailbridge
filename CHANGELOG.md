@@ -130,7 +130,9 @@ it can only be re-opened from the terminal. Nothing was published, so there is n
 and resolves routing ids from the old code, so replies after an upgrade could be rejected with the
 cursor already past them. `/health` now carries the daemon's package version, and a session
 compares it against its own once a minute: a different build (or a daemon from before the field
-existed) is shut down and respawned. If this build cannot identify itself, nothing is killed.
+existed) is shut down and respawned. If this build cannot identify itself, nothing is killed. A replacement that cannot respawn no
+longer stops the poll loop - it warns and retries - because the loop had been re-armed only while a
+runner existed, and the replacement clears it.
 
 ### The package ships a build, because Node cannot strip types inside node_modules
 

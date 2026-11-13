@@ -228,8 +228,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			} catch {
 				/* drain already swallows; a poll must never throw into the runtime */
 			} finally {
-				// Re-arm unconditionally, so recovery cannot depend on which branch ran.
-				if (runner && pollHandle === undefined) {
+				// Re-arm whenever this session is alive - not only when a runner exists: a
+				// daemon replacement clears the runner for a moment, and tying the loop to it
+				// stopped polling exactly when the daemon was missing.
+				if (ctx && pollHandle === undefined) {
 					pollHandle = timers.setTimeout(() => {
 						pollHandle = undefined
 						void tick()
@@ -268,8 +270,16 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		runner = undefined
 		notifier?.cancel()
 		notifier = undefined
-		if (!(await ensureDaemonSafe())) return false
-		if (!(await startRuntime())) return false
+		// A failed respawn must not end the poll loop: with `runner` gone, a re-arm tied to it
+		// would stop the only thing that notices the daemon is missing. The tick keeps running
+		// and retries once the throttle allows.
+		if (!(await ensureDaemonSafe()) || !(await startRuntime())) {
+			ctx?.ui.notify(
+				"mailbridge: the daemon did not come back after the update — retrying, and /mailbridge restart forces it",
+				"warning",
+			)
+			return true
+		}
 		startPolling()
 		return true
 	}
