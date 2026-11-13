@@ -135,8 +135,8 @@ flip the mode, and shut the daemon down. Treat `secret.key` as equivalent to the
   how often a session retries. Sessions re-read `secret.key` on each call, but the client each
   one already built carries the old token, so it 401s until its runtime is rebuilt.
 
-  Do **not** rotate for a *mail password* change: the daemon's `POST /reload` re-reads that (run it via `/mailbridge smoke`), so no
-  restart is needed.
+  Do **not** rotate for a *mail password* change: the daemon's `POST /reload` re-reads
+  that (run it via `/mailbridge smoke`), so no restart is needed.
 
   Rotating the key kills every outstanding **signed token**, but *not* the short route ids:
   those are entries in `routes.json` and resolve with no secret at all, so they keep working
