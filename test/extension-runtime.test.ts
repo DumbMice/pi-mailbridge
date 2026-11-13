@@ -157,6 +157,7 @@ function fakeDaemon(
 				apiVersion: over.apiVersion ?? 1,
 			}),
 		pending: async () => ok({ pending: pendingRecords }),
+		withheld: async () => ok({ withheld: 0 }),
 		mode: async () => ok({ mode: currentMode }),
 		setMode: async (mode: "on" | "off") => {
 			currentMode = mode

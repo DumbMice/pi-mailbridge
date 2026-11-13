@@ -772,3 +772,18 @@ test("a reply whose only content was an over-cap attachment is persisted with a 
 		assert.equal(readCursor(e), 11, "and the cursor moved with the record")
 	})
 })
+
+test("an attachment-only stub is delivered, not counted as rejected", () => {
+	// rejected++ here read as "mail lost" in the panel while the agent did receive the note.
+	const e = env()
+	const big = { filename: "shot.png", contentType: "image/png", content: Buffer.alloc(1_500_000) }
+	return scanAndProcess(config(), {
+		source: source([msg(12, { text: "", attachments: [big] })]),
+		secret: SECRET,
+		env: e,
+	}).then((r) => {
+		assert.equal(r.persisted, 1)
+		assert.equal(r.rejected, 0, "the reply was accepted")
+		assert.equal(r.reasons["attachment-only-dropped"], 1, "but the loss is named")
+	})
+})

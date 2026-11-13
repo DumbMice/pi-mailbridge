@@ -1153,3 +1153,21 @@ test("a settle notification is exempt from the send budget", async () => {
 		await h.close()
 	}
 })
+
+test("/pending reports how many records it is withholding, without their content", async () => {
+	// After a rename (or a copied state directory) these are the user's own replies, invisible.
+	const h = await boot()
+	try {
+		addPending(h.env, { uid: 1, sessionId: "s", from: "y@e.com", subject: "mine", body: "b", receivedAt: 1, device: "test-device" })
+		addPending(h.env, { uid: 2, sessionId: "s", from: "y@e.com", subject: "old", body: "c", receivedAt: 2, device: "renamed-device" })
+		const body = (await (await fetch(`${h.base}/pending`, { headers: auth() })).json()) as {
+			pending: { uid: number }[]
+			withheld: number
+		}
+		assert.deepEqual(body.pending.map((r) => r.uid), [1])
+		assert.equal(body.withheld, 1, "the count is reported")
+		assert.equal(JSON.stringify(body).includes("old"), false, "and no content leaks")
+	} finally {
+		await h.close()
+	}
+})

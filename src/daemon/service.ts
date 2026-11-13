@@ -19,7 +19,7 @@ type ScanSummaryLike = ScanSummary
 import { CAPABILITIES } from "./api.ts"
 import { createSendBudget } from "./send-budget.ts"
 import type { MailSource } from "./process.ts"
-import { ackPending, claimPending, listPending, listPendingForDevice } from "../store/pending-store.ts"
+import { ackPending, claimPending, listPending } from "../store/pending-store.ts"
 import { journal } from "../store/journal.ts"
 import { recordOutbound, removeOutbound, sessionThread } from "../store/threads.ts"
 import { generateMessageId } from "../core/mailer.ts"
@@ -267,7 +267,20 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					// the same one /claim uses - so a client holding a stale device name (renamed,
 					// or rewritten by `setup`) cannot ask for records it will then be refused.
 					const mine = deps.getConfig?.()?.device.name
-					return send(200, { pending: mine ? listPendingForDevice(env, mine) : listPending(env) })
+					const all = listPending(env)
+					const offered = mine ? all.filter((r) => r.device === undefined || r.device === mine) : all
+					return send(200, {
+						pending: offered,
+						// A count, never the content: these are another device's replies, and after a
+						// rename they are the user's own mail sitting here invisible.
+						withheld: all.length - offered.length,
+					})
+				}
+				case "GET /withheld": {
+					const mine = deps.getConfig?.()?.device.name
+					const all = listPending(env)
+					const held = mine ? all.filter((r) => r.device !== undefined && r.device !== mine).length : 0
+					return send(200, { withheld: held })
 				}
 
 				case "GET /mode":
@@ -410,8 +423,12 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					// A budget, not a rate limiter: an injected agent can ask for unbounded mail.
 					// A settle notification is exempt - it is the one mail that says the agent is
 					// waiting, and a legitimate `notify_user` burst must not silence it.
-					const kind = body?.kind === "settle" ? "settle" : "notification"
-					if (kind !== "settle" && !sendBudget.take(Date.now())) {
+					const kind =
+						body?.kind === "settle" ? "settle" : body?.kind === "decision" ? "decision" : "notification"
+					// Only unbounded, model-driven notifications are budgeted: a settle says the
+					// agent is waiting, and a decision is already capped at one outstanding per
+					// session by the registry.
+					if (kind === "notification" && !sendBudget.take(Date.now())) {
 						return fail(429, "send_budget")
 					}
 

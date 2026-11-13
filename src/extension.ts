@@ -524,7 +524,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 * Spawn-or-reuse, keeping the reason. `incompatible` means something answered but spoke
 	 * another protocol - the replacement path, not the dead-daemon path.
 	 */
-	async function ensureDaemonDetailed(): Promise<{ healthy: boolean; incompatible?: boolean }> {
+	async function ensureDaemonDetailed(): Promise<{ healthy: boolean; incompatible?: boolean; error?: string }> {
 		if (deps.ensureDaemon) return { healthy: await deps.ensureDaemon(currentBaseUrl(), daemonScript()) }
 		return ensureDaemon({ baseUrl: currentBaseUrl(), scriptPath: daemonScript(), env })
 	}
@@ -561,7 +561,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			c.ui.notify(
 				ensured.incompatible
 					? "mailbridge: the running daemon speaks another protocol — restarting it"
-					: "mailbridge: daemon not reachable; replies will not arrive",
+					: `mailbridge: daemon not reachable${ensured.error ? ` (${ensured.error})` : ""}; replies will not arrive`,
 				"warning",
 			)
 			// An incompatible daemon is the version-replacement path, not a dead one.
@@ -684,6 +684,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				// No client in *this* session is not the same as no daemon on the port.
 				const alive = health?.ok ? true : await probe({ baseUrl: clientBase ?? currentBaseUrl() })
 				const pending = client ? await client.pending() : undefined
+				// Records this daemon holds for another device (a renamed machine, a copied state
+				// dir) are not offered by /pending and never claimed; say how many, not which.
+				const withheld = client?.withheld ? await client.withheld() : undefined
 				// The daemon is a separate process with its own lifetime; after `pi update` it can
 				// be an older build, so name it here rather than making the user read /health.
 				const daemonVersion = health?.ok ? (health.data.version ?? "unknown") : "unknown"
@@ -704,6 +707,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						`mailbox: ${config.mail.to || "(unset)"}`,
 						`allowlist: ${config.security.allowFrom.join(", ") || "(empty — denies all)"}`,
 						`pending replies: ${pending?.ok ? pending.data.pending.length : "?"}`,
+						...(withheld?.ok && withheld.data.withheld > 0
+							? [
+									`held for another device: ${withheld.data.withheld} (a renamed device.name, or a copied state directory; see docs/ARCHITECTURE.md)`,
+								]
+							: []),
 						...formatScan(health?.ok ? (health.data.lastScan ?? null) : null),
 					].join("\n"),
 					"info",
@@ -1016,6 +1024,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					env,
 				})
 				const outcome = await client.send({
+					kind: "decision",
 					subject: `[pi:${tag}] ${String(params["subject"] ?? "pi: decision")}`,
 					text: body,
 					cwd: c.cwd,

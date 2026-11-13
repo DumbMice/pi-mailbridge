@@ -356,7 +356,8 @@ The version on the first line is the daemon's package version. What decides whet
 use it is the **protocol** (`protocol 1`): a daemon on another protocol is replaced within a minute
 (see Lifecycle); a different package version on the same protocol is fine.
 
-A non-zero `rejected` count means mail was seen and not accepted. `handled:` lines are the
+A non-zero `rejected` count means mail was refused — or delivered only as an attachment-drop
+notice, which `attachments dropped:` names separately. `handled:` lines are the
 accepted paths, `attachments dropped:` is a partial loss, and a full queue defers rather than
 discards. Counters of zero are omitted, so a quiet scan prints no scan line; while mode is off
 nothing is scanned and the panel shows the previous scan, so `mode:` — not the scan time — is the
@@ -376,7 +377,8 @@ proof the channel is open.
 | `no-reply-evidence` | a self-addressed mail with no threading headers | reply to the notification instead |
 | `empty-body` from a `From:`/`>`-leading reply | the first line starts with a quote marker, so the whole body is treated as quoted | write your text above the quote, or paste logs after a sentence |
 | `auto-generated` | a robot, mailing list or bounce | nothing |
-| `empty-body` | no prose and no usable attachment | — |
+| `attachment-only-dropped` | the reply's only content was an attachment that was dropped (over the 1 MB total, a refused type); a note naming the drop is delivered | send the text, or a smaller file |
+| `empty-body` | no prose, no attachment at all | — |
 | `attachment-*` | an attachment was dropped (type, size, count) | see the suffix |
 | `pending-full` | 1 000 undelivered replies are queued | start a session so they drain |
 | `send_budget` | more than ten notifications in a minute were requested | a loop is mailing; the budget refuses rather than spending the account's quota |
@@ -392,7 +394,7 @@ Where to look:
 | `…/routes.lock` | held for the instant a routing id is minted |
 | `…/daemon.log` | the daemon's own log (0600, rotates once at 5 MB) |
 | `…/mode.json` | the global on/off state `/mailbridge on` and `off` write |
-| `…/pending.json` | accepted replies waiting for a session |
+| `…/pending.json` | accepted replies waiting for a session (each stamped with the device that scanned it) |
 | `…/routes.json` | short routing ids (`security.tokenTtlHours`) |
 | `…/threads.json` | outbound Message-IDs for threading and the reply chain |
 | `…/journal.json` | acked UIDs, tagged with the UIDVALIDITY |

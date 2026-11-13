@@ -88,6 +88,8 @@ export interface EnsureDaemonResult {
 	healthy: boolean
 	/** Something answered but spoke another protocol; it must be replaced, not reused. */
 	incompatible?: boolean
+	/** Why the spawn failed, when it did (EAGAIN, ENOENT, a sandbox refusal). */
+	error?: string
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
@@ -179,7 +181,7 @@ export async function ensureDaemon(options: EnsureDaemonOptions): Promise<Ensure
 	const sleep = options.sleep ?? defaultSleep
 	const deadline = Date.now() + (options.waitMs ?? 5_000)
 	while (Date.now() < deadline) {
-		if (spawnError) return { started: true, healthy: false }
+		if (spawnError) return { started: true, healthy: false, error: spawnError.message }
 		await sleep(100)
 		if (await probeHealth({ baseUrl: options.baseUrl, fetchImpl: doFetch })) {
 			return { started: true, healthy: true }
@@ -279,6 +281,7 @@ export function createDaemonClient(options: DaemonClientOptions) {
 				/** "connected" | "disconnected" | "unknown" */
 				imap?: string
 			}>("GET", "/health"),
+		withheld: () => call<{ withheld: number }>("GET", "/withheld"),
 		pending: () =>
 			call<{ pending: PendingRecord[] }>(
 				"GET",
@@ -306,7 +309,7 @@ export function createDaemonClient(options: DaemonClientOptions) {
 		// generic 15 s ceiling would drop the one mail this product exists to deliver.
 		send: (message: {
 			/** "settle" is exempt from the daemon's notification budget. */
-			kind?: "settle" | "notification"
+			kind?: "settle" | "decision" | "notification"
 			to?: string
 			subject: string
 			text: string

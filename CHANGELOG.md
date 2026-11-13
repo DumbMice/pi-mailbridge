@@ -112,9 +112,9 @@ now explicit and tested:
 
 **Upgrading a single-mailbox config:** if `security.allowSelfReplies` is already `true` and
 every reply reports `dmarc-missing`, set `security.requireDmarcPass: false`. Setup writes that
-for new configs; it never rewrites an existing one. `/mailbridge check` and
-`pi-mailbridge --check` both report it and exit non-zero, so a CI job or a process manager can
-gate on it rather than start a daemon that rejects every reply.
+for new configs; it never rewrites an existing one. `/mailbridge check` reports it, and
+`pi-mailbridge --check` exits non-zero, so a CI job or a process manager can gate on it rather
+than start a daemon that rejects every reply.
 
 ### A reply can no longer sit unscanned behind a silent IDLE
 

@@ -72,6 +72,7 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 | --- | --- | --- |
 | GET | `/health` | liveness probe; **unauthenticated** by design (mode, pending count, the decision-registry size, emitted as both `sessions` and `registry` — sessions *with an outstanding decision*, not live sessions; live ones are `clients` — ping timing, SSE subscribers, the last scan's summary, `configLoadedAt`, `version`, `apiVersion` and `capabilities`; no content, no addresses) |
 | GET | `/events` | SSE: `delivery`, `mode` (no client uses it; sessions poll) |
+| GET | `/withheld` | how many queued replies belong to another device (after a rename or a copied state dir); a count, never content |
 | GET | `/pending` | the delivery channel: polled every 10 s, replayed on reconnect; returns the daemon's own device's records plus untagged ones |
 | POST | `/claim` | `{uid, instanceId, uidValidity?}` — atomic claim; refused as `stale-space` for another UID space and `foreign-device` for a record another device scanned |
 | POST | `/ack` | `{uid, instanceId, uidValidity?}` — claimant-only; refused as `stale-space` when the record (or the caller) belongs to another UID space; journals in the **record's** space, then `\Seen` + prune |
@@ -232,6 +233,13 @@ differs - never negotiates - and additive wire changes are gated by `capabilitie
 protocol bump. State files carry `v` (`STATE_VERSION`): absent means schema 1 and is read and
 stamped on the next save, older is migrated on read, newer is refused for reading *and* writing.
 
+**A device rename strands what it scanned.** Records carry the device that scanned them, and
+`/pending` offers only this device's, so renaming `device.name` while replies are queued leaves
+those records neither offered nor claimable. `/mailbridge status` reports the count under "held for
+another device". They are your own mail and the mailbox still holds them unread, but the UID cursor
+has already passed them, so the recovery is to restore the previous `device.name` (the records are
+delivered again) or to have the human reply again. Rename before a quiet mailbox, not during.
+
 **One owner for replacement.** A dead daemon, a protocol mismatch and `/mailbridge restart` all go
 through one `replaceRuntime()`: capture the notifier, rebuild, flush the pending settle. Three
 paths each doing it themselves is how the same dropped notification was fixed three times.
@@ -248,8 +256,8 @@ the file. The daemon is not tied to the mode: `on`/`off` gate scanning and deliv
 - an updated package cannot leave an orphaned process running old code - the exact trap
   that cost an evening, where a daemon started at 15:09 kept serving after several code
   changes because nothing could replace it. Idle exit alone is not enough while a session is
-  open, so `/health` reports the daemon's version and a session replaces a daemon from another
-  build (throttled to once a minute);
+  open, so `/health` reports the daemon's protocol and a session replaces a daemon on another
+  protocol (throttled to once a minute);
 - no session means no consumer: settle notifications are sent *by* a session, and no
   session can claim a pending reply;
 - a daemon with no sessions still fetches and parses every incoming message looking for
@@ -299,7 +307,7 @@ src/
     reply-parse.ts      quote stripping, address + AR-header pinning
     settle.ts           idle debounce, turn-settled notification
     status.ts           scan summary → the lines /mailbridge status prints
-    version.ts          this build's version, and when a daemon must be replaced
+    version.ts          this build's version (diagnostic; replacement keys on apiVersion)
     sent-index.ts       record the Message-ID the provider actually delivered
     setup.ts            first-run scaffolding
     smoke.ts            end-to-end send-and-read-back check

@@ -264,7 +264,8 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			const reasons = [...new Set(dropped.map((d) => d.reason))].join(", ")
 			if (reasons.length > 0) {
 				const note = `[pi-mailbridge: ${dropped.length} attachment(s) dropped (${reasons}); this reply had no text]`
-				result.rejected++
+				// Not counted as rejected: the reply *is* delivered, as a note. The reason is
+				// named so the panel can say the content was lost, without claiming the mail was.
 				bump(result.reasons, "attachment-only-dropped")
 				const stub: PendingRecord = {
 					uid,

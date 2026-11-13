@@ -1045,3 +1045,23 @@ test("no doc still claims there is no send budget", () => {
 		assert.doesNotMatch(text, /no per-account send budget/i, `${file} denies the budget`)
 	}
 })
+
+test("the in-pi check never claims to exit with a code", () => {
+	// "/mailbridge check" is a slash command: it notifies and returns. Only the CLI exits.
+	for (const { file, text } of allProse()) {
+		for (const sentence of flat(text).split(/(?<=[.!?])\s+/)) {
+			if (!/\/mailbridge check/.test(sentence)) continue
+			if (!/exit/i.test(sentence)) continue
+			assert.ok(
+				/--check/.test(sentence) && /report|only/i.test(sentence),
+				`${file}: attributes an exit code to the in-pi check: ${sentence.trim()}`,
+			)
+		}
+	}
+})
+
+test("the reason table covers every reason the scanner can emit for a delivered mail", () => {
+	const readme = doc("README.md")
+	assert.match(readme, /attachment-only-dropped/, "the stub reason is documented")
+	assert.match(readme, /attachments dropped/, "and filed with the other attachment losses")
+})
