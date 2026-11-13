@@ -11,6 +11,7 @@ import type { UserContent } from "../src/core/attachments.ts"
 import type { PendingRecord } from "../src/store/pending-store.ts"
 import { sessionIdFromSubject } from "../src/core/token.ts"
 import { resolveRoute, routeIdFromSubject } from "../src/store/routes.ts"
+import { readSecret } from "../src/store/secret.ts"
 
 const SECRET = Buffer.alloc(32, 4)
 const SESSION = "sess-abc"
@@ -1581,6 +1582,128 @@ test("/mailbridge restart parks the tick before it stops the daemon", async () =
 	assert.match(notes.join("\n"), /restarted with the current code/)
 })
 
+test("a tick already in flight when restart begins does nothing", async () => {
+	// Parking the timer cannot recall a tick that is already inside `tick()`. Left alone it would
+	// find the daemon this command is stopping, respawn or re-attach it, and hand the command the
+	// "still answering" evidence it is measuring. The pause flag makes that tick a no-op.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const daemon = fakeDaemon({ mode: "on" })
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	let ensures = 0
+	let tick: (() => void) | undefined
+	let fired = false
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => {
+			ensures += 1
+			return true
+		},
+		// The in-flight tick lands exactly here, inside the wait, before the command's own spawn.
+		probeHealth: async () => {
+			if (!fired) {
+				fired = true
+				tick?.()
+			}
+			return false
+		},
+		stopWaitMs: 0,
+		timers: t.timers,
+		pollMs: 10_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+	tick = t.queue.find((q) => q.ms === 10_000)?.handler
+	const before = ensures
+
+	await captured.get("mailbridge")!("restart", ctx(notes))
+	for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.ok(fired, "the stale tick really ran")
+	assert.equal(ensures - before, 1, `only the restart spawns (ensures ${before} -> ${ensures})`)
+	assert.match(notes.join("\n"), /restarted with the current code/)
+})
+
+test("/mailbridge restart re-arms the poll when it cannot attach", async () => {
+	// The park must not outlive the command: without a loop the session would never drain again,
+	// and nothing would say so. This exit returned before the arm.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const daemon = fakeDaemon({ mode: "on" })
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-noclient-")) },
+		loadConfig: config,
+		secret: () => SECRET,
+		// No client can be built, so replaceRuntime cannot attach.
+		makeClient: () => undefined as unknown as ReturnType<typeof import("../src/daemon/spawn.ts").createDaemonClient>,
+		ensureDaemon: async () => true,
+		probeHealth: async () => false,
+		stopWaitMs: 0,
+		timers: t.timers,
+		pollMs: 10_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	await captured.get("mailbridge")!("restart", ctx(notes))
+	for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.match(notes.join("\n"), /could not attach/)
+	assert.equal(t.queue.filter((q) => q.ms === 10_000).length, 1, "and the loop is armed again")
+})
+
+test("/mailbridge restart says when it had no key to stop anything with", async () => {
+	// No key at start means no client, so no stop was attempted. That is an observation, not a
+	// cause: the daemon may have minted the key itself a moment ago. Nothing tested this cell.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-nokey-")) }
+	const t = fakeTimers()
+	const notes: string[] = []
+	const levels: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	let usable = false
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env,
+		loadConfig: () => (usable ? config() : { ...config(), mail: { ...config().mail, to: "" } }),
+		// Re-read each time, like the real one: `ensureSecret` mints during the command.
+		secret: () => readSecret(env),
+		makeClient: () => fakeDaemon({ mode: "on" }).client,
+		ensureDaemon: async () => true,
+		probeHealth: async () => false,
+		stopWaitMs: 0,
+		timers: t.timers,
+		pollMs: 10_000,
+	})
+	await pi.fire("session_start")
+	assert.equal(readSecret(env), undefined, "no key yet")
+	usable = true
+
+	const c = ctx(notes)
+	c.ui.notify = (message: string, level?: string) => {
+		notes.push(message)
+		levels.push(level ?? "info")
+	}
+	await captured.get("mailbridge")!("restart", c)
+
+	assert.match(notes.join("\n"), /had no key when it tried to stop anything/)
+	assert.equal(levels.at(-1), "warning", "unverifiable is a warning, not a success")
+})
+
 test("every restart outcome carries the right level", async () => {
 	// `notify` takes a level and no test pinned it, so a failure reported at info (or the
 	// reverse) was invisible.
@@ -1591,14 +1714,35 @@ test("every restart outcome carries the right level", async () => {
 		incompatible?: boolean
 		probe?: boolean
 		want: string
+		text: RegExp
 	}[] = [
-		{ name: "restarted", healthy: true, want: "info" },
-		{ name: "already gone", reply: { ok: false, status: 0, code: "network" }, healthy: true, want: "info" },
-		{ name: "survived", reply: { ok: false, status: 401 }, healthy: true, probe: true, want: "error" },
-		{ name: "did not come back", healthy: false, want: "error" },
-		{ name: "still on another protocol", healthy: false, incompatible: true, want: "error" },
+		{ name: "restarted", healthy: true, want: "info", text: /restarted with the current code/ },
+		{
+			name: "already gone",
+			reply: { ok: false, status: 0, code: "network" },
+			healthy: true,
+			want: "info",
+			text: /already gone; a new one is up/,
+		},
+		{
+			name: "survived",
+			reply: { ok: false, status: 401 },
+			healthy: true,
+			probe: true,
+			want: "error",
+			text: /still answering after the stop request/,
+		},
+		{ name: "did not come back", healthy: false, want: "error", text: /did not come back/ },
+		{ name: "still on another protocol", healthy: false, incompatible: true, want: "error", text: /still on another protocol \(0 → 1\)/ },
 		// The port still answers although nothing was confirmed: a warning, not silence.
-		{ name: "already gone but answering", reply: { ok: false, status: 0, code: "network" }, healthy: true, probe: true, want: "warning" },
+		{
+			name: "already gone but answering",
+			reply: { ok: false, status: 0, code: "network" },
+			healthy: true,
+			probe: true,
+			want: "warning",
+			text: /something is still serving its port/,
+		},
 	]
 	for (const c of cases) {
 		const t = fakeTimers()
@@ -1633,9 +1777,7 @@ test("every restart outcome carries the right level", async () => {
 		}
 		await captured.get("mailbridge")!("restart", context)
 		assert.equal(levels.at(-1), c.want, `"${c.name}" must be ${c.want}: ${JSON.stringify(notes)}`)
-		if (c.name === "still on another protocol") {
-			assert.match(notes.join("\n"), /still on another protocol \(0 → 1\)/, "and name the pair")
-		}
+		assert.match(notes.join("\n"), c.text, `"${c.name}" must say ${c.text}`)
 	}
 })
 

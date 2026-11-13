@@ -124,6 +124,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	const pollMs = deps.pollMs ?? POLL_MS
 
 	let ctx: ExtensionCtxLike | undefined
+	/** Set by stopPolling(): a tick already in flight must not touch the daemon. */
+	let pollPaused = false
 	let client: DaemonClient | undefined
 	let runner: DeliveryRunner | undefined
 	let pollHandle: unknown
@@ -203,7 +205,16 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		}
 	}
 
+	/**
+	 * Park the loop.
+	 *
+	 * Clearing the timer is not enough on its own: a tick that entered just before this call is
+	 * already inside `tick()`, and it would find the daemon this command is stopping, respawn it,
+	 * and manufacture the "still answering" evidence the command is measuring. The flag makes a
+	 * tick in flight a no-op.
+	 */
 	function stopPolling(): void {
+		pollPaused = true
 		if (pollHandle !== undefined) {
 			timers.clearTimeout(pollHandle)
 			pollHandle = undefined
@@ -212,7 +223,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 	function startPolling(): void {
 		stopPolling()
+		pollPaused = false
 		const tick = async () => {
+			if (pollPaused) return
 			try {
 				// Heartbeat: the daemon exits when every session stops pinging, so a quiet
 				// daemon is a stopping daemon.
@@ -257,7 +270,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				// Re-arm whenever this session is alive - not only when a runner exists: a
 				// daemon replacement clears the runner for a moment, and tying the loop to it
 				// stopped polling exactly when the daemon was missing.
-				if (ctx && pollHandle === undefined) {
+				if (ctx && pollHandle === undefined && !pollPaused) {
 					pollHandle = timers.setTimeout(() => {
 						pollHandle = undefined
 						void tick()
@@ -1010,6 +1023,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// spawn or attach a replacement, and make `survivor` true - reporting a failure
 					// for the restart this command just performed. Every exit below re-arms it.
 					stopPolling()
+					try {
 					// To stop it we need a client even when this session has no runtime yet - the
 					// same rule the protocol replacement follows, and the remedy its own warning
 					// names.
@@ -1042,19 +1056,13 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 							}
 						}
 						if (!(await replaceRuntime())) {
-							// The loop was parked above; this session still needs it to retry.
-							startPolling()
 							c.ui.notify(
 								"daemon restarted, but this session could not attach — run /mailbridge restart again",
 								"warning",
 							)
 							return
 						}
-						// The helper rebuilds the runtime; arming the loop is the caller's job here
-						// because a command, unlike the poll tick, has no finally to do it.
-						startPolling()
 					}
-					if (!ensured.healthy) startPolling()
 					// Tell the user what happened, not what was attempted: an answering daemon that
 					// was never stopped is not a restart.
 					let message: string
@@ -1089,7 +1097,12 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 							: "daemon restarted with the current code"
 					}
 					c.ui.notify(message, level)
-					return
+				} finally {
+					// One arm for every exit, including a thrown one: parking the loop must never
+					// outlive the command that parked it.
+					startPolling()
+				}
+				return
 				}
 			}
 		},
