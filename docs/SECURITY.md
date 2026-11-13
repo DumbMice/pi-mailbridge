@@ -118,7 +118,10 @@ A legitimate email can still contain text that reads like instructions
   therefore exfiltrate over SMTP. That is inside the trust boundary - the same process can read
   your mail - but worth knowing when deciding what runs as you.
 - Defaults to binding `127.0.0.1`; `daemon.host` can change that, but there is no TLS and
-  no user model beyond the bearer token, so do not. Nothing else about the daemon is
+  no user model beyond the bearer token, so do not. It is loud if you do: `/mailbridge check`
+  reports it and `pi-mailbridge --check` **exits non-zero**, the same way an `allowSelfReplies` +
+  `requireDmarcPass` combination does - a supported setting that a supervisor should not gate on
+  silently. Nothing else about the daemon is
   reachable without the token, apart from the `/health` liveness probe. That returns mode,
   pending/clients counts, the decision-registry size, ping timing, the number of SSE subscribers,
   the last scan's reason *counts*, the build and protocol versions, and the config file's mtime and

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { loadConfig } from "../src/core/config.ts"
+import { checkProblems } from "../src/daemon/main.ts"
 import { configPath } from "../src/store/paths.ts"
 
 
@@ -34,6 +35,12 @@ test("a non-loopback daemon.host warns, because nothing else would say so", () =
 	const exposed = load("0.0.0.0")
 	assert.ok(exposed.warnings.some((w) => /daemon\.host/.test(w) && /not loopback/.test(w)))
 	assert.equal(exposed.daemon.host, "0.0.0.0", "the value is kept; this is a warning, not a repair")
+	// And the warning is a *problem*, not a note: `checkProblems` is what makes
+	// `pi-mailbridge --check` exit non-zero, and exposing the HTTP surface must not pass a gate.
+	assert.ok(
+		checkProblems(exposed).some((p) => /daemon\.host/.test(p)),
+		"the headless check must fail on a non-loopback host",
+	)
 
 	for (const host of ["127.0.0.1", "::1", "localhost"]) {
 		const quiet = load(host)
