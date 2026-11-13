@@ -16,6 +16,15 @@ import { StateVersionError, checkStateVersion, stamp } from "./schema.ts"
 
 /** Bound the store so a stuck mailbox cannot grow it without limit. */
 export const PENDING_CAP = 1_000
+/**
+ * Byte ceiling for the whole store, because the record cap alone was not a bound.
+ *
+ * `save()` rewrites the entire array on every claim and every ack, so 1000 records at the 100k-char
+ * body cap is a ~100 MB file rewritten several times a minute - and the queue is already
+ * misbehaving when it is that full. Measured in stored characters (body plus base64 attachment
+ * data), which is what actually lands on disk.
+ */
+export const PENDING_MAX_BYTES = 8 * 1024 * 1024
 /** A claim older than this is considered abandoned and may be re-taken. */
 export const CLAIM_TTL_MS = 120_000
 
@@ -130,6 +139,11 @@ export function getPending(env: NodeJS.ProcessEnv, uid: number): PendingRecord |
 
 export type AddResult = { ok: true; record: PendingRecord } | { ok: false; reason: "full" }
 
+/** What a record costs on disk: the body, plus the already-base64 attachment payloads. */
+export function recordBytes(record: PendingRecord): number {
+	return record.body.length + (record.attachments ?? []).reduce((total, a) => total + a.data.length, 0)
+}
+
 /**
  * Add or replace the record for `uid`. Idempotent on replay.
  *
@@ -137,10 +151,18 @@ export type AddResult = { ok: true; record: PendingRecord } | { ok: false; reaso
  * older one: every record here was already accepted, and the caller's cursor is about to
  * move past it. Replacing an existing uid (replay) is always allowed.
  */
-export function addPending(env: NodeJS.ProcessEnv, record: PendingRecord): AddResult {
+export function addPending(
+	env: NodeJS.ProcessEnv,
+	record: PendingRecord,
+	options: { maxBytes?: number } = {},
+): AddResult {
 	const existing = load(env)
 	const without = existing.filter((r) => r.uid !== record.uid)
 	if (without.length >= PENDING_CAP) return { ok: false, reason: "full" }
+	// The same rule as the count cap, for the same reason: refuse at insertion, so the caller's
+	// cursor stays put and the reply is retried instead of dropped.
+	const candidateBytes = without.reduce((total, r) => total + recordBytes(r), 0) + recordBytes(record)
+	if (candidateBytes > (options.maxBytes ?? PENDING_MAX_BYTES)) return { ok: false, reason: "full" }
 	without.push(record)
 	save(env, without)
 	return { ok: true, record }

@@ -32,6 +32,36 @@ const rec = (uid: number, sessionId = "s1") => ({
 	receivedAt: 1,
 })
 
+test("the store is bounded by bytes, not only by record count", () => {
+	// save() rewrites the whole array on every claim and ack. The count cap alone allowed ~100 MB
+	// (1000 records x the 100k-char body cap) to be rewritten several times a minute.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-pending-bytes-")) }
+	const record = (uid: number, size: number) => ({
+		uid,
+		sessionId: "s1",
+		from: "you@example.com",
+		subject: "x",
+		body: "a".repeat(size),
+		receivedAt: 1,
+	})
+
+	assert.equal(addPending(env, record(1, 600), { maxBytes: 1000 }).ok, true)
+	const refused = addPending(env, record(2, 600), { maxBytes: 1000 })
+	assert.equal(refused.ok, false, "a second record would exceed the byte ceiling")
+	assert.equal(listPending(env).length, 1, "and nothing was written")
+
+	// Replacing an existing uid is re-measured, not refused outright: a shorter replay fits.
+	assert.equal(addPending(env, record(1, 100), { maxBytes: 1000 }).ok, true)
+	assert.equal(listPending(env).length, 1)
+
+	// Attachments count: their base64 payload is what occupies the file.
+	const withAttachment = {
+		...record(3, 10),
+		attachments: [{ name: "a.png", mimeType: "image/png", size: 700, data: "x".repeat(900) }],
+	}
+	assert.equal(addPending(env, withAttachment, { maxBytes: 1000 }).ok, false, "the payload is counted")
+})
+
 test("pending: add, read, list by session", () => {
 	const e = env()
 	addPending(e, rec(1, "s1"))
