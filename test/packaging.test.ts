@@ -222,6 +222,22 @@ test("README links to the three design docs", () => {
 	}
 })
 
+test("the README's images and doc links work on the npm page, not just on GitHub", () => {
+	// npm renders the README out of the published tarball, and a relative src or href has no base
+	// to resolve against there: the image showed up as red alt text on the package page. Both
+	// renderers work with absolute URLs, so those are the only kind allowed for real links.
+	// (The two `![shot](./shot.png)` / `[the log](./build.log)` matches are example text inside
+	// the attachment table, which is what a user writes in an agent answer - not links.)
+	assert.match(
+		readme,
+		/\]\(https:\/\/raw\.githubusercontent\.com\/DumbMice\/pi-mailbridge\/main\/docs\/images\/notification\.png\)/,
+		"the teaser must be an absolute raw URL",
+	)
+	assert.match(readme, /raw\.githubusercontent\.com\/DumbMice\/pi-mailbridge\/main\/docs\/images\/flow\.svg/)
+	assert.doesNotMatch(readme, /\]\(\.\/docs\//, "relative doc links do not resolve on npm")
+	assert.doesNotMatch(readme, /\]\(\.\/config\.example\.json\)/, "nor does a relative file link")
+})
+
 test("README states the shipped version", () => {
 	assert.ok(readme.includes(`\`${packageJson.version}\``), `README should mention ${packageJson.version}`)
 })

@@ -8,7 +8,7 @@ continues**, with your answer as the next message. Notifications also carry rend
 images embedded in the body where the agent put them, and any local file it linked attached with
 its real name.
 
-![A pi-mailbridge notification in a mail client: a decision request with rendered Markdown, a recommendation, and a build log attached](./docs/images/notification.png)
+![A pi-mailbridge notification in a mail client: a decision request with rendered Markdown, a recommendation, and a build log attached](https://raw.githubusercontent.com/DumbMice/pi-mailbridge/main/docs/images/notification.png)
 
 - **Your inbox is the client.** No app, no account, no relay, no push service. Any device with
   email works: a phone, a tablet, another PC, a webmail tab.
@@ -22,7 +22,7 @@ its real name.
   leaves it unread, so nothing is lost.
 
 > **This turns your inbox into a control channel for an agent that can run shell commands.**
-> Read [docs/SECURITY.md](./docs/SECURITY.md) before installing, and point it at a mailbox you
+> Read [docs/SECURITY.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/SECURITY.md) before installing, and point it at a mailbox you
 > would not mind an agent reading.
 
 ## Install
@@ -103,7 +103,7 @@ both are quiet:
 
 Let a turn settle and the first notification arrives. Reply to it from anywhere.
 
-Prefer to write the config yourself? Copy [`config.example.json`](./config.example.json).
+Prefer to write the config yourself? Copy [`config.example.json`](https://github.com/DumbMice/pi-mailbridge/blob/main/config.example.json).
 
 ### Start watching from now
 
@@ -290,7 +290,7 @@ Attachments come only from **the agent's project directory**, and only for allow
 keeps the obvious key *filenames* out of an accidental attach; it is not a content filter — an
 agent told to `cp ~/.ssh/id_rsa notes.txt` or `tar` a directory can still mail the result. Start
 pi in a project rather than in `$HOME`, and see
-[docs/SECURITY.md](./docs/SECURITY.md) §6b for the full boundary.
+[docs/SECURITY.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/SECURITY.md) §6b for the full boundary.
 
 ## When it helps
 
@@ -417,12 +417,12 @@ loop guard → auto-generated/bounce → sender allowlist → DMARC → our own 
 durable ack. Routing identifiers never authorize anything: authorization is the allowlist and
 DMARC alone (DMARC is off in single-mailbox mode). Prefer a dedicated account or a filtered
 folder. What is stored, what a leaked token means, and the threat model in full:
-[docs/SECURITY.md](./docs/SECURITY.md).
+[docs/SECURITY.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/SECURITY.md).
 
 ## Configuration
 
 `~/.config/pi-mailbridge/config.json`, merged over built-in defaults, then `PI_MAILBRIDGE_*`
-environment variables. A working example: [`config.example.json`](./config.example.json).
+environment variables. A working example: [`config.example.json`](https://github.com/DumbMice/pi-mailbridge/blob/main/config.example.json).
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -488,7 +488,7 @@ pi-mailbridge --auth      # prints a URL + code, waits for approval
 ```
 
 Registering the app is free and takes about two minutes (Entra → *Allow public client flows*).
-Walkthrough, scope tables and the Gmail equivalent: [docs/OAUTH.md](./docs/OAUTH.md).
+Walkthrough, scope tables and the Gmail equivalent: [docs/OAUTH.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/OAUTH.md).
 
 **In mainland China, use QQ or 163** — 授权码 works exactly like an app password:
 
@@ -507,7 +507,7 @@ tenant, no refresh token that dies weekly. Gmail *OAuth* is the harder route —
 **Personal Outlook has a real caveat:** Microsoft sometimes rejects IMAP/SMTP OAuth2 even with a
 valid token (`User is authenticated but not connected`, `SmtpClientAuthentication is disabled`).
 That is their side. The reliable answer is Microsoft Graph, which is not implemented here yet;
-[docs/OAUTH.md](./docs/OAUTH.md) explains the options, including turnkey services.
+[docs/OAUTH.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/OAUTH.md) explains the options, including turnkey services.
 
 ### A token command instead
 
@@ -540,7 +540,7 @@ the daemon without editing your config file:
 
 | Tool | Behaviour |
 | --- | --- |
-| `request_decision` | Emails a question with optional options and a recommendation, then ends the turn. One outstanding decision per session. Ending the turn is a convention, not an enforced gate — see [docs/SECURITY.md](./docs/SECURITY.md) §3. |
+| `request_decision` | Emails a question with optional options and a recommendation, then ends the turn. One outstanding decision per session. Ending the turn is a convention, not an enforced gate — see [docs/SECURITY.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/SECURITY.md) §3. |
 | `notify_user` | One-way update. Does not reserve a slot and does not wait. |
 
 Both refuse cleanly when email mode is off or the daemon is unreachable.
@@ -566,7 +566,7 @@ that is the credential that actually reaches your mailbox.
 
 ## How it works
 
-![Diagram: the pi session sends through the local daemon over SMTP to your mailbox; you reply from any device; the daemon reads it over IMAP, authorizes, routes and persists it; the session claims it, injects it, and acknowledges, which marks the mail seen](./docs/images/flow.svg)
+![Diagram: the pi session sends through the local daemon over SMTP to your mailbox; you reply from any device; the daemon reads it over IMAP, authorizes, routes and persists it; the session claims it, injects it, and acknowledges, which marks the mail seen](https://raw.githubusercontent.com/DumbMice/pi-mailbridge/main/docs/images/flow.svg)
 
 The numbered path is the whole product. **1** The agent finishes its turn and goes idle — that is
 the normal case, one mail per finished turn — or it stops to ask you a question; either way the
@@ -578,8 +578,8 @@ journalled.
 
 One daemon per machine owns the mailbox; sessions never touch IMAP. `smoke` and `prime` are the
 deliberate exceptions — each opens one short-lived connection. Design notes, the failure-mode
-table and the module map: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) and
-[docs/MAPPING.md](./docs/MAPPING.md).
+table and the module map: [docs/ARCHITECTURE.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/ARCHITECTURE.md) and
+[docs/MAPPING.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/MAPPING.md).
 
 ## Status
 
