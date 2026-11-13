@@ -8,7 +8,7 @@ continues**, with your answer as the next message. Notifications also carry rend
 images embedded in the body where the agent put them, and any local file it linked attached with
 its real name.
 
-![A pi-mailbridge notification in a mail client: a decision request with rendered Markdown, a recommendation, and a build log attached](https://raw.githubusercontent.com/DumbMice/pi-mailbridge/main/docs/images/notification.png)
+![A pi-mailbridge notification in a mail client: a decision request with rendered Markdown, a recommendation, and a build log attached](https://cdn.jsdelivr.net/npm/@dumbmice/pi-mailbridge@latest/docs/images/notification.png)
 
 - **Your inbox is the client.** No app, no account, no relay, no push service. Any device with
   email works: a phone, a tablet, another PC, a webmail tab.
@@ -342,7 +342,7 @@ Every scan records why each message was refused, so this is answerable:
 ```
 
 ```
-daemon: healthy (http://127.0.0.1:4177) — daemon version 0.1.2
+daemon: healthy (http://127.0.0.1:4177) — daemon version 0.1.3
 device: dev-box-7
 mode: on
 imap: connected
@@ -566,7 +566,7 @@ that is the credential that actually reaches your mailbox.
 
 ## How it works
 
-![Diagram: the pi session sends through the local daemon over SMTP to your mailbox; you reply from any device; the daemon reads it over IMAP, authorizes, routes and persists it; the session claims it, injects it, and acknowledges, which marks the mail seen](https://raw.githubusercontent.com/DumbMice/pi-mailbridge/main/docs/images/flow.svg)
+![Diagram: the pi session sends through the local daemon over SMTP to your mailbox; you reply from any device; the daemon reads it over IMAP, authorizes, routes and persists it; the session claims it, injects it, and acknowledges, which marks the mail seen](https://cdn.jsdelivr.net/npm/@dumbmice/pi-mailbridge@latest/docs/images/flow.svg)
 
 The numbered path is the whole product. **1** The agent finishes its turn and goes idle — that is
 the normal case, one mail per finished turn — or it stops to ask you a question; either way the
@@ -583,7 +583,7 @@ table and the module map: [docs/ARCHITECTURE.md](https://github.com/DumbMice/pi-
 
 ## Status
 
-`0.1.2` — feature-complete for the single-user, one-mailbox case, and exercised end to end
+`0.1.3` — feature-complete for the single-user, one-mailbox case, and exercised end to end
 against a live QQ mailbox in both layouts: two addresses (DMARC verified on the reply) and one
 address for both roles (self-delivery, the self-echo guard, and a reply routed by the chain).
 

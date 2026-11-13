@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.3 — 2026-11-13
+
+- **The package page showed alt text instead of the images.** The README's markup was fixed to
+  absolute URLs in 0.1.2, which npm requires - but `raw.githubusercontent.com` is unreachable on
+  many mainland networks (GitHub has no CDN there), so the reader saw red alt text while the
+  server answered 200 elsewhere. Both images now come from jsDelivr's npm mirror
+  (`cdn.jsdelivr.net/npm/@dumbmice/pi-mailbridge@latest/docs/images/…`): byte-identical files,
+  served out of the published package, on a CDN that is reachable where raw is not, and `@latest`
+  so the URL follows the release instead of rotting.
+
 ## 0.1.2 — 2026-11-13
 
 The release that fixes the ways this package could quietly do the wrong thing.

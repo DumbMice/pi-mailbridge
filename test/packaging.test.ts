@@ -228,12 +228,17 @@ test("the README's images and doc links work on the npm page, not just on GitHub
 	// renderers work with absolute URLs, so those are the only kind allowed for real links.
 	// (The two `![shot](./shot.png)` / `[the log](./build.log)` matches are example text inside
 	// the attachment table, which is what a user writes in an agent answer - not links.)
+	// Absolute is necessary but not sufficient: raw.githubusercontent.com is unreachable on many
+	// mainland networks (measured, and the reason the image still showed as alt text after the
+	// first absolute-URL fix). jsDelivr serves the same bytes out of the published package and is
+	// reachable where raw is not, so it is the only image host allowed.
 	assert.match(
 		readme,
-		/\]\(https:\/\/raw\.githubusercontent\.com\/DumbMice\/pi-mailbridge\/main\/docs\/images\/notification\.png\)/,
-		"the teaser must be an absolute raw URL",
+		/\]\(https:\/\/cdn\.jsdelivr\.net\/npm\/@dumbmice\/pi-mailbridge@latest\/docs\/images\/notification\.png\)/,
+		"the teaser must be served from jsDelivr",
 	)
-	assert.match(readme, /raw\.githubusercontent\.com\/DumbMice\/pi-mailbridge\/main\/docs\/images\/flow\.svg/)
+	assert.match(readme, /cdn\.jsdelivr\.net\/npm\/@dumbmice\/pi-mailbridge@latest\/docs\/images\/flow\.svg/)
+	assert.doesNotMatch(readme, /raw\.githubusercontent\.com/, "raw.githubusercontent is unreachable for part of the audience")
 	assert.doesNotMatch(readme, /\]\(\.\/docs\//, "relative doc links do not resolve on npm")
 	assert.doesNotMatch(readme, /\]\(\.\/config\.example\.json\)/, "nor does a relative file link")
 })
