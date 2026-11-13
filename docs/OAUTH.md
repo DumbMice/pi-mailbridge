@@ -416,8 +416,7 @@ This is the honest part, and it applies to **personal** `outlook.com` only:
 **The reliable answer for personal Outlook is Graph** (`POST /me/sendMail`,
 `GET /me/mailFolders/inbox/messages/delta`) because it never speaks SMTP. It is a
 free API, the same OAuth token works, and it needs no extra package — Node 22 has
-global `fetch`. It is not implemented in this package yet; see the roadmap note in
-the README.
+global `fetch`. It is not implemented in this package yet; see the *Status* section of the README.
 
 Microsoft 365 (work) accounts usually work fine on IMAP/SMTP XOAUTH2.
 
