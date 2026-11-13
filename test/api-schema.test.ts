@@ -11,7 +11,9 @@ test("the endpoint list is the surface the daemon actually serves", () => {
 	// Snapshot: adding or removing an endpoint is a deliberate edit here, and a breaking change
 	// to one of them is an API_VERSION bump (AGENTS.md "Compatibility").
 	const service = readFileSync(`${root}/src/daemon/service.ts`, "utf8")
-	const served = [...service.matchAll(/case "(GET|POST) (\/[a-z]+)"/g)].map((m) => `${m[1]} ${m[2]}`)
+	const served = [...service.matchAll(/case "(GET|POST|DELETE) (\/[a-z]+)"/g)].map(
+		(m) => `${m[1]} ${m[2]}`,
+	)
 	// /health is unauthenticated, so it is handled before the auth switch rather than as a case.
 	if (/url\.pathname === "\/health"/.test(service)) served.push("GET /health")
 	assert.deepEqual(served.sort(), [...ENDPOINTS].sort(), "service.ts and api.ts disagree")

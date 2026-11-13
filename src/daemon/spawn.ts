@@ -67,7 +67,16 @@ export interface EnsureDaemonOptions {
 	waitMs?: number
 	/** Injected for tests. */
 	fetchImpl?: typeof fetch
-	spawnImpl?: (command: string, args: string[], options: SpawnOptions) => { unref?: () => void; pid?: number }
+	spawnImpl?: (
+		command: string,
+		args: string[],
+		options: SpawnOptions,
+	) => {
+		unref?: () => void
+		pid?: number
+		/** Needed to catch a fork failure; without a listener Node throws in *this* process. */
+		on?: (event: "error", listener: (error: Error) => void) => unknown
+	}
 	execPath?: string
 	sleep?: (ms: number) => Promise<void>
 }
@@ -150,6 +159,13 @@ export async function ensureDaemon(options: EnsureDaemonOptions): Promise<Ensure
 		stdio: logHandle === undefined ? "ignore" : ["ignore", logHandle, logHandle],
 		env,
 	} as SpawnOptions)
+	// A fork failure (EAGAIN under fd pressure, a sandbox denying exec) arrives as an `error`
+	// event. Without a listener Node treats it as an uncaught exception in *pi's* process: the
+	// session dies while the daemon it was trying to start never existed.
+	let spawnError: Error | undefined
+	child.on?.("error", (error) => {
+		spawnError = error
+	})
 	child.unref?.()
 	if (logHandle !== undefined) {
 		// The child holds its own copy of the descriptor.
@@ -163,6 +179,7 @@ export async function ensureDaemon(options: EnsureDaemonOptions): Promise<Ensure
 	const sleep = options.sleep ?? defaultSleep
 	const deadline = Date.now() + (options.waitMs ?? 5_000)
 	while (Date.now() < deadline) {
+		if (spawnError) return { started: true, healthy: false }
 		await sleep(100)
 		if (await probeHealth({ baseUrl: options.baseUrl, fetchImpl: doFetch })) {
 			return { started: true, healthy: true }

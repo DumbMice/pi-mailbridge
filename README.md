@@ -192,8 +192,9 @@ turns it off when the addresses match and says so. What that costs: **DMARC is w
 someone forging your address.** With it off, a spoofed `From` passes the allowlist, so what keeps
 a stranger out is **routing** — they would need a live `[pi:…]` route id they had read from one of
 your notifications. If your provider does stamp `Authentication-Results` on self-mail you can set
-it back to `true`, but `/mailbridge check` and `--check` then report the combination and exit
-non-zero, and `--check` exits non-zero, which is what a CI or a process manager should gate on.
+it back to `true`, but `/mailbridge check` and `--check` then report the combination —
+`pi-mailbridge --check` exits non-zero, which is what a CI job or a process manager should gate
+on, while the in-pi command only reports it.
 
 Once configured, prove it without pi:
 

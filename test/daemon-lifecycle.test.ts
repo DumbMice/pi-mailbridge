@@ -483,3 +483,33 @@ test("a daemon on another protocol is not reused, and is not raced either", asyn
 	assert.equal(result.incompatible, true, "the reason is reported, not flattened to 'unreachable'")
 	assert.equal(spawns, 0, "a live daemon on the same port would only make the child exit")
 })
+
+test("a fork failure is reported, not thrown into pi's process", async () => {
+	// spawn() delivers EAGAIN/EMFILE as an `error` event. Without a listener Node rethrows it as
+	// an uncaught exception in the *caller* - the pi session - while no daemon was ever started.
+	const result = await ensureDaemon({
+		baseUrl: daemonBaseUrl(await freePort()),
+		scriptPath: "/tmp/does-not-matter.ts",
+		spawnImpl: () => {
+			let listener: ((error: Error) => void) | undefined
+			const child = {
+				unref() {},
+				on(event: string, fn: (error: Error) => void) {
+					if (event === "error") listener = fn
+					return child
+				},
+			}
+			// Fail asynchronously, the way a real fork failure arrives.
+			setTimeout(() => listener?.(Object.assign(new Error("spawn EAGAIN"), { code: "EAGAIN" })), 5)
+			return child
+		},
+		fetchImpl: (async () => {
+			throw new Error("ECONNREFUSED")
+		}) as unknown as typeof fetch,
+		waitMs: 2_000,
+		sleep: async () => {},
+	})
+
+	assert.equal(result.started, true)
+	assert.equal(result.healthy, false, "reported as an unhealthy start, not an exception")
+})

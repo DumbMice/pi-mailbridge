@@ -753,3 +753,22 @@ test("queue-pressure expiry frees the decision slot of a dead session", async ()
 	assert.ok(released.includes("dead"), `expected the dead session to be released, got ${JSON.stringify(released)}`)
 	assert.ok(!released.includes("live"), "a session with queued records keeps its slot")
 })
+
+test("a reply whose only content was an over-cap attachment is persisted with a note", () => {
+	// The phone case: a screenshot over the 1 MB total, no text. Rejecting it lost the human's
+	// entire reply - nothing persisted, cursor moved past it, and no way to ask again.
+	const e = env()
+	const big = { filename: "shot.png", contentType: "image/png", content: Buffer.alloc(1_500_000) }
+	return scanAndProcess(config(), {
+		source: source([msg(11, { text: "", attachments: [big] })]),
+		secret: SECRET,
+		env: e,
+	}).then((r) => {
+		assert.equal(r.persisted, 1, "the reply is delivered as a note")
+		assert.equal(r.reasons["attachment-only-dropped"], 1)
+		const [record] = listPending(e)
+		assert.match(record!.body, /attachment\(s\) dropped \(too-large\)/)
+		assert.match(record!.body, /no text/)
+		assert.equal(readCursor(e), 11, "and the cursor moved with the record")
+	})
+})

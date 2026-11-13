@@ -2,6 +2,25 @@
 
 ## 0.1.0 — unreleased
 
+### Round six: a crash, a lost phone reply, and a corrupt queue
+
+- **A fork failure crashed pi.** `spawn()` reports `EAGAIN`/`EMFILE`/a sandbox refusing `exec` as
+  an `error` event; with no listener Node rethrows it in the caller - the pi session - while no
+  daemon existed. The spawn now listens and reports `{started:true, healthy:false}`.
+- **A reply whose only content was an over-cap attachment vanished.** A phone screenshot above the
+  1 MB inbound total, sent with no text, was rejected `empty-body` with the cursor advanced past
+  it: nothing persisted, nothing delivered, no way to ask again. Such a reply is now persisted
+  with a note naming the drop, so the agent can ask for the text.
+- **A corrupt `pending.json` was replaced by the next write.** Only a schema-version refusal was
+  rethrown; other parse errors returned `[]` and the next `addPending` rewrote the file with one
+  record. The bytes are now moved to `pending.json.corrupt-<ts>` and the queue starts clean.
+- **A 401 read as "mode off".** A rotated `secret.key` made every call fail; the session silently
+  stopped notifying and draining while the panel said "daemon: healthy". It now says the bearer was
+  rejected, once, and leaves the mode alone.
+- the frozen endpoint list missed `DELETE /register` (the call that frees a decision slot), so a
+  change to it needed no protocol bump; the snapshot regex now covers `DELETE`.
+
+
 ### Four bug classes fixed at the root, not at the symptom
 
 **Runtime replacement.** Three paths (dead daemon, protocol mismatch, `/mailbridge restart`) each
@@ -217,9 +236,10 @@ unrecognised records filtered out and the file rewritten without them.
 
 `pi update` reloads the extension while the daemon keeps executing what it started with; it mints
 and resolves routing ids from the old code, so replies after an upgrade could be rejected with the
-cursor already past them. `/health` now carries the daemon's package version, and a session
-compares it against its own once a minute: a different build (or a daemon from before the field
-existed) is shut down and respawned. If this build cannot identify itself, nothing is killed. A replacement that cannot respawn no
+cursor already past them. `/health` carries the daemon's protocol, and a session
+compares it against its own once a minute: a daemon on another protocol (or one from before the
+field existed) is shut down and respawned. A different package *version* on the same protocol is
+left alone - that number is diagnostic. A replacement that cannot respawn no
 longer stops the poll loop - it warns and retries - because the loop had been re-armed only while a
 runner existed, and the replacement clears it.
 
@@ -461,7 +481,8 @@ Safety, because the src comes from model output and the result leaves the machin
 
 - the file must **sniff** as an image from magic bytes (PNG/JPEG/GIF/WebP), so a renamed
   text file or key is never attached
-- 128 KB per image, 384 KB total, 4 images - a notification cannot become a file transfer
+- 128 KB per image, 384 KB total, 4 images at the time (superseded: see the attachment-caps
+  section below) - a notification cannot become a file transfer
 - unreadable, oversized or non-image paths degrade to a short bracketed note, never a
   broken image
 - cids are content-addressed, so one screenshot referenced twice is attached once

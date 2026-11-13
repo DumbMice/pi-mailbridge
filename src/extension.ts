@@ -127,6 +127,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	let lastRespawnAttempt = 0
 	/** Throttles the post-update daemon replacement; a failed respawn must not loop. */
 	let lastVersionCheck = 0
+	/** Set when the daemon rejects our bearer: said once, not every poll tick. */
+	let tokenRejected = false
 	/** Set when a respawn still spoke another protocol: only a new pi session can fix that. */
 	let protocolStuck = false
 
@@ -361,7 +363,17 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			client = undefined
 			return false
 		}
-		emailMode = initialMode.ok && initialMode.data.mode === "on" ? "on" : "off"
+		// A 401 is not "the mode is off": the daemon rejected this session's bearer, which means a
+		// rotated/removed `secret.key`. Flipping the mirror to "off" there silently stopped every
+		// notification and drain, and the poll then respawned a daemon that kept rejecting us.
+		if (!initialMode.ok && initialMode.status === 401 && !tokenRejected) {
+			tokenRejected = true
+			ctx.ui.notify(
+				"mailbridge: the daemon rejected this session's bearer token — restart pi (or /mailbridge restart) to load the current secret",
+				"error",
+			)
+		}
+		if (initialMode.ok) emailMode = initialMode.data.mode === "on" ? "on" : "off"
 
 		notifier = createSettleNotifier({
 			mode: () => emailMode,
@@ -543,6 +555,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		}
 
 		protocolStuck = false
+		tokenRejected = false
 		const ensured = await ensureDaemonDetailed()
 		if (!ensured.healthy) {
 			c.ui.notify(

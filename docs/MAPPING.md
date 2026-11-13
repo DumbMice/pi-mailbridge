@@ -190,7 +190,9 @@ pi.registerCommand("mailbridge", {
 
 ## 5. Publish checklist
 
-- [x] `package.json` `files` limited to `src`, `bin`, `docs`, `config.example.json`, `CHANGELOG.md`
+- [x] `package.json` `files` limited to `dist`, `src`, `bin`, `docs`, `config.example.json`,
+      `CHANGELOG.md`, `scripts/render-teaser.ts`. `dist` is load-bearing: the installed extension
+      spawns `dist/daemon/main.js` (Node cannot strip types inside `node_modules`)
 - [x] no secrets in the package; `config.json` is gitignored and never shipped
 - [x] `pi` manifest points at `./src/extension.ts`
 - [x] peer deps on `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai` and `@sinclair/typebox`, not hard deps

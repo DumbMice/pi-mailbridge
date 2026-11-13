@@ -1255,3 +1255,29 @@ test("a settle pending across /mailbridge restart is flushed, not dropped", asyn
 
 	assert.equal(daemon.sent.length, 1, "the pending settle went out")
 })
+
+test("a rejected bearer is reported, and does not read as 'mode off'", async () => {
+	// Rotating secret.key while both processes run makes every call 401. The old code set the
+	// mode mirror to "off" on a failed read, which stopped notifications and draining while the
+	// panel said "daemon: healthy" - three lines that never named the cause.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on" })
+	;(daemon.client as unknown as { mode: unknown }).mode = async () => ({
+		ok: false as const,
+		status: 401,
+		code: "unauthorized",
+	})
+	const pi = boot(daemon, t.timers, ctx(notes))
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.ok(
+		notes.filter((n) => /rejected this session's bearer token/.test(n)).length === 1,
+		`said once: ${JSON.stringify(notes)}`,
+	)
+	assert.ok(
+		notes.some((n) => /email mode (ON|OFF)/.test(n)) === false,
+		"and it did not claim the mode changed",
+	)
+})

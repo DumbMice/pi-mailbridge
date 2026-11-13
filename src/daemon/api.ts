@@ -32,6 +32,7 @@ export const ENDPOINTS = [
 	"POST /claim",
 	"POST /ack",
 	"POST /register",
+	"DELETE /register",
 	"POST /ping",
 	"POST /bye",
 	"POST /shutdown",

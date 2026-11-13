@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -307,4 +307,19 @@ test("a renumbering drops records with no UID space too", async () => {
 	assert.equal(pendingSize(e), 1)
 	assert.equal(dropPendingFromOtherSpaces(e, 2222, { includeUnknown: true }).length, 1, "dropped on a reset")
 	assert.equal(pendingSize(e), 0)
+})
+
+test("a corrupt queue is preserved, not replaced by the next write", () => {
+	// Returning [] for unparsable JSON let the next addPending rewrite the file with one record,
+	// discarding a queue whose replies the cursor had already passed.
+	const e = env()
+	mkdirSync(join(e.XDG_STATE_HOME!, "pi-mailbridge"), { recursive: true })
+	writeFileSync(join(e.XDG_STATE_HOME!, "pi-mailbridge", "pending.json"), "{not json")
+	assert.equal(pendingSize(e), 0, "the caller still gets an empty queue")
+	assert.ok(
+		readdirSync(join(e.XDG_STATE_HOME!, "pi-mailbridge")).some((f) => f.startsWith("pending.json.corrupt-")),
+		"and the bytes are kept aside",
+	)
+	addPending(e, { uid: 1, sessionId: "s", from: "y@e.com", subject: "a", body: "b", receivedAt: 1 })
+	assert.equal(pendingSize(e), 1)
 })

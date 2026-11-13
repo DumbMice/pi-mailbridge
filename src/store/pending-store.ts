@@ -80,6 +80,14 @@ function load(env: NodeJS.ProcessEnv): PendingRecord[] {
 		return items
 	} catch (error) {
 		if (error instanceof StateVersionError) throw error
+		// Unparsable is not empty. Returning [] lets the next addPending rewrite the file with a
+		// single record, discarding a queue whose replies the cursor has already passed. Keep the
+		// bytes where a human can recover them and start clean.
+		try {
+			renameSync(p, `${p}.corrupt-${Date.now()}`)
+		} catch {
+			/* if it cannot be moved, the caller still gets an empty queue rather than a crash */
+		}
 		return []
 	}
 }

@@ -255,7 +255,37 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		// A reply is empty only if it has neither prose nor a surviving attachment. Judging
 		// the body first discarded the screenshot-from-a-phone case: nothing persisted, the
 		// attachment left unread, and the cursor moved past it.
+		//
+		// The same applies when the *only* content was an attachment that got dropped (a phone
+		// screenshot over the 1 MB total, say). Rejecting it loses the human's whole reply with
+		// no trace, so it is persisted with a note naming the drop and delivered: the agent can
+		// ask for the text, and the mail is no longer sitting past the cursor unread.
 		if (!body && accepted.length === 0) {
+			const reasons = [...new Set(dropped.map((d) => d.reason))].join(", ")
+			if (reasons.length > 0) {
+				const note = `[pi-mailbridge: ${dropped.length} attachment(s) dropped (${reasons}); this reply had no text]`
+				result.rejected++
+				bump(result.reasons, "attachment-only-dropped")
+				const stub: PendingRecord = {
+					uid,
+					sessionId,
+					from: authz.from,
+					subject: message.subject ?? "",
+					body: note,
+					receivedAt: message.receivedAt ?? now(),
+					...(uidValidity === undefined ? {} : { uidValidity }),
+					device: config.device.name,
+				}
+				const persisted = addPending(env, stub)
+				if (!persisted.ok) {
+					// Same rule as a real record: do not advance past it, retry when there is room.
+					bump(result.reasons, "pending-full")
+					break
+				}
+				result.persisted++
+				result.cursor = advanceCursor(env, uid)
+				continue
+			}
 			result.rejected++
 			bump(result.reasons, "empty-body")
 			result.cursor = advanceCursor(env, uid)
