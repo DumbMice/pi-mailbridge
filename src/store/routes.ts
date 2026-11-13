@@ -218,6 +218,21 @@ export function ensureRouteForSession(options: RegisterRouteOptions): string {
 	const now = options.now ?? Date.now()
 	const ttlHours = options.ttlHours ?? 30 * 24
 
+	// Fast path, and it is the common case: a session that already has a healthy route needs no
+	// write at all, so it needs no lock. This matters because every caller is the pi process on
+	// its main thread - settle, request_decision, notify_user - and `withLock` sleeps with
+	// `Atomics.wait` while it waits. A held lock used to freeze the session for up to ~3s on a
+	// path that runs on every notification. Reads are safe without the lock: `save()` publishes
+	// with an atomic rename, so a reader sees one complete file or the other.
+	const live = load(env).find((r) => r.sessionId === options.sessionId && r.expiresAt > now)
+	if (live) {
+		// Refresh only when it is worth a write: less than half the TTL left. Refreshing on every
+		// notification was pure write amplification, and the subject is diagnostic only.
+		const refreshBefore = now + (ttlHours * 3600_000) / 2
+		const deviceUnchanged = (live.device ?? undefined) === (options.device ?? undefined)
+		if (live.expiresAt > refreshBefore && deviceUnchanged) return live.id
+	}
+
 	return withLock(env, () => {
 	const items = load(env)
 	const existing = items.find((r) => r.sessionId === options.sessionId && r.expiresAt > now)

@@ -1,8 +1,9 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { statePath } from "../src/store/paths.ts"
 
 import { ensureRouteForSession, registerRoute, resolveRoute, routeIdFromSubject, ROUTE_RE, routeCount } from "../src/store/routes.ts"
 import { buildSettleSubject } from "../src/core/settle.ts"
@@ -97,6 +98,46 @@ test("a session keeps one route id across many notifications", () => {
 	assert.equal(first, second)
 	assert.equal(second, third)
 	assert.equal(routeCount(e), 1, "one route, not one per message")
+})
+
+test("a live route is reused without taking the lock", () => {
+	// Every caller of this is the pi process on its main thread, and withLock sleeps with
+	// Atomics.wait - so a held lock used to freeze the session for ~3s on the path that runs for
+	// every notification. An existing, healthy route needs no write, so it must not need the lock.
+	const e = env()
+	const id = ensureRouteForSession({ sessionId: SESSION, subject: "pi: x", device: "dev-a", env: e })
+
+	const lock = statePath(e, "routes.lock")
+	mkdirSync(dirname(lock), { recursive: true })
+	writeFileSync(lock, "999999:held-by-another")
+	try {
+		const started = Date.now()
+		const again = ensureRouteForSession({ sessionId: SESSION, subject: "pi: x", device: "dev-a", env: e })
+		const elapsed = Date.now() - started
+		assert.equal(again, id, "same route")
+		assert.ok(elapsed < 500, `returned without waiting on the lock (${elapsed} ms)`)
+	} finally {
+		rmSync(lock, { force: true })
+	}
+})
+
+test("a route that needs refreshing still takes the lock, and a device change updates it", () => {
+	const e = env()
+	const now = 1_000_000_000_000
+	const ttlHours = 2
+	const id = ensureRouteForSession({ sessionId: SESSION, subject: "pi: x", device: "dev-a", env: e, now, ttlHours })
+	// Two hours later, past half the TTL: the route is still valid but must be extended.
+	const later = now + 90 * 60_000
+	const refreshed = ensureRouteForSession({ sessionId: SESSION, subject: "pi: x", device: "dev-a", env: e, now: later, ttlHours })
+	assert.equal(refreshed, id)
+	assert.ok(
+		(resolveRoute(id, { device: "dev-a", env: e, now: later })?.expiresAt ?? 0) > later + 60 * 60_000,
+		"the expiry moved forward",
+	)
+	// A device rename must be persisted, or another machine's replies would be accepted here.
+	ensureRouteForSession({ sessionId: SESSION, subject: "pi: x", device: "dev-b", env: e, now: later, ttlHours })
+	assert.equal(resolveRoute(id, { device: "dev-a", env: e, now: later }), undefined, "no longer valid for the old device")
+	assert.equal(resolveRoute(id, { device: "dev-b", env: e, now: later })?.sessionId, SESSION)
 })
 
 test("distinct sessions get distinct routes", () => {
