@@ -126,12 +126,16 @@ flip the mode, and shut the daemon down. Treat `secret.key` as equivalent to the
   ```bash
   # stop the daemon (or let it idle-exit)
   rm ~/.local/state/pi-mailbridge/secret.key   # this is the rotation
-  # then restart pi (sessions cache the key in memory) and the daemon
+  # then restart pi (or run /mailbridge restart): the session mints a new key and its
+  # respawn starts a daemon that reads it
   ```
 
-  Both the daemon and every pi session cache the bearer token, so a rotation without
-  restarting both makes each poll 401 until you do. Do **not** rotate for a *mail password*
-  change: the daemon's `POST /reload` re-reads that (run it via `/mailbridge smoke`), so no
+  Stop the daemon *before* deleting: a running one holds the port `and` the key it read at
+  startup, so it keeps answering 401 to every call and the replacement cannot bind, no matter
+  how often a session retries. Sessions re-read `secret.key` on each call, but the client each
+  one already built carries the old token, so it 401s until its runtime is rebuilt.
+
+  Do **not** rotate for a *mail password* change: the daemon's `POST /reload` re-reads that (run it via `/mailbridge smoke`), so no
   restart is needed.
 
   Rotating the key kills every outstanding **signed token**, but *not* the short route ids:
