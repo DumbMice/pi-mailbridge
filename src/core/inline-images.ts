@@ -24,7 +24,7 @@
 //   - a path that cannot be read or does not sniff degrades to a short note instead of
 //     a broken image.
 //
-// Images are also addressed by content hash, so the same screenshot referenced twice is
+// Images are also addressed by content hash, so the same image referenced twice is
 // attached once.
 
 import { createHash } from "node:crypto"

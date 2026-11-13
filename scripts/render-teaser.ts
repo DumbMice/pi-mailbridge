@@ -1,11 +1,11 @@
 // Render the README teaser through the real message renderer.
 //
-// The screenshot in docs/images/ must never be a mock: it is this HTML, produced by
+// The teaser in docs/images/ must never be a mock: it is this HTML, produced by
 // `renderMessage` - the same function the mailer calls - with a mail-client frame around it.
 // Regenerate after changing the renderer:
 //
 //   node --experimental-strip-types scripts/render-teaser.ts     # writes /tmp/teaser.html
-//   open /tmp/teaser.html, 820 px wide, screenshot at 2x        # save as docs/images/notification.png
+//   open /tmp/teaser.html, 820 px wide, capture at 2x          # save as docs/images/notification.png
 //
 // `root` points at a scratch directory holding build.log, so the attachment line renders the
 // way a real notification's does.

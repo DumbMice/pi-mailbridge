@@ -1,6 +1,6 @@
 // Inbound attachments.
 //
-// The point: reply to a pi notification from your phone with a screenshot or a log
+// The point: reply to a pi notification from your phone with an image or a log
 // and have the agent actually see it.
 //
 // Deliberately restrictive. An attachment that reaches the model is untrusted

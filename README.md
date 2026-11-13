@@ -5,8 +5,8 @@ Answer your coding agent from your mailbox.
 When a [pi](https://pi.dev) session needs a decision, it emails you. You reply from your phone,
 your work laptop, a webmail tab — anything that can read mail — and **that same session
 continues**, with your answer as the next message. Notifications also carry rendered Markdown,
-screenshots embedded in the body where the agent put them, and any local file it linked attached
-with its real name.
+images embedded in the body where the agent put them, and any local file it linked attached with
+its real name.
 
 ![A pi-mailbridge notification in a mail client: a decision request with rendered Markdown, a recommendation, and a build log attached](./docs/images/notification.png)
 
@@ -295,7 +295,7 @@ pi in a project rather than in `$HOME`, and see
 
 - Long runs where the agent stops to ask something and you are not at the desk.
 - Work you start and then leave — the decision reaches you wherever you are.
-- Sending a screenshot or a log file as the answer instead of prose.
+- Sending an image or a log file as the answer instead of prose.
 
 ## When it does not
 

@@ -7,7 +7,7 @@
 - **A fork failure crashed pi.** `spawn()` reports `EAGAIN`/`EMFILE`/a sandbox refusing `exec` as
   an `error` event; with no listener Node rethrows it in the caller - the pi session - while no
   daemon existed. The spawn now listens and reports `{started:true, healthy:false}`.
-- **A reply whose only content was an over-cap attachment vanished.** A phone screenshot above the
+- **A reply whose only content was an over-cap attachment vanished.** A phone photo above the
   1 MB inbound total, sent with no text, was rejected `empty-body` with the cursor advanced past
   it: nothing persisted, nothing delivered, no way to ask again. Such a reply is now persisted
   with a note naming the drop, so the agent can ask for the text.
@@ -486,7 +486,7 @@ it, and the metadata below it is untouched.
 
 A Markdown image pointing at a local file rendered as `<img src="./shot.png">`, which a
 mail client cannot resolve - the reader saw a broken image. Local images are now read and
-attached with `multipart/related`, referenced by `cid:`, so a screenshot the agent
+attached with `multipart/related`, referenced by `cid:`, so an image the agent
 produced arrives as an actual picture.
 
 Safety, because the src comes from model output and the result leaves the machine:
@@ -497,7 +497,7 @@ Safety, because the src comes from model output and the result leaves the machin
   section below) - a notification cannot become a file transfer
 - unreadable, oversized or non-image paths degrade to a short bracketed note, never a
   broken image
-- cids are content-addressed, so one screenshot referenced twice is attached once
+- cids are content-addressed, so one image referenced twice is attached once
 
 Relative paths resolve against the sending session's project directory, which the
 extension now passes to `/send` as `cwd`.

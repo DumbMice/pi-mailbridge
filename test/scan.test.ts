@@ -520,7 +520,7 @@ test("a message carrying our own marker header is never ingested", async () => {
 })
 
 test("a reply that is only an attachment is kept", async () => {
-	// The headline case: reply from a phone with a screenshot and no text. The body check
+	// The headline case: reply from a phone with an image and no text. The body check
 	// used to run first, so the mail was rejected as empty-body, the attachment stayed
 	// unread on the server, and the cursor moved past it.
 	const e = env()
@@ -755,7 +755,7 @@ test("queue-pressure expiry frees the decision slot of a dead session", async ()
 })
 
 test("a reply whose only content was an over-cap attachment is persisted with a note", () => {
-	// The phone case: a screenshot over the 1 MB total, no text. Rejecting it lost the human's
+	// The phone case: an image over the 1 MB total, no text. Rejecting it lost the human's
 	// entire reply - nothing persisted, cursor moved past it, and no way to ask again.
 	const e = env()
 	const big = { filename: "shot.png", contentType: "image/png", content: Buffer.alloc(1_500_000) }

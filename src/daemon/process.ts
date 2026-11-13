@@ -253,11 +253,11 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		for (const item of dropped) bump(result.reasons, `attachment-${item.reason}`)
 
 		// A reply is empty only if it has neither prose nor a surviving attachment. Judging
-		// the body first discarded the screenshot-from-a-phone case: nothing persisted, the
+		// the body first discarded the image-from-a-phone case: nothing persisted, the
 		// attachment left unread, and the cursor moved past it.
 		//
 		// The same applies when the *only* content was an attachment that got dropped (a phone
-		// screenshot over the 1 MB total, say). Rejecting it loses the human's whole reply with
+		// image over the 1 MB total, say). Rejecting it loses the human's whole reply with
 		// no trace, so it is persisted with a note naming the drop and delivered: the agent can
 		// ask for the text, and the mail is no longer sitting past the cursor unread.
 		if (!body && accepted.length === 0) {
