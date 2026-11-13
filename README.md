@@ -33,6 +33,22 @@ strip TypeScript inside `node_modules`); the pi extension itself is loaded by pi
 pi install npm:pi-mailbridge
 ```
 
+## Lifecycle: who starts what
+
+| Event | What happens |
+| --- | --- |
+| `pi install npm:pi-mailbridge` | **Nothing runs.** The package is placed; no config, no daemon, no state directory. |
+| first pi session after a usable config exists | the extension probes `/health` and, if nothing answers, spawns the daemon detached — this is why a daemon can appear without you running `setup` in that session |
+| `/mailbridge setup` | writes the config, then starts (or reloads) the daemon and wires this session to it |
+| `/mailbridge smoke` / `restart` | reuse, reload or replace the running daemon |
+| `pi-mailbridge --setup` (headless) | writes the config and exits — **no daemon**; start it yourself, or use the unit |
+| last pi session closes | the daemon exits after `daemon.idleTimeoutSecs` (120 s), unless `daemon.exitWhenIdle: false` |
+| `systemctl --user start pi-mailbridge` | the unit runs the daemon directly and keeps it resident (`exitWhenIdle: false`) |
+
+The daemon exists whether or not email mode is on; `/mailbridge on` and `off` gate scanning and
+delivery, not the process. So a hung daemon is never "because the mode is off", and the mode being
+off does not stop it from answering `/health`.
+
 ## Quick start
 
 Inside pi:

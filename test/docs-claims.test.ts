@@ -978,3 +978,19 @@ test("the single-instance mechanism is described as the lock file, not the port"
 		)
 	}
 })
+
+test("the lifecycle says install starts nothing and a session starts the daemon", () => {
+	// The package's own history: a reader could not tell whether `pi install` ran anything, and a
+	// commit message of mine claimed the daemon started at install. State it, and pin it.
+	const readme = doc("README.md")
+	const section = /## Lifecycle[\s\S]*?(?=\n## )/.exec(readme)?.[0] ?? ""
+	assert.ok(section, "README should have a lifecycle section")
+	assert.match(section, /install[^\n]*Nothing runs/i, "install must be described as inert")
+	assert.match(section, /first pi session/i, "and the session start as the thing that spawns")
+	assert.match(section, /--setup[^\n]*no daemon|no daemon[^\n]*--setup/i, "headless setup starts nothing")
+	assert.match(section, /idleTimeoutSecs/, "and the daemon's exit condition")
+
+	// The code, not just the prose: session_start is what probes and spawns.
+	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
+	assert.match(extension, /pi\.on\("session_start"[\s\S]{0,1200}ensureDaemonSafe\(\)/, "session_start spawns")
+})

@@ -228,6 +228,11 @@ live holder makes the newcomer exit 0, and a file left by a crash is stolen by a
 (not an unlink-then-retake, which lets two starters both win). The listening port is a second
 guard, for a foreign listener - a bind failure also exits 0. `ensureDaemon()` then probes `/health` and reuses the winner.
 
+**It starts when a session needs it.** `pi install` runs nothing. On `session_start`, if the config
+is usable, the extension probes `/health` and spawns the daemon detached when nothing answers; in-pi
+`/mailbridge setup` does the same after writing the config, while headless `--setup` only writes
+the file. The daemon is not tied to the mode: `on`/`off` gate scanning and delivery, not existence.
+
 **It stops when the last session does.** Every session pings `/ping` on its poll tick
 (10s) and sends `/bye` on `session_shutdown`. Once no ping has arrived for
 `daemon.idleTimeoutSecs` (default 120), the daemon exits. This is deliberate:

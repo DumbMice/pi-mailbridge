@@ -129,8 +129,8 @@ it can only be re-opened from the terminal. Nothing was published, so there is n
 `pi install npm:pi-mailbridge` was broken in a way no local test could see: the extension loads
 through jiti (so TypeScript works), but the daemon it spawns ran `node --experimental-strip-types`
 on `src/daemon/main.ts` from inside `node_modules`, and Node refuses that with
-`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`. The user saw "daemon not reachable; replies will
-not arrive" and a stack trace in `daemon.log`. Every live test until now ran from a checkout,
+`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`. The first pi session after a usable config existed then showed "daemon not reachable;
+replies will not arrive" and a stack trace in `daemon.log` (install itself starts nothing). Every live test until now ran from a checkout,
 where the path has no `node_modules` segment.
 
 `npm run build` now emits `dist/` (tsc with `rewriteRelativeImportExtensions`, so the `.ts` import
