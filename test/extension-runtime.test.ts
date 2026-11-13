@@ -1613,6 +1613,8 @@ test("a tick suspended in its ping when restart begins stops there", async () =>
 			return false
 		},
 		stopWaitMs: 0,
+		// This tick is never released: let the join expire instead of waiting it out.
+		joinTickMs: 0,
 		timers: t.timers,
 		pollMs: 10_000,
 	})
@@ -1683,6 +1685,8 @@ test("a tick suspended in its respawn when restart begins does not rebuild the r
 			return false
 		},
 		stopWaitMs: 0,
+		// This tick is never released: let the join expire instead of waiting it out.
+		joinTickMs: 0,
 		timers: t.timers,
 		pollMs: 10_000,
 	})
@@ -1735,6 +1739,8 @@ test("a tick suspended inside replaceOutdatedDaemon does not respawn under a res
 			return false
 		},
 		stopWaitMs: 0,
+		// This tick is never released: let the join expire instead of waiting it out.
+		joinTickMs: 0,
 		timers: t.timers,
 		pollMs: 10_000,
 	})
@@ -1833,6 +1839,68 @@ test("/mailbridge restart waits for a tick that is already spawning", async () =
 	assert.match(said, /restarted with the current code/)
 })
 
+test("a join that expires says so instead of blaming a survivor", async () => {
+	// The join has a budget. When it runs out the poll is still starting a daemon, so whatever
+	// answers the port a moment later may be that spawn - not something that survived the stop.
+	// Reporting it as a survivor was the round-11 bug, gated on the upper half of the window.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const levels: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const daemon = fakeDaemon({ mode: "on" })
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	let release: (() => void) | undefined
+	let spawned = false
+	let calls = 0
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => {
+			calls += 1
+			if (calls > 1 && !spawned) {
+				await new Promise<void>((resolve) => {
+					release = resolve
+				})
+				spawned = true
+			}
+			return true
+		},
+		probeHealth: async () => {
+			// The tick's spawn completes while the command is measuring the port.
+			release?.()
+			return spawned
+		},
+		stopWaitMs: 50,
+		joinTickMs: 0,
+		timers: t.timers,
+		pollMs: 10_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+	daemon.client.ping = async () => ({ ok: false as const, status: 0 })
+	t.queue.find((q) => q.ms === 10_000)?.handler()
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	assert.ok(release !== undefined, "the tick is suspended inside its spawn")
+
+	const c = ctx(notes)
+	c.ui.notify = (message: string, level?: string) => {
+		notes.push(message)
+		levels.push(level ?? "info")
+	}
+	await captured.get("mailbridge")!("restart", c)
+	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
+
+	const said = notes.join("\n")
+	assert.ok(!/still answering after the stop request/.test(said), `no survivor error: ${said}`)
+	assert.match(said, /the poll was still starting a daemon/)
+	assert.equal(levels.at(-1), "warning", "unverifiable is a warning")
+})
+
 test("a restart clears the one-shot 401 notice, so a new rejection is reported", async () => {
 	// The notice is once per session by design (it is not a per-poll nag). A restart exists to
 	// repair exactly this, so if the key is still wrong afterwards the user must hear it again -
@@ -1901,6 +1969,8 @@ test("a tick already in flight when restart begins does not touch the daemon", a
 			return false
 		},
 		stopWaitMs: 0,
+		// This tick is never released: let the join expire instead of waiting it out.
+		joinTickMs: 0,
 		timers: t.timers,
 		pollMs: 10_000,
 	})

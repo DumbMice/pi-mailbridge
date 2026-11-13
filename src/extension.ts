@@ -247,14 +247,28 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		})
 	}
 
-	/** Wait for an interrupted tick, bounded, so a stuck one cannot hang the command. */
-	async function settleTick(): Promise<void> {
+	/**
+	 * Wait for an interrupted tick, bounded. Returns true when the budget ran out first.
+	 *
+	 * The budget has to exceed what a tick can spend inside `ensureDaemon` (a spawn, then probes
+	 * for `waitMs`), or the join expires exactly in the window it exists to cover. The timer is
+	 * cleared and uses the injected clock: a leaked five-second timer per command would keep the
+	 * process alive for nothing.
+	 */
+	async function settleTick(): Promise<boolean> {
 		const running = tickInFlight
-		if (running === undefined) return
-		await Promise.race([
-			running.catch(() => undefined),
-			new Promise<void>((resolve) => setTimeout(resolve, deps.joinTickMs ?? 5_000)),
-		])
+		if (running === undefined) return false
+		// A real timer, not the injected (fake) clock: it bounds a wait on another promise, so
+		// nothing else can resolve it. Cleared below, so it never outlives the command.
+		let handle: ReturnType<typeof setTimeout> | undefined
+		const expired = new Promise<boolean>((resolve) => {
+			handle = setTimeout(() => resolve(true), deps.joinTickMs ?? 8_000)
+		})
+		try {
+			return await Promise.race([running.then(() => false), expired])
+		} finally {
+			if (handle !== undefined) clearTimeout(handle)
+		}
 	}
 
 	/**
@@ -757,7 +771,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		// No client means this session never built a runtime (it started before a config
 		// existed). Writing mode.json alone would report ON with no notifier and no runner - the
 		// documented "copy config.example.json yourself" path lands here.
-		if (!client && (await startRuntime())) startPolling()
+		if (!client && (await startRuntime()) && !pollPaused) startPolling()
 		const viaDaemon = client ? await client.setMode(mode) : undefined
 		if (viaDaemon?.ok) {
 			emailMode = mode
@@ -818,7 +832,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					return false
 				}
 				if (!(await startRuntime())) return false
-				startPolling()
+				// The loop may be parked by a command that owns it; its own finally re-arms.
+				if (!pollPaused) startPolling()
 				return true
 			}
 
@@ -1081,10 +1096,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// spawn or attach a replacement, and make `survivor` true - reporting a failure
 					// for the restart this command just performed. Every exit below re-arms it.
 					stopPolling()
-					// A tick already past every pause check may be inside a spawn. Wait for it, so
-					// the daemon it started is on the port before this command looks.
-					await settleTick()
+					let joinExpired = false
 					try {
+						// A tick already past every pause check may be inside a spawn. Wait for it,
+						// so the daemon it started is on the port before this command looks.
+						joinExpired = await settleTick()
 					// To stop it we need a client even when this session has no runtime yet - the
 					// same rule the protocol replacement follows, and the remedy its own warning
 					// names.
@@ -1107,7 +1123,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						runner = undefined
 						// Whether something still answers here is the only evidence that a restart did
 						// or did not happen, and `ensureDaemon` would happily reuse a survivor.
-						survivor = await waitForPortToClose(clientBase ?? currentBaseUrl())
+						// `clientBase` follows the client, which may predate a `daemon.port` edit;
+						// the daemon this command starts will be on the configured one.
+						survivor = await waitForPortToClose(currentBaseUrl())
 					}
 					const ensured = await ensureDaemonDetailed()
 					if (ensured.healthy) {
@@ -1147,6 +1165,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						message = ensured.incompatible
 							? `daemon is still on another protocol (${ensured.apiVersion ?? "0"} → ${API_VERSION}) — close pi and start it again`
 							: `daemon did not come back${ensured.error ? ` (${ensured.error})` : ""} — run /mailbridge restart again`
+					} else if (survivor && joinExpired) {
+						// The poll was still starting a daemon when the budget ran out, so the thing
+						// on the port may be its spawn rather than something that survived the stop.
+						level = "warning"
+						message = "the poll was still starting a daemon when this ran — run /mailbridge restart again"
 					} else if (survivor && nothingToStop) {
 						// The stop was refused, yet something answers: either the connection failed
 						// between the two processes or a supervisor restarted it. Not a failure, but

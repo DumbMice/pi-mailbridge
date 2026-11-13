@@ -243,6 +243,14 @@ delivered again) or to have the human reply again. Rename before a quiet mailbox
 through one `replaceRuntime()`: capture the notifier, rebuild, flush the pending settle. Three
 paths each doing it themselves is how the same dropped notification was fixed three times.
 
+**A command that stops the daemon parks the poll first.** The tick runs every ten seconds and a
+restart waits up to five for the port to close, so a tick landing inside that window would hear the
+dying daemon's ping fail, respawn it, and hand the command the "something still answers" evidence
+it is measuring. `restart` therefore parks the loop, *joins* a tick that is already in flight
+(bounded by an internal budget longer than a spawn, so a daemon that tick is starting exists
+first), and re-arms in a `finally`. The pause flag is checked after every await in the tick, because a tick suspended
+before the park cannot be recalled - only made to stop at its next step.
+
 **It starts when a session needs it.** `pi install` runs nothing. On `session_start`, if the config
 is usable, the extension probes `/health` and spawns the daemon detached when nothing answers; in-pi
 `/mailbridge setup` does the same after writing the config, while headless `--setup` only writes

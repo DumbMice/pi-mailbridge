@@ -28,9 +28,9 @@
   closes the listener, so a daemon still logging out of IMAP keeps `/health` alive; a daemon that
   had already exited read as "could not stop the old one"; and the protocol-replacement path it
   shares said "retrying" after a failure that had left no poll loop to retry with. The port is now
-  the authority for every outcome, each one carries the level it deserves, the loop is parked
-  while the stop is confirmed (a tick already in flight stops at its next step), and it is
-  re-armed in a `finally` so a throw cannot leave the session without it.
+  the authority for every outcome, each one carries the level it deserves, and the loop is parked
+  and re-armed around the stop - joining a tick that is already in flight, since one of its awaits
+  can spawn the very daemon the restart is about to measure.
 
 
 ### Four bug classes fixed at the root, not at the symptom
