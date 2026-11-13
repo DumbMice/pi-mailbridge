@@ -105,6 +105,8 @@ export interface MailbridgeDeps {
 	respawnBackoffMs?: number
 	/** How long to wait for a stopped daemon's port to close. Defaults to five seconds. */
 	stopWaitMs?: number
+	/** How long a command waits for a tick it interrupted. Defaults to five seconds. */
+	joinTickMs?: number
 	timers?: SettleTimers
 	/** Poll interval for pending replies. */
 	pollMs?: number
@@ -128,6 +130,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	let ctx: ExtensionCtxLike | undefined
 	/** Set by stopPolling(): a tick already in flight must not touch the daemon. */
 	let pollPaused = false
+	/** The tick that may be inside an await right now; see trackTick/settleTick. */
+	let tickInFlight: Promise<void> | undefined
 	let client: DaemonClient | undefined
 	let runner: DeliveryRunner | undefined
 	let pollHandle: unknown
@@ -230,6 +234,30 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	}
 
 	/**
+	 * Start a tick, and remember it while it runs.
+	 *
+	 * A pause cannot stop a tick that is already inside an await - and one of those awaits spawns
+	 * a daemon. The command that parks the loop waits for the tick it interrupted instead, so the
+	 * daemon that tick started is on the port before the command looks at it.
+	 */
+	function trackTick(running: Promise<void>): void {
+		tickInFlight = running
+		void running.finally(() => {
+			if (tickInFlight === running) tickInFlight = undefined
+		})
+	}
+
+	/** Wait for an interrupted tick, bounded, so a stuck one cannot hang the command. */
+	async function settleTick(): Promise<void> {
+		const running = tickInFlight
+		if (running === undefined) return
+		await Promise.race([
+			running.catch(() => undefined),
+			new Promise<void>((resolve) => setTimeout(resolve, deps.joinTickMs ?? 5_000)),
+		])
+	}
+
+	/**
 	 * Arm the timer without touching `pollPaused`.
 	 *
 	 * For callers inside an await - `replaceOutdatedDaemon` runs within a command that parked the
@@ -295,14 +323,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				if (ctx && pollHandle === undefined && !pollPaused) {
 					pollHandle = timers.setTimeout(() => {
 						pollHandle = undefined
-						void tick()
+						trackTick(tick())
 					}, pollMs)
 				}
 			}
 		}
 		pollHandle = timers.setTimeout(() => {
 			pollHandle = undefined
-			void tick()
+			trackTick(tick())
 		}, pollMs)
 	}
 
@@ -1053,6 +1081,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// spawn or attach a replacement, and make `survivor` true - reporting a failure
 					// for the restart this command just performed. Every exit below re-arms it.
 					stopPolling()
+					// A tick already past every pause check may be inside a spawn. Wait for it, so
+					// the daemon it started is on the port before this command looks.
+					await settleTick()
 					try {
 					// To stop it we need a client even when this session has no runtime yet - the
 					// same rule the protocol replacement follows, and the remedy its own warning

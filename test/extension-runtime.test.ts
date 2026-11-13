@@ -1767,6 +1767,72 @@ test("a tick suspended inside replaceOutdatedDaemon does not respawn under a res
 	assert.match(notes.join("\n"), /restarted with the current code/)
 })
 
+test("/mailbridge restart waits for a tick that is already spawning", async () => {
+	// The tick can be suspended inside `ensureDaemon` for up to five seconds, and that await is
+	// what starts the daemon. A pause check after it cannot undo the spawn, so the command waited
+	// for a port that the tick itself had just brought up and reported "something is still
+	// serving its port" for a restart that worked. It now joins the tick first.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const daemon = fakeDaemon({ mode: "on" })
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	let release: (() => void) | undefined
+	let spawned = false
+	let down = false
+	let calls = 0
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => {
+			calls += 1
+			// The first call is session_start's. The tick's spawn is the one held, and the port
+			// answers from the moment it returns.
+			if (calls > 1 && !spawned) {
+				await new Promise<void>((resolve) => {
+					release = resolve
+				})
+				spawned = true
+			}
+			return true
+		},
+		// The port answers only once that spawn has completed - exactly the race - and stops
+		// answering after a shutdown that actually reached it.
+		probeHealth: async () => spawned && !down,
+		stopWaitMs: 0,
+		joinTickMs: 5_000,
+		timers: t.timers,
+		pollMs: 10_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	// The daemon idle-exited: the tick takes the dead-daemon branch and suspends in the spawn.
+	daemon.client.ping = async () => ({ ok: false as const, status: 0 })
+	// A stop can only be acknowledged by a daemon that exists.
+	daemon.client.shutdown = async () =>
+		spawned ? ((down = true), { ok: true as const, data: { ok: true } }) : { ok: false as const, status: 0, code: "network" }
+	t.queue.find((q) => q.ms === 10_000)?.handler()
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	assert.ok(release !== undefined, "the tick is suspended inside its spawn")
+
+	// The command must join it, so let the spawn finish while the command waits for it.
+	const running = captured.get("mailbridge")!("restart", ctx(notes))
+	release?.()
+	await running
+	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
+
+	const said = notes.join("\n")
+	assert.ok(!/still serving its port/.test(said), `no orphaned-survivor report: ${said}`)
+	assert.ok(!/still answering after the stop request/.test(said), `and no survivor error: ${said}`)
+	assert.match(said, /restarted with the current code/)
+})
+
 test("a restart clears the one-shot 401 notice, so a new rejection is reported", async () => {
 	// The notice is once per session by design (it is not a per-poll nag). A restart exists to
 	// repair exactly this, so if the key is still wrong afterwards the user must hear it again -
