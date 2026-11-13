@@ -1006,3 +1006,23 @@ test("the docs say a session replaces a daemon from an older build", () => {
 	assert.match(source, /replaceOutdatedDaemon/, "and the code does it")
 	assert.match(source, /VERSION_CHECK_MS/, "throttled, so a failing respawn cannot loop")
 })
+
+test("the four lifecycle words keep their meanings", () => {
+	// "Rebuild" once described re-creating in-process objects, which reads as if tsc ran on the
+	// user's machine. AGENTS.md owns the vocabulary; the docs and the panel must follow it.
+	const agents = doc("AGENTS.md")
+	const section = /## Wording[\s\S]*?(?=\n## )/.exec(agents)?.[0] ?? ""
+	assert.ok(section, "AGENTS should define the vocabulary")
+	for (const word of ["build", "wire", "spawn", "version"]) {
+		assert.match(section, new RegExp(`\\*\\*${word}`, "i"), `AGENTS omits ${word}`)
+	}
+
+	// No prose may call the session's objects "rebuilt".
+	for (const { file, text } of allProse()) {
+		assert.doesNotMatch(text, /rebuilds? the (?:client|runner|notifier|session)/i, `${file} says "rebuild"`)
+	}
+
+	// One word per thing in the panel: /health calls it `version`.
+	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
+	assert.match(extension, /daemon version \$\{theirs\}/, "the panel says 'daemon version'")
+})

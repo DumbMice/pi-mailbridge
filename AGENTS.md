@@ -47,6 +47,20 @@ docs/                ARCHITECTURE, SECURITY, OAUTH, MAPPING
 test/                unit tests — must never touch real IMAP or SMTP
 ```
 
+## Wording
+
+Four words for four different things. They have already been confused once, in a way that made a
+release note say the daemon "rebuilds" - as if `tsc` ran on a user's machine.
+
+- **build** - compiler output only: `npm run build` → `dist/`, run by `prepublishOnly` and
+  `pretest`. Never at runtime. "The compiled daemon", "the package build".
+- **wire / re-create** - the session's in-process objects (`client`, `notifier`, `runner`).
+  Never "rebuild". `startRuntime()` wires them; a replacement re-creates them.
+- **spawn / replace / restart** - the daemon *process*. `ensureDaemon` spawns it; a version
+  mismatch replaces it; `/mailbridge restart` restarts it.
+- **version** - the package version, one per build. `/health` carries `version`, the panel prints
+  "daemon version", and the object that compares them is `needsRestart`.
+
 ## Style
 
 - ESM only, `.ts` imports with explicit extension.

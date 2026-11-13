@@ -50,10 +50,11 @@ carries its version — and replaces it (once a minute at most). Without that, a
 would mint routing ids an old daemon cannot resolve, and replies would be rejected with the
 cursor already past them.
 
-The replacement is: shut the old daemon down (`POST /shutdown`), respawn from this package, rebuild
-this session's client. Queued replies, the cursor and the journal are on disk and untouched, so the
-gap costs nothing but the seconds the old daemon spent not watching IMAP; the mode survives because
-it is a file. If the respawn fails, the session warns and keeps polling, retrying within a minute;
+The replacement is: shut the old daemon down (`POST /shutdown`), spawn the compiled daemon that is
+already on disk (`dist/daemon/main.js` — no build runs at runtime; the package is built once, at
+publish time, and `pi install` receives the build), and have this session re-create its client. Queued
+replies, the cursor and the journal are on disk and untouched, so the gap costs nothing but the
+seconds the old daemon spent not watching IMAP; the mode survives because it is a file. If the respawn fails, the session warns and keeps polling, retrying within a minute;
 `/mailbridge restart` forces it.
 
 The daemon exists whether or not email mode is on; `/mailbridge on` and `off` gate scanning and
@@ -333,7 +334,7 @@ Every scan records why each message was refused, so this is answerable:
 ```
 
 ```
-daemon: healthy (http://127.0.0.1:4177) — build 0.1.0
+daemon: healthy (http://127.0.0.1:4177) — daemon version 0.1.0
 device: dev-box-7
 mode: on
 imap: connected
@@ -346,7 +347,7 @@ last scan with mail: 14:02:11 — examined 2, kept 1, rejected 1
 rejections: not-allowlisted 1
 ```
 
-The `build` on the first line is the daemon's package version. If it differs from the session's, the
+The version on the first line is the daemon's package version. If it differs from the session's, the
 line says so and the daemon is replaced within a minute (see Lifecycle).
 
 A non-zero `rejected` count means mail was seen and not accepted. `handled:` lines are the

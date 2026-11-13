@@ -986,7 +986,7 @@ test("status names the daemon's build, and flags a stale one", async () => {
 	await pi.fire("session_start")
 	await captured.get("mailbridge")!("status", ctx(notes))
 	const panel = notes.find((n) => /daemon:/.test(n)) ?? ""
-	assert.match(panel, /build 0\.0\.1/, `panel: ${panel}`)
+	assert.match(panel, /daemon version 0\.0\.1/, `panel: ${panel}`)
 	assert.match(panel, /this session is \d+\.\d+\.\d+/, "and names the session's build when they differ")
 	assert.match(panel, /replacing it/)
 })

@@ -585,8 +585,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				const theirs = health?.ok ? (health.data.version ?? "unknown") : "unknown"
 				const build = health?.ok
 					? needsRestart(mine, theirs)
-						? ` — build ${theirs}, this session is ${mine} (replacing it)`
-						: ` — build ${theirs}`
+						? ` — daemon version ${theirs}, this session is ${mine} (replacing it)`
+						: ` — daemon version ${theirs}`
 					: ""
 				c.ui.notify(
 					[

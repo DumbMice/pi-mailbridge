@@ -336,8 +336,10 @@ it assumed was alive, and `ensureDaemon` runs only on `session_start`. So once t
 exited, the session polled a dead port until a manual reload.
 
 - the poll tick now treats a failed `ping` as "the daemon is gone": it respawns through
-  ensureDaemon, rebuilds the client/notifier/runner, and resumes draining. Throttled to one
-  attempt a minute so a dead daemon cannot cause a spawn storm.
+  `ensureDaemon`, re-creates the client/notifier/runner, and resumes draining. Throttled to one
+  attempt a minute so a dead daemon cannot cause a spawn storm. (A respawn starts the compiled
+  `dist/` already on disk; nothing is built at runtime — `prepublishOnly` builds once and
+  `pi install` receives that.)
 - `session_start` and the recovery path share one `startRuntime()`, so they cannot drift.
 - `/health` now reports `clients`, `lastPingAgoMs` and `idleExitEnabled`, which is what
   made this diagnosable: `clients: 0` with a live session proves the poll is not running.
