@@ -658,6 +658,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		scanSummary: () => ({ ...(lastScan ?? {}), ...(lastCheckedAt ? { checkedAt: lastCheckedAt } : {}) }),
 		version: packageVersion(import.meta.url),
 		apiVersion: API_VERSION,
+		log,
 		// The file's mtime, not a clock reading: comparing mtime to mtime has no clock coupling.
 		configLoadedAt: () => configLoadedAt,
 		imapHealthy: () => currentWatcher?.isHealthy() ?? false,

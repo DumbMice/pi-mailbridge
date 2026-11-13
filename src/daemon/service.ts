@@ -107,6 +107,8 @@ export interface DaemonDeps {
 	idleTimeoutMs?: number
 	env?: NodeJS.ProcessEnv
 	now?: () => number
+	/** Diagnostics: the daemon's log. */
+	log?: (message: string) => void
 	registry?: Registry
 }
 
@@ -445,6 +447,9 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 							messageId,
 							...threading,
 						})
+						// Sends were invisible in daemon.log: "did my notification go out?" had no
+						// answer. Kind and size only - never the subject, per AGENTS invariant 8.
+						deps.log?.(`send ok (${kind}, ${text.length} chars)`)
 						// Record the outbound id so a reply reaches this session even if a
 						// client or a human rewrites the subject token away.
 					} catch (error) {
