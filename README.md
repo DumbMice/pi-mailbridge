@@ -563,13 +563,13 @@ that is the credential that actually reaches your mailbox.
 
 ## How it works
 
-```
-IMAP IDLE ──► scan (UID cursor) ──► authorize ──► route ──► strip quote ──► persist
-                                                                     │
-                     pi session ◄── claim ◄── poll ◄─────────────────┘
-                          │
-                          └──► inject as followUp ──► ack ──► \Seen + journal
-```
+![Diagram: the pi session sends through the local daemon over SMTP to your mailbox; you reply from any device; the daemon reads it over IMAP, authorizes, routes and persists it; the session claims it, injects it, and acknowledges, which marks the mail seen](./docs/images/flow.svg)
+
+The numbered path is the whole product: **1** the session hands a question to the daemon, **2**
+the daemon sends it over SMTP, **3** it lands in your mailbox and reaches you on any device, **4**
+you reply, **5** the daemon reads the reply over IMAP and runs it through the gates below the
+diagram, **6** the session claims and injects it as a follow-up, **7** it acknowledges, and only
+then is the mail marked seen and journalled.
 
 One daemon per machine owns the mailbox; sessions never touch IMAP. `smoke` and `prime` are the
 deliberate exceptions — each opens one short-lived connection. Design notes, the failure-mode

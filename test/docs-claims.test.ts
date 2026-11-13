@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { readFileSync, readdirSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -1064,4 +1064,21 @@ test("the reason table covers every reason the scanner can emit for a delivered 
 	const readme = doc("README.md")
 	assert.match(readme, /attachment-only-dropped/, "the stub reason is documented")
 	assert.match(readme, /attachments dropped/, "and filed with the other attachment losses")
+})
+
+test("the README's flow diagram exists, is referenced, and matches the gate order", () => {
+	// An image reference that rots is worse than none, and a diagram that disagrees with the
+	// gate order is a confident lie.
+	const readme = doc("README.md")
+	assert.match(readme, /docs\/images\/flow\.svg/, "README references the schematic")
+	assert.ok(existsSync(join(root, "docs/images/flow.svg")), "and the file is in the package")
+
+	const svg = readFileSync(join(root, "docs/images/flow.svg"), "utf8")
+	for (const gate of ["journal", "marker", "allowlist", "DMARC", "Message-ID", "route", "ack"]) {
+		assert.ok(svg.includes(gate), `the diagram omits ${gate}`)
+	}
+	// The order it prints must be the order process.ts applies.
+	const printed = [...svg.matchAll(/→/g)].length
+	assert.ok(printed >= 8, "the gate strip is a chain, not a list")
+	assert.doesNotMatch(svg, /<image\b/, "it is vector, so it stays sharp and diffable")
 })
