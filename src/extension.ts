@@ -226,6 +226,16 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	function startPolling(): void {
 		stopPolling()
 		pollPaused = false
+		schedulePoll()
+	}
+
+	/**
+	 * Arm the timer without touching `pollPaused`.
+	 *
+	 * For callers inside an await - `replaceOutdatedDaemon` runs within a command that parked the
+	 * loop, and clearing the pause there would un-park it from underneath.
+	 */
+	function schedulePoll(): void {
 		const tick = async () => {
 			if (pollPaused) return
 			try {
@@ -249,6 +259,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					if (now - lastRespawnAttempt > (deps.respawnBackoffMs ?? RESPAWN_BACKOFF_MS)) {
 						lastRespawnAttempt = now
 						const healthy = await ensureDaemonSafe()
+						// The spawn itself can take seconds. A paused tick that returns here has
+						// already created the daemon the restart is about to measure.
+						if (pollPaused) return
 						if (healthy) {
 							// A settle waiting on its debounce is the one mail this product exists
 							// to send. startRuntime() rebuilds the notifier, so flush the old one
@@ -266,6 +279,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					if (await replaceOutdatedDaemon()) return
 					if (pollPaused) return
 					const mode = await client?.mode()
+					if (pollPaused) return
 					if (mode?.ok) emailMode = mode.data.mode === "on" ? "on" : "off"
 					// `/mailbridge off` closes the channel: no claim, no injection while it is off.
 					// Anything already queued stays pending and is delivered on the next
@@ -361,7 +375,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			)
 			return true
 		}
-		startPolling()
+		schedulePoll()
 		return true
 	}
 
@@ -1034,11 +1048,6 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// for the restart this command just performed. Every exit below re-arms it.
 					stopPolling()
 					try {
-						// A restart exists to repair a session too: the one-shot 401 notice and the
-						// protocol lockout must not survive the daemon they were about.
-						tokenRejected = false
-						protocolStuck = false
-						lastRespawnAttempt = 0
 					// To stop it we need a client even when this session has no runtime yet - the
 					// same rule the protocol replacement follows, and the remedy its own warning
 					// names.
@@ -1054,8 +1063,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						const result = await stopping.shutdown().catch(() => undefined)
 						nothingToStop = Boolean(result && !result.ok && result.status === 0 && result.code === "network")
 						// A 401 is not a wedged daemon: retrying cannot help until it exits, and the
-						// advice below has to say so.
-						rejected = Boolean(result && !result.ok && (result.status === 401 || result.status === 403))
+						// advice below has to say so. Only 401: the daemon has no 403 (service.ts
+						// answers 401 for a bad bearer), so a 403 would be something else on the port.
+						rejected = Boolean(result && !result.ok && result.status === 401)
 						client = undefined
 						runner = undefined
 						// Whether something still answers here is the only evidence that a restart did
@@ -1064,6 +1074,12 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					}
 					const ensured = await ensureDaemonDetailed()
 					if (ensured.healthy) {
+						// Cleared before the rebuild: the rebuild is what reads the key again, so a
+						// rejection after it must be able to say so. A daemon that still cannot be
+						// reached never gets here, and keeps both latches.
+						tokenRejected = false
+						protocolStuck = false
+						lastRespawnAttempt = 0
 						// One rebuild, through the helper: it captures the notifier that holds a
 						// debounced settle, rebuilds, and flushes. Calling ensureRuntime first would
 						// overwrite that notifier and lose the settle.
@@ -1074,7 +1090,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 								/* reported by the toast below */
 							}
 						}
-						if (!(await replaceRuntime())) {
+						const attached = await replaceRuntime()
+						if (!attached) {
 							c.ui.notify(
 								stopping
 									? "daemon restarted, but this session could not attach — run /mailbridge restart again"

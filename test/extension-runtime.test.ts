@@ -1642,14 +1642,107 @@ test("a tick suspended in its ping when restart begins stops there", async () =>
 	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
 	// The suspended tick resumes here, while the command is inside its wait.
 	release?.()
-	await Promise.race([running, new Promise((r) => setImmediate(() => r("TIMEOUT")))]).then((v) => process.stderr.write(`DBG restart=${v}
-`))
-	await Promise.race([running, new Promise((r) => setTimeout(() => r("TIMEOUT2"), 500))]).then((v) => process.stderr.write(`DBG2 restart=${v}
-`))
+	await running
 	for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
 
 	assert.equal(ensures - before, 1, `only the restart spawns (ensures ${before} -> ${ensures})`)
 	assert.match(notes.join("\n"), /restarted with the current code/)
+})
+
+test("a tick suspended in its respawn when restart begins does not rebuild the runtime", async () => {
+	// `ensureDaemon` can wait five seconds for a spawn, and this is the one suspension point in
+	// tick() that starts a process. Resumed into a parked loop it would spawn, then rebuild the
+	// client and runner that the command is about to replace - the window restart measures.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const daemon = fakeDaemon({ mode: "on" })
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	let ensures = 0
+	let release: (() => void) | undefined
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => {
+			ensures += 1
+			// The tick's spawn is the one held, so it resumes inside the command's wait.
+			if (ensures === 2) {
+				await new Promise<void>((resolve) => {
+					release = resolve
+				})
+			}
+			return true
+		},
+		probeHealth: async () => {
+			release?.()
+			return false
+		},
+		stopWaitMs: 0,
+		timers: t.timers,
+		pollMs: 10_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+	// The daemon is gone, so the tick takes the respawn branch.
+	daemon.client.ping = async () => ({ ok: false as const, status: 0 })
+	// Every startRuntime reads the mode: that is the rebuild this test counts.
+	let modeReads = 0
+	const originalMode = daemon.client.mode
+	daemon.client.mode = async () => {
+		modeReads += 1
+		return originalMode()
+	}
+
+	t.queue.find((q) => q.ms === 10_000)?.handler()
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+
+	await captured.get("mailbridge")!("restart", ctx(notes))
+	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.ok(release !== undefined, "the tick really was suspended in its spawn")
+	// One rebuild: the command's. The suspended tick must not attach a runtime (and a runner that
+	// would claim a reply in between) that the command then throws away.
+	assert.equal(modeReads, 1, "only the restart rebuilt the runtime")
+})
+
+test("a restart clears the one-shot 401 notice, so a new rejection is reported", async () => {
+	// The notice is once per session by design (it is not a per-poll nag). A restart exists to
+	// repair exactly this, so if the key is still wrong afterwards the user must hear it again -
+	// otherwise the panel goes quiet about the reason nothing works.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const daemon = fakeDaemon({ mode: "on" })
+	daemon.client.mode = async () => ({ ok: false as const, status: 401 })
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		probeHealth: async () => false,
+		stopWaitMs: 0,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+	const rejectedNotice = () => notes.filter((n) => /rejected this session's bearer token/.test(n)).length
+	assert.equal(rejectedNotice(), 1, "told once at startup")
+
+	await captured.get("mailbridge")!("restart", ctx(notes))
+	for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.equal(rejectedNotice(), 2, "and again after a restart that still could not authenticate")
 })
 
 test("a tick already in flight when restart begins does not touch the daemon", async () => {

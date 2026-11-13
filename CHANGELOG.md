@@ -29,8 +29,8 @@
   had already exited read as "could not stop the old one"; and the protocol-replacement path it
   shares said "retrying" after a failure that had left no poll loop to retry with. The port is now
   the authority for every outcome, each one carries the level it deserves, the loop is parked
-  while the stop is confirmed (including a tick already in flight), and it is re-armed in a
-  `finally` so a throw cannot leave the session without it.
+  while the stop is confirmed (a tick already in flight stops at its next step), and it is
+  re-armed in a `finally` so a throw cannot leave the session without it.
 
 
 ### Four bug classes fixed at the root, not at the symptom
