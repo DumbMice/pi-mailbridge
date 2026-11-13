@@ -569,9 +569,18 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				const secret = secretFn()
 				const health = client ? await client.health() : undefined
 				const pending = client ? await client.pending() : undefined
+				// The daemon is a separate process with its own lifetime; after `pi update` it can
+				// be an older build, so name it here rather than making the user read /health.
+				const mine = packageVersion(import.meta.url)
+				const theirs = health?.ok ? (health.data.version ?? "unknown") : "unknown"
+				const build = health?.ok
+					? needsRestart(mine, theirs)
+						? ` — build ${theirs}, this session is ${mine} (replacing it)`
+						: ` — build ${theirs}`
+					: ""
 				c.ui.notify(
 					[
-						`daemon: ${health?.ok ? "healthy" : "unreachable"} (${clientBase ?? currentBaseUrl()})`,
+						`daemon: ${health?.ok ? "healthy" : "unreachable"} (${clientBase ?? currentBaseUrl()})${build}`,
 						`device: ${config.device.name}`,
 						`mode: ${health?.ok ? health.data.mode : "(unknown)"}`,
 						`imap: ${health?.ok ? (health.data as { imap?: string }).imap ?? "unknown" : "(unknown)"}`,

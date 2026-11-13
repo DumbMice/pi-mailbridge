@@ -962,3 +962,31 @@ test("a daemon from the previous build is replaced, once", async () => {
 	assert.equal(daemon.shutdowns, 1, "the outdated daemon was shut down once")
 	assert.ok(notes.some((n) => /replacing the running daemon/.test(n)), `notes: ${JSON.stringify(notes)}`)
 })
+
+test("status names the daemon's build, and flags a stale one", async () => {
+	// The daemon is a separate process with its own lifetime; after an update it can be older
+	// than this session. The panel should say so rather than making the user read /health.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const stale = fakeDaemon({ mode: "on", daemonVersion: "0.0.1" })
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => stale.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	await captured.get("mailbridge")!("status", ctx(notes))
+	const panel = notes.find((n) => /daemon:/.test(n)) ?? ""
+	assert.match(panel, /build 0\.0\.1/, `panel: ${panel}`)
+	assert.match(panel, /this session is \d+\.\d+\.\d+/, "and names the session's build when they differ")
+	assert.match(panel, /replacing it/)
+})

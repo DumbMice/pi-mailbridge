@@ -327,11 +327,21 @@ Every scan records why each message was refused, so this is answerable:
 ```
 
 ```
+daemon: healthy (http://127.0.0.1:4177) — build 0.1.0
+device: dev-box-7
 mode: on
 imap: connected
+session: 01a1c453-…
+secret: present
+mailbox: you@example.com
+allowlist: you@example.com
+pending replies: 0
 last scan with mail: 14:02:11 — examined 2, kept 1, rejected 1
 rejections: not-allowlisted 1
 ```
+
+The `build` on the first line is the daemon's package version. If it differs from the session's, the
+line says so and the daemon is replaced within a minute (see Lifecycle).
 
 A non-zero `rejected` count means mail was seen and not accepted. `handled:` lines are the
 accepted paths, `attachments dropped:` is a partial loss, and a full queue defers rather than
