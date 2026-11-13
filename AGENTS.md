@@ -122,7 +122,8 @@ only attach a trusted publisher to a package that exists.
 
 Two traps that have already cost a version each:
 
-- **the registry lags the green workflow by ~2 minutes** - poll
+- **the registry lags the green workflow by minutes, not seconds** (measured: 2 min for
+  0.1.2, 4.5 min for 0.1.4) - poll
   `registry.npmjs.org/@dumbmice%2fpi-mailbridge/<version>` before concluding anything, and remember
   `npm view` caches locally (`--prefer-online`);
 - **a published README cannot be edited.** The package page renders the *latest* version's README,
