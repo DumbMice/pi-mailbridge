@@ -278,7 +278,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		}
 
 		// Persist BEFORE the cursor moves. A crash here leaves the mail unseen.
-		const added = addPending(env, record)
+		const added = addPending(env, { ...record, device: config.device.name })
 		if (!added.ok) {
 			// The queue is full. Before stalling every future reply, drop records nothing can
 			// deliver any more - a session that has not come back in a week. This is the only
@@ -293,7 +293,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 				for (const gone of expired) {
 					if (!stillQueued.has(gone.sessionId)) deps.onDropped?.(gone.sessionId)
 				}
-				const retry = addPending(env, record)
+				const retry = addPending(env, { ...record, device: config.device.name })
 				if (retry.ok) {
 					result.persisted++
 					result.cursor = advanceCursor(env, uid)

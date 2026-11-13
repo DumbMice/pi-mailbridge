@@ -232,6 +232,10 @@ differs - never negotiates - and additive wire changes are gated by `capabilitie
 protocol bump. State files carry `v` (`STATE_VERSION`): absent means schema 1 and is read and
 stamped on the next save, older is migrated on read, newer is refused for reading *and* writing.
 
+**One owner for replacement.** A dead daemon, a protocol mismatch and `/mailbridge restart` all go
+through one `replaceRuntime()`: capture the notifier, rebuild, flush the pending settle. Three
+paths each doing it themselves is how the same dropped notification was fixed three times.
+
 **It starts when a session needs it.** `pi install` runs nothing. On `session_start`, if the config
 is usable, the extension probes `/health` and spawns the daemon detached when nothing answers; in-pi
 `/mailbridge setup` does the same after writing the config, while headless `--setup` only writes
@@ -308,6 +312,7 @@ src/
     process.ts          UID-cursor scan → authorize → route → parse → persist
     scan-queue.ts       one scan at a time; bursts coalesce into a follow-up
     script.ts           which daemon entry to spawn: the build when one exists
+    send-budget.ts      outbound mail per minute, so a loop cannot spend the quota
     source-proxy.ts     the MailSource the daemon really uses: live watcher + UIDVALIDITY
     service.ts          the HTTP surface: /health /pending /claim /ack /send /events …
     spawn.ts            ensureDaemon, single-instance

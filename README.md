@@ -378,6 +378,7 @@ proof the channel is open.
 | `empty-body` | no prose and no usable attachment | — |
 | `attachment-*` | an attachment was dropped (type, size, count) | see the suffix |
 | `pending-full` | 1 000 undelivered replies are queued | start a session so they drain |
+| `send_budget` | more than ten notifications in a minute were requested | a loop is mailing; the budget refuses rather than spending the account's quota |
 | `too-large` | over 8 MiB, refused before the body was downloaded | send a smaller one; inbound attachments are capped at 4 files and 1 MB *in total* |
 
 Where to look:

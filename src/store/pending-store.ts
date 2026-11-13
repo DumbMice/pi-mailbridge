@@ -30,6 +30,11 @@ export interface PendingRecord {
 	receivedAt: number
 	/** The UIDVALIDITY this UID belongs to, when known. */
 	uidValidity?: number
+	/**
+	 * The device that scanned it. Two machines sharing one state directory (or one device.name)
+	 * must not deliver each other's replies, so /pending filters and /claim refuses on this.
+	 */
+	device?: string
 	claimedBy?: string
 	claimedAt?: number
 }
@@ -41,7 +46,7 @@ interface PendingFile {
 
 export type ClaimResult =
 	| { ok: true }
-	| { ok: false; reason: "not-found" | "claimed-by-other" | "stale-space" }
+	| { ok: false; reason: "not-found" | "claimed-by-other" | "stale-space" | "foreign-device" }
 
 function path(env: NodeJS.ProcessEnv): string {
 	return statePath(env, "pending.json")
@@ -102,6 +107,11 @@ export function listPending(env: NodeJS.ProcessEnv = process.env): PendingRecord
 	return load(env)
 }
 
+/** Only the records this device scanned; absent device means "from before the field". */
+export function listPendingForDevice(env: NodeJS.ProcessEnv, device: string): PendingRecord[] {
+	return load(env).filter((r) => r.device === undefined || r.device === device)
+}
+
 export function listPendingForSession(env: NodeJS.ProcessEnv, sessionId: string): PendingRecord[] {
 	return load(env).filter((r) => r.sessionId === sessionId)
 }
@@ -141,10 +151,16 @@ export function claimPending(
 	now: number = Date.now(),
 	uidValidity?: number,
 	liveValidity?: number,
+	device?: string,
 ): ClaimResult {
 	const items = load(env)
 	const record = items.find((r) => r.uid === uid)
 	if (!record) return { ok: false, reason: "not-found" }
+	// Defence in depth for a shared state directory: /pending already filters by device, but a
+	// caller that names a uid it should not have (an older client, or a direct POST) is refused.
+	if (record.device !== undefined && device !== undefined && record.device !== device) {
+		return { ok: false, reason: "foreign-device" }
+	}
 	// A caller holding a record from a previous UID numbering must not act on whatever now
 	// occupies that UID: after a renumbering it is a different message.
 	if (record.uidValidity !== undefined && uidValidity !== undefined && record.uidValidity !== uidValidity) {

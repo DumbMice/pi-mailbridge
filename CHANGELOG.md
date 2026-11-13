@@ -2,6 +2,25 @@
 
 ## 0.1.0 — unreleased
 
+### Four bug classes fixed at the root, not at the symptom
+
+**Runtime replacement.** Three paths (dead daemon, protocol mismatch, `/mailbridge restart`) each
+rebuilt the client/notifier/runner themselves, and each dropped a debounced settle in its own way -
+the same bug had to be fixed three times. One helper (`replaceRuntime`) now owns the sequence, so a
+new replacement path cannot forget it.
+
+**Mail for another machine.** A pending record now carries the device that scanned it, `/pending`
+returns only this device's (plus untagged, from before the field), and `/claim` refuses a record
+another device scanned (`409 foreign-device`). Two machines sharing a state directory, or two hosts
+that happen to share a `device.name`, no longer hand each other's replies around - and `/pending`
+stops shipping the whole queue over loopback every 10 s.
+
+**Unbounded sending.** `/send` has a one-minute budget of ten mails, refused with `429
+send_budget`. A model-driven `notify_user` loop can no longer spend a provider's daily quota and
+silence the notifications that matter. The budget refuses rather than queues: the agent sees the
+error, and the human is not mailed a backlog of stale notifications later.
+
+
 ### The daemon always exits when idle; no residency switch
 
 (0.1.0 is unreleased, so removing a `/health` field does not bump `API_VERSION`: no client ever

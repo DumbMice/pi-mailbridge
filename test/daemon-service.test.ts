@@ -49,6 +49,8 @@ async function boot(): Promise<Harness> {
 		// What the daemon main() passes: the wire contract and its version.
 		apiVersion: 1,
 		version: "0.1.0-test",
+		// The daemon main() passes this too; /pending and /claim use it for device filtering.
+		getConfig: () => config(),
 		env,
 		source: {
 			uidValidity: () => undefined,
@@ -1038,6 +1040,71 @@ test("/health carries the protocol, its capabilities, and the build", async () =
 		assert.equal(body.apiVersion, 1)
 		assert.ok(Array.isArray(body.capabilities) && body.capabilities.includes("health"))
 		assert.equal(body.version, "0.1.0-test")
+	} finally {
+		await h.close()
+	}
+})
+
+test("/pending returns only this device's records", async () => {
+	// One state directory shared by two machines (a synced home, or a copied state dir) would
+	// otherwise hand each session the other machine's mail - and the whole file every 10 s.
+	const h = await boot()
+	try {
+		addPending(h.env, { uid: 1, sessionId: "s1", from: "y@e.com", subject: "a", body: "b", receivedAt: 1, device: "alpha" })
+		addPending(h.env, { uid: 2, sessionId: "s2", from: "y@e.com", subject: "c", body: "d", receivedAt: 2, device: "beta" })
+		// A record from before the field existed is still offered (nobody knows whose it is).
+		addPending(h.env, { uid: 3, sessionId: "s3", from: "y@e.com", subject: "e", body: "f", receivedAt: 3 })
+
+		const forAlpha = (await (await fetch(`${h.base}/pending?device=alpha`, { headers: auth() })).json()) as {
+			pending: { uid: number }[]
+		}
+		assert.deepEqual(forAlpha.pending.map((r) => r.uid).sort(), [1, 3], "alpha's own plus the untagged one")
+
+		// No `device` param (an older client): the daemon answers for *its own* device, not for
+		// everything in the file.
+		const unfiltered = (await (await fetch(`${h.base}/pending`, { headers: auth() })).json()) as {
+			pending: { uid: number }[]
+		}
+		assert.deepEqual(unfiltered.pending.map((r) => r.uid), [3], "this daemon's device only, plus untagged")
+	} finally {
+		await h.close()
+	}
+})
+
+test("/claim refuses a record another device scanned", async () => {
+	// The /pending filter is the first line; this is the second, for a caller that posts a uid
+	// it should not have (an older client, a shared state dir, a hand-written request).
+	const h = await boot()
+	try {
+		addPending(h.env, { uid: 7, sessionId: "s", from: "y@e.com", subject: "a", body: "b", receivedAt: 1, device: "other-machine" })
+		const res = await fetch(`${h.base}/claim`, {
+			method: "POST",
+			headers: auth({ "content-type": "application/json" }),
+			body: JSON.stringify({ uid: 7, instanceId: "pi-1" }),
+		})
+		assert.equal(res.status, 409)
+		assert.equal(((await res.json()) as { error: { code: string } }).error.code, "foreign-device")
+	} finally {
+		await h.close()
+	}
+})
+
+test("the send budget refuses an eleventh mail in a minute", async () => {
+	// Model-driven sends are unbounded by design; without a budget an injected agent can spend
+	// the provider's daily quota and silence the notifications that matter.
+	const h = await boot()
+	try {
+		const send = () =>
+			fetch(`${h.base}/send`, {
+				method: "POST",
+				headers: auth({ "content-type": "application/json" }),
+				body: JSON.stringify({ subject: "s", text: "t" }),
+			})
+		for (let i = 0; i < 10; i += 1) assert.equal((await send()).status, 200, `send ${i + 1}`)
+		const refused = await send()
+		assert.equal(refused.status, 429)
+		assert.equal(((await refused.json()) as { error: { code: string } }).error.code, "send_budget")
+		assert.equal(h.sent.length, 10, "nothing beyond the budget reached the transport")
 	} finally {
 		await h.close()
 	}

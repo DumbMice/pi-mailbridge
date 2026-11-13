@@ -17,8 +17,9 @@ import type { ScanSummary } from "../core/status.ts"
 
 type ScanSummaryLike = ScanSummary
 import { CAPABILITIES } from "./api.ts"
+import { createSendBudget } from "./send-budget.ts"
 import type { MailSource } from "./process.ts"
-import { ackPending, claimPending, listPending } from "../store/pending-store.ts"
+import { ackPending, claimPending, listPending, listPendingForDevice } from "../store/pending-store.ts"
 import { journal } from "../store/journal.ts"
 import { recordOutbound, removeOutbound, sessionThread } from "../store/threads.ts"
 import { generateMessageId } from "../core/mailer.ts"
@@ -154,6 +155,10 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 	/** live SSE response objects */
 	const streams = new Set<http.ServerResponse>()
 
+	// Sliding one-minute budget for outbound mail. Ten notifications a minute is far above any
+	// human-answered flow; the point is that a loop cannot spend the account's quota.
+	const sendBudget = createSendBudget({ limit: 10, windowMs: 60_000 })
+
 	// Liveness of pi sessions. A session pings on its poll tick; when every session has gone quiet
 	// the daemon stops - always, and by design: an updated package cannot leave an orphan running
 	// old code, and nothing reads a mailbox no session will consume. A daemon nobody ever pings
@@ -255,7 +260,15 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				}
 
 				case "GET /pending":
-					return send(200, { pending: listPending(env) })
+					// Filtered: a whole-file payload of another machine's mail is both wrong to
+					// deliver and wastefully large.
+					const url = new URL(req.url ?? "/", "http://127.0.0.1")
+					const device = url.searchParams.get("device")
+					const config = deps.getConfig?.()
+					const mine = device ?? config?.device.name
+					return send(200, {
+						pending: mine ? listPendingForDevice(env, mine) : listPending(env),
+					})
 
 				case "GET /mode":
 					return send(200, { mode: readMode(env) })
@@ -267,7 +280,15 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					if (!Number.isInteger(uid) || !instanceId) return fail(400, "bad_request")
 					const uidValidity =
 						typeof body?.uidValidity === "number" && Number.isFinite(body.uidValidity) ? body.uidValidity : undefined
-					const result = claimPending(env, uid, instanceId, now(), uidValidity, deps.source.uidValidity?.())
+					const result = claimPending(
+						env,
+						uid,
+						instanceId,
+						now(),
+						uidValidity,
+						deps.source.uidValidity?.(),
+						deps.getConfig?.()?.device.name,
+					)
 					if (!result.ok) return fail(result.reason === "not-found" ? 404 : 409, result.reason)
 					return send(200, { ok: true })
 				}
@@ -376,6 +397,12 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				}
 
 				case "POST /send": {
+					// A budget, not a rate limiter: an injected agent can ask for unbounded mail, and
+					// a provider that starts refusing (or a daily quota that runs out) silences the
+					// notifications that matter. Count and refuse rather than queue.
+					if (!sendBudget.take(Date.now())) {
+						return fail(429, "send_budget")
+					}
 					const body = asRecord(await readJson(req))
 					const subject = typeof body?.subject === "string" ? body.subject : ""
 					const text = typeof body?.text === "string" ? body.text : ""

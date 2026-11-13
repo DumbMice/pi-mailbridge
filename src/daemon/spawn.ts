@@ -184,6 +184,8 @@ const RELOAD_TIMEOUT_MS = 120_000
 export interface DaemonClientOptions {
 	baseUrl: string
 	token: string
+	/** This machine's device name; /pending returns only this device's records. */
+	device?: string
 	fetchImpl?: typeof fetch
 	/**
 	 * Per-request ceiling. Without one, a daemon that accepts a connection and never
@@ -198,6 +200,7 @@ export type DaemonResult<T> = { ok: true; data: T } | { ok: false; status: numbe
 
 export function createDaemonClient(options: DaemonClientOptions) {
 	const doFetch = options.fetchImpl ?? fetch
+	const deviceName = options.device ?? ""
 	const headers = { authorization: `Bearer ${options.token}`, "content-type": "application/json" }
 
 	async function call<T>(
@@ -259,7 +262,11 @@ export function createDaemonClient(options: DaemonClientOptions) {
 				/** "connected" | "disconnected" | "unknown" */
 				imap?: string
 			}>("GET", "/health"),
-		pending: () => call<{ pending: PendingRecord[] }>("GET", "/pending"),
+		pending: () =>
+			call<{ pending: PendingRecord[] }>(
+				"GET",
+				`/pending?device=${encodeURIComponent(deviceName)}`,
+			),
 		mode: () => call<{ mode: string }>("GET", "/mode"),
 		setMode: (mode: "on" | "off") => call<{ mode: string }>("POST", "/mode", { mode }),
 		claim: (uid: number, instanceId: string, uidValidity?: number) =>

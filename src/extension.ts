@@ -217,8 +217,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 							// A settle waiting on its debounce is the one mail this product exists
 							// to send. startRuntime() rebuilds the notifier, so flush the old one
 							// after the client is live again - never cancel it.
-							const stale = notifier
-							if (await startRuntime()) await stale?.flush().catch(() => undefined)
+							await replaceRuntime()
 						}
 					}
 					// Fall through to the reschedule below: returning here is what stopped the
@@ -280,9 +279,6 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		await client?.shutdown()
 		client = undefined
 		runner = undefined
-		// Same rule as the respawn path: flush a pending settle instead of dropping it.
-		const stale = notifier
-		notifier = undefined
 
 		// `/shutdown` answers before it closes the listener, so an immediate probe finds the
 		// dying daemon and "reuses" it - the replacement then reports success while the old
@@ -295,14 +291,13 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 		// A failed respawn must not end the poll loop: with `runner` gone, a re-arm tied to it
 		// would stop the only thing that notices the daemon is missing.
-		if (!(await ensureDaemonSafe()) || !(await startRuntime())) {
+		if (!(await ensureDaemonSafe()) || !(await replaceRuntime())) {
 			ctx?.ui.notify(
 				"mailbridge: the daemon did not come back after the update — retrying, and /mailbridge restart forces it",
 				"warning",
 			)
 			return true
 		}
-		await stale?.flush().catch(() => undefined)
 
 		// If the respawn brought back another protocol again, this session is older than the
 		// package on disk. Replacing forever would kill the bridge once a minute, silently.
@@ -331,6 +326,21 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 * Build the client, notifier and delivery runner. Called on session_start and again
 	 * if the poll tick finds the daemon gone, so a session recovers without a reload.
 	 */
+	/**
+	 * Rebuild the runtime, carrying a debounced settle across the gap.
+	 *
+	 * Every replacement path (dead daemon, version mismatch, /mailbridge restart) needs the same
+	 * three steps, and each used to do them itself - which is why the same dropped-notification
+	 * bug had to be fixed three times. It lives here now.
+	 */
+	async function replaceRuntime(): Promise<boolean> {
+		const stale = notifier
+		notifier = undefined
+		if (!(await startRuntime())) return false
+		await stale?.flush().catch(() => undefined)
+		return true
+	}
+
 	async function startRuntime(): Promise<boolean> {
 		const current = ctx
 		if (!current) return false
@@ -338,7 +348,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		if (!secret) return false
 
 		const token = secret.toString("base64url")
-		const makeClient = deps.makeClient ?? ((base, tok) => createDaemonClient({ baseUrl: base, token: tok }))
+		const makeClient =
+			deps.makeClient ??
+			((base, tok) => createDaemonClient({ baseUrl: base, token: tok, device: config.device.name }))
 		clientBase = currentBaseUrl()
 		client = makeClient(clientBase, token)
 
@@ -893,9 +905,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// daemon would keep executing the old version. Stop the process and let
 					// the supervisor start a fresh one.
 					const ensure = deps.ensureDaemon ?? ((base: string, script: string) => ensureDaemon({ baseUrl: base, scriptPath: script, env }).then((r) => r.healthy))
-					// A settle waiting on its debounce would be dropped by the runtime that follows.
-					const stale = notifier
-					notifier = undefined
+
 					if (client) {
 						await client.shutdown()
 						// `/shutdown` answers before it closes the listener, so a fixed sleep can
@@ -912,7 +922,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						// This session never had a runtime (started before the config existed).
 						await ensureRuntime(c.ui)
 					}
-					if (healthy) await stale?.flush().catch(() => undefined)
+					if (healthy) {
+						// The restart above replaced the runtime; rebuild it through the helper so a
+						// pending settle is not the thing that gets dropped.
+						await replaceRuntime()
+					}
 					c.ui.notify(
 						healthy ? "daemon restarted with the current code" : "daemon did not come back — run /mailbridge restart again",
 						healthy ? "info" : "error",
