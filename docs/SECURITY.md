@@ -40,6 +40,28 @@ traverses relays, so the **topmost** `Authentication-Results` is the one the fin
 hop — your provider — wrote on delivery. A sender's forged header necessarily ends
 up *below* it.
 
+**That argument rests on one assumption: your provider adds a header at all.** If the delivering
+relay stamps no `Authentication-Results`, the topmost one is whatever the sender wrote — so a
+forged `dmarc=pass` is accepted, while your own genuine replies fail `dmarc-missing`. Measured
+here, not theorised:
+
+```
+From: <an allowlisted address>, only one Authentication-Results, forged by the sender  -> accepted
+From: <the same address>, genuinely sent through a relay that stamps nothing           -> rejected (dmarc-missing)
+```
+
+It is a quiet failure in both directions at once: a spoofed message gets in *and* real mail appears
+broken, which invites turning `requireDmarcPass` off entirely — the worst response. Two defences:
+
+1. **Pin it.** Set `security.trustedAuthservId` to your provider's authserv-id (the token before
+   the first `;` in its header). A message without that header then fails closed instead of
+   trusting whatever is topmost. Do not pin Microsoft consumer accounts — outlook.com emits bare
+   headers with no authserv-id (rule 3 below).
+2. **Measure it.** `pi-mailbridge --smoke` sends one real mail and re-opens the folder; read the
+   delivered copy's headers. If it has no `Authentication-Results`, DMARC cannot help on that
+   provider and `requireDmarcPass: true` is a coin flip. This is not automated yet — it is the
+   reason `--check` prints a note when `trustedAuthservId` is unset.
+
 Rules:
 
 1. Read the **topmost** `Authentication-Results` header and require `dmarc=pass`
@@ -243,7 +265,10 @@ model output. The controls, all fail-closed:
 - **The daemon's own config and state directories are never attached**, whatever the `cwd`.
 - **An extension allowlist** (`pdf txt log md csv tsv json yml yaml xml html zip gz tar docx xlsx
   pptx`, plus `png jpg jpeg gif webp svg` for links and the sniffed image types inline)
-  keeps the obvious key filenames out of an accidental attach. It is not a content filter:
+  keeps the obvious key filenames out of an accidental attach. A linked file whose extension
+  claims a raster image must also **sniff** as one (a `.png` full of text is refused, and a real
+  PNG misnamed `.jpg` is attached as `image/png`); SVG is the exception, since XML has no
+  signature — it is an attachment, never inlined. It is not a content filter:
   `cp ~/.ssh/id_rsa notes.txt` or `tar czf k.tar ~/.ssh` defeats it, and `realpath` cannot see a
   hardlink. Treat it as a guard rail against a naive single-shot injection, not a sandbox.
 - **Size caps**: 5 MB per inline image and 15 MB per linked file (fixed), and
