@@ -5,7 +5,7 @@
 
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -81,6 +81,34 @@ test("the release workflow can actually publish: OIDC, no token, matching name",
 		(packageJson.repository?.url ?? "").includes("github.com/DumbMice/pi-mailbridge"),
 		"repository.url must match the repository the workflow runs in",
 	)
+})
+
+test("the CLI runs a checkout's sources, and an install's build", () => {
+	// The same stale-build trap as src/daemon/script.ts, in the command a new user runs first:
+	// `pi-mailbridge --check` used to import dist/ whenever it existed, so a checkout without a
+	// fresh build silently ran old code. Run for real, in both layouts, with markers.
+	const layout = (installed: boolean): string => {
+		const dir = mkdtempSync(join(tmpdir(), "pmb-bin-"))
+		const pkg = installed ? join(dir, "node_modules", "pi-mailbridge") : join(dir, "pkg")
+		mkdirSync(join(pkg, "bin"), { recursive: true })
+		cpSync(join(root, "bin", "pi-mailbridge.mjs"), join(pkg, "bin", "pi-mailbridge.mjs"))
+		mkdirSync(join(pkg, "dist", "daemon"), { recursive: true })
+		writeFileSync(join(pkg, "dist", "daemon", "main.js"), 'console.log("MARKER-BUILD"); export function main() {}\n')
+		mkdirSync(join(pkg, "src", "daemon"), { recursive: true })
+		writeFileSync(join(pkg, "src", "daemon", "main.ts"), 'console.log("MARKER-SOURCE"); export function main() {}\n')
+		try {
+			return execFileSync(process.execPath, [join(pkg, "bin", "pi-mailbridge.mjs"), "--check"], {
+				encoding: "utf8",
+			})
+		} catch (error) {
+			// The stub exits 0; a throw would be the failure this test is looking for.
+			return String((error as { stdout?: string }).stdout ?? "")
+		}
+	}
+	assert.match(layout(true), /MARKER-BUILD/, "an install must run the build")
+	// The source branch spawns with inherited stdio, so the absence of the build marker is the
+	// observable: it did not take the dist path.
+	assert.doesNotMatch(layout(false), /MARKER-BUILD/, "a checkout must not run the build")
 })
 
 test("`main` names a file a plain-Node consumer can import", () => {
