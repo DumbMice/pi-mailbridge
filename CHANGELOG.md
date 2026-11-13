@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.1 — 2026-11-13
+
+No behaviour change. This is the release that proves the pipeline: publishing now happens in CI
+with npm trusted publishing (OIDC), so the tarball is signed with a provenance attestation tying it
+to this repository and this tag. Nothing to upgrade for, unless you want that attestation.
+
+- `.github/workflows/publish.yml`: publishes on a `v*` tag over OIDC (no stored token), runs the
+  same build/typecheck/test gate a local `npm publish` runs, refuses a version that is already on
+  the registry, and validates the tarball without touching the registry on a manual dry run.
+- `repository` now uses GitHub's canonical case (`DumbMice`), which trusted publishing compares
+  against the OIDC claim.
+
 ## 0.1.0 — 2026-11-13
 
 ### A crash, a vanished reply, and a corrupt queue

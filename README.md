@@ -341,7 +341,7 @@ Every scan records why each message was refused, so this is answerable:
 ```
 
 ```
-daemon: healthy (http://127.0.0.1:4177) — daemon version 0.1.0
+daemon: healthy (http://127.0.0.1:4177) — daemon version 0.1.1
 device: dev-box-7
 mode: on
 imap: connected
@@ -582,7 +582,7 @@ table and the module map: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) and
 
 ## Status
 
-`0.1.0` — feature-complete for the single-user, one-mailbox case, and exercised end to end
+`0.1.1` — feature-complete for the single-user, one-mailbox case, and exercised end to end
 against a live QQ mailbox in both layouts: two addresses (DMARC verified on the reply) and one
 address for both roles (self-delivery, the self-echo guard, and a reply routed by the chain).
 
