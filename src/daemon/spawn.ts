@@ -226,8 +226,12 @@ export function createDaemonClient(options: DaemonClientOptions) {
 					reasons: Record<string, number>
 				} | null
 				configLoadedAt?: number | null
-				/** The daemon's package version; absent on a build from before this field. */
+				/** The daemon's package version. Diagnostic only. */
 				version?: string
+				/** The wire contract it implements; absent on a build from before this field. */
+				apiVersion?: number
+				/** Additive features inside that contract. */
+				capabilities?: string[]
 				/** "connected" | "disconnected" | "unknown" */
 				imap?: string
 			}>("GET", "/health"),

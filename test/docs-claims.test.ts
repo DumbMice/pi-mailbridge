@@ -1024,5 +1024,25 @@ test("the four lifecycle words keep their meanings", () => {
 
 	// One word per thing in the panel: /health calls it `version`.
 	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
-	assert.match(extension, /daemon version \$\{theirs\}/, "the panel says 'daemon version'")
+	assert.match(extension, /daemon version \$\{daemonVersion\}/, "the panel says 'daemon version'")
+})
+
+test("the two version axes are documented and kept distinct", () => {
+	// They recover differently (replace a process vs migrate data), so conflating them is how a
+	// patch bump ends up restarting daemons or a downgrade silently eats the queue.
+	const agents = /## Compatibility[\s\S]*?(?=\n## )/.exec(doc("AGENTS.md"))?.[0] ?? ""
+	assert.ok(agents, "AGENTS should state the compatibility rules")
+	assert.match(agents, /API_VERSION/, "names the protocol constant")
+	assert.match(agents, /STATE_VERSION/, "names the schema constant")
+	assert.match(agents, /never flip optional to required|never remove/i, "states the additive rule")
+
+	const arch = flat(doc("docs/ARCHITECTURE.md"))
+	assert.match(arch, /apiVersion/, "ARCHITECTURE describes the wire version")
+	assert.match(arch, /refused for reading/i, "and the schema refusal")
+
+	// The code keeps them where the docs say they are.
+	const api = readFileSync(join(root, "src/daemon/api.ts"), "utf8")
+	assert.match(api, /export const API_VERSION = 1/)
+	const schema = readFileSync(join(root, "src/store/schema.ts"), "utf8")
+	assert.match(schema, /export const STATE_VERSION = 1/)
 })

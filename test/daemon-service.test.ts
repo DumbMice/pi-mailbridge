@@ -46,6 +46,9 @@ async function boot(): Promise<Harness> {
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		// What the daemon main() passes: the wire contract and its version.
+		apiVersion: 1,
+		version: "0.1.0-test",
 		env,
 		source: {
 			uidValidity: () => undefined,
@@ -1032,5 +1035,24 @@ test("a store write failure is a 500 even though the path says .json", async () 
 	} finally {
 		chmodSync(dir, 0o700)
 		await service.close()
+	}
+})
+
+test("/health carries the protocol, its capabilities, and the build", async () => {
+	// The session decides whether to replace a daemon from exactly these fields, so they are
+	// part of the contract, not decoration.
+	const h = await boot()
+	try {
+		const response = await fetch(`${h.base}/health`)
+		const body = (await response.json()) as {
+			apiVersion?: number
+			capabilities?: string[]
+			version?: string
+		}
+		assert.equal(body.apiVersion, 1)
+		assert.ok(Array.isArray(body.capabilities) && body.capabilities.includes("health"))
+		assert.equal(body.version, "0.1.0-test")
+	} finally {
+		await h.close()
 	}
 })

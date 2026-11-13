@@ -12,6 +12,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSyn
 import { dirname } from "node:path"
 
 import { statePath } from "./paths.ts"
+import { StateVersionError, checkStateVersion, stamp } from "./schema.ts"
 
 /** Bound the store so a stuck mailbox cannot grow it without limit. */
 export const PENDING_CAP = 1_000
@@ -34,6 +35,7 @@ export interface PendingRecord {
 }
 
 interface PendingFile {
+	v?: number
 	items: PendingRecord[]
 }
 
@@ -62,6 +64,8 @@ function load(env: NodeJS.ProcessEnv): PendingRecord[] {
 		const stamp = `${stat.mtimeMs}:${stat.size}`
 		if (cached && cached.path === p && cached.stamp === stamp) return cached.items
 		const parsed = JSON.parse(readFileSync(p, "utf8")) as Partial<PendingFile>
+		// Refuses a file from a newer schema rather than filtering records it cannot read.
+		checkStateVersion("pending.json", parsed)
 		if (!Array.isArray(parsed?.items)) return []
 		const items = parsed.items.filter(
 			(r): r is PendingRecord =>
@@ -69,7 +73,8 @@ function load(env: NodeJS.ProcessEnv): PendingRecord[] {
 		)
 		cached = { path: p, stamp, items }
 		return items
-	} catch {
+	} catch (error) {
+		if (error instanceof StateVersionError) throw error
 		return []
 	}
 }
@@ -81,7 +86,7 @@ function save(env: NodeJS.ProcessEnv, items: PendingRecord[]): void {
 	// Never trim here. These records were accepted and the cursor has already moved past
 	// them, so dropping one is silent, unrecoverable mail loss. The cap is enforced at
 	// insertion instead, where the caller can refuse and leave the cursor alone.
-	writeFileSync(tmp, JSON.stringify({ items } satisfies PendingFile), { mode: 0o600 })
+	writeFileSync(tmp, JSON.stringify({ ...stamp(), items } satisfies PendingFile), { mode: 0o600 })
 	renameSync(tmp, p)
 	// The process that wrote knows the truth; an mtime+size stamp can collide when two writes
 	// land in the same millisecond with the same length (measured on ext4).

@@ -12,8 +12,10 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname } from "node:path"
 
 import { statePath } from "./paths.ts"
+import { StateVersionError, checkStateVersion, stamp } from "./schema.ts"
 
 interface CursorFile {
+	v?: number
 	lastUid: number
 	/** The mailbox's UIDVALIDITY when this cursor was written. */
 	uidValidity?: number
@@ -56,6 +58,7 @@ function readFile(env: NodeJS.ProcessEnv): CursorFile {
 	try {
 		if (!existsSync(p)) return { lastUid: 0 }
 		const parsed = JSON.parse(readFileSync(p, "utf8")) as Partial<CursorFile>
+		checkStateVersion("uid-cursor.json", parsed)
 		const uid = parsed?.lastUid
 		const validity = parsed?.uidValidity
 		return {
@@ -63,7 +66,8 @@ function readFile(env: NodeJS.ProcessEnv): CursorFile {
 			...(typeof validity === "number" && Number.isFinite(validity) ? { uidValidity: validity } : {}),
 			...(parsed?.primed === true ? { primed: true } : {}),
 		}
-	} catch {
+	} catch (error) {
+		if (error instanceof StateVersionError) throw error
 		return { lastUid: 0 }
 	}
 }
@@ -74,6 +78,7 @@ function write(env: NodeJS.ProcessEnv, uid: number, uidValidity?: number, primed
 	const tmp = `${p}.${process.pid}.tmp`
 	const keepPrimed = primed ?? readFile(env).primed === true
 	const body: CursorFile = {
+		...stamp(),
 		lastUid: uid,
 		...(uidValidity === undefined ? {} : { uidValidity }),
 		...(keepPrimed ? { primed: true } : {}),

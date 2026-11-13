@@ -19,7 +19,7 @@ import { createSettleNotifier, type SettleContext, type SettleNotifier } from ".
 import { createDeliveryRunner, type DeliveryRunner } from "./core/deliveries.ts"
 import { toUserContent, type UserContent } from "./core/attachments.ts"
 import { parseMailCommand } from "./core/mail-command.ts"
-import { needsRestart, packageVersion } from "./core/version.ts"
+import { API_VERSION, apiCompatible } from "./daemon/api.ts"
 import { daemonBaseUrl, ensureDaemon, createDaemonClient, type DaemonClient } from "./daemon/spawn.ts"
 import { parseMailbridgeCommand, USAGE } from "./core/commands.ts"
 import { runSetup } from "./core/setup.ts"
@@ -255,14 +255,13 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 * cannot resolve routing ids against is worse than no daemon, because replies are consumed.
 	 */
 	async function replaceOutdatedDaemon(): Promise<boolean> {
-		const mine = packageVersion(import.meta.url)
-		if (mine === "unknown" || Date.now() - lastVersionCheck < VERSION_CHECK_MS) return false
+		if (Date.now() - lastVersionCheck < VERSION_CHECK_MS) return false
 		lastVersionCheck = Date.now()
 		const health = await client?.health()
-		if (!health?.ok || !needsRestart(mine, health.data.version)) return false
+		if (!health?.ok || apiCompatible(API_VERSION, health.data.apiVersion)) return false
 
 		ctx?.ui.notify(
-			`mailbridge: replacing the running daemon (${health.data.version ?? "older build"} → ${mine})`,
+			`mailbridge: replacing the running daemon (protocol ${health.data.apiVersion ?? "0"} → ${API_VERSION})`,
 			"info",
 		)
 		await client?.shutdown()
@@ -581,12 +580,12 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				const pending = client ? await client.pending() : undefined
 				// The daemon is a separate process with its own lifetime; after `pi update` it can
 				// be an older build, so name it here rather than making the user read /health.
-				const mine = packageVersion(import.meta.url)
-				const theirs = health?.ok ? (health.data.version ?? "unknown") : "unknown"
+				const daemonVersion = health?.ok ? (health.data.version ?? "unknown") : "unknown"
+				// The protocol is what matters; the package version is diagnostic.
 				const build = health?.ok
-					? needsRestart(mine, theirs)
-						? ` — daemon version ${theirs}, this session is ${mine} (replacing it)`
-						: ` — daemon version ${theirs}`
+					? apiCompatible(API_VERSION, health.data.apiVersion)
+						? ` — daemon version ${daemonVersion}, protocol ${health.data.apiVersion}`
+						: ` — daemon protocol ${health.data.apiVersion ?? "0"}, this session is ${API_VERSION} (replacing it)`
 					: ""
 				c.ui.notify(
 					[

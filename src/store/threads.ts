@@ -19,6 +19,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname } from "node:path"
 
 import { statePath } from "./paths.ts"
+import { StateVersionError, checkStateVersion, stamp } from "./schema.ts"
 
 /** Keep this many recent outbound ids. Replies to older mail fall back to the token. */
 export const THREAD_CAP = 2_000
@@ -36,6 +37,7 @@ export interface ThreadRecord {
 }
 
 interface ThreadFile {
+	v?: number
 	items: ThreadRecord[]
 }
 
@@ -66,12 +68,14 @@ function load(env: NodeJS.ProcessEnv): ThreadRecord[] {
 	try {
 		if (!existsSync(p)) return []
 		const parsed = JSON.parse(readFileSync(p, "utf8")) as Partial<ThreadFile>
+		checkStateVersion("threads.json", parsed)
 		if (!Array.isArray(parsed?.items)) return []
 		return parsed.items.filter(
 			(r): r is ThreadRecord =>
 				typeof r?.messageId === "string" && typeof r?.sessionId === "string" && Boolean(r.messageId),
 		)
-	} catch {
+	} catch (error) {
+		if (error instanceof StateVersionError) throw error
 		return []
 	}
 }
@@ -81,7 +85,7 @@ function save(env: NodeJS.ProcessEnv, items: ThreadRecord[]): void {
 	mkdirSync(dirname(p), { recursive: true, mode: 0o700 })
 	const tmp = `${p}.${process.pid}.tmp`
 	const trimmed = items.length > THREAD_CAP ? items.slice(items.length - THREAD_CAP) : items
-	writeFileSync(tmp, JSON.stringify({ items: trimmed } satisfies ThreadFile), { mode: 0o600 })
+	writeFileSync(tmp, JSON.stringify({ ...stamp(), items: trimmed } satisfies ThreadFile), { mode: 0o600 })
 	renameSync(tmp, p)
 }
 

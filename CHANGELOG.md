@@ -124,6 +124,20 @@ nothing — and neither name appeared in `/mailbridge help`. They are subcommand
 work as a mail reply, except `/mailbridge on`: with the mode off nothing is scanned or drained, so
 it can only be re-opened from the terminal. Nothing was published, so there is no alias to carry.
 
+### A protocol version, separate from the package version
+
+The daemon and the extension now have a wire contract with its own number (`API_VERSION`, reported
+as `apiVersion` on `/health`), and additive features are advertised as `capabilities`. Compatibility
+is strict equality on the protocol - a mismatch replaces the daemon, never negotiates - while the
+package version becomes diagnostic. Comparing package versions was the wrong knob: a harmless patch
+bump would have restarted a working daemon, and the number would mean something different the day a
+second client exists.
+
+State files gained a schema version (`v`) under the "refuse newer, migrate older" rule: a file
+without one is schema 1 and is stamped on its next save; a file from a newer build is refused for
+reading and writing, with one clear message naming both versions, instead of having its
+unrecognised records filtered out and the file rewritten without them.
+
 ### A session replaces a daemon left over from the previous build
 
 `pi update` reloads the extension while the daemon keeps executing what it started with; it mints

@@ -1,4 +1,4 @@
-// Which build is this? Both processes need the same answer.
+// Which build is this? Diagnostic only - compatibility is `daemon/api.ts` (API_VERSION).
 //
 // The extension is loaded by pi and the daemon is a child process; after `pi update` the child
 // can still be executing the previous build. `/health` carries this string so a session can
@@ -42,13 +42,4 @@ export function packageVersion(moduleUrl: string | URL): string {
 	}
 	cache.set(key, version)
 	return version
-}
-
-/** True when a session on `mine` should replace a daemon reporting `theirs`. */
-export function needsRestart(mine: string, theirs: string | undefined): boolean {
-	if (mine === "unknown") return false
-	// A daemon that predates the field answers without it: that is an upgrade, and the only way
-	// to get the new behaviour is to replace it.
-	if (theirs === undefined || theirs.length === 0) return true
-	return theirs !== mine
 }

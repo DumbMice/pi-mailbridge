@@ -121,7 +121,14 @@ interface FakeDaemon {
 }
 
 function fakeDaemon(
-	over: { mode?: "on" | "off"; pending?: PendingRecord[]; sendOk?: boolean; daemonVersion?: string } = {},
+	over: {
+		mode?: "on" | "off"
+		pending?: PendingRecord[]
+		sendOk?: boolean
+		daemonVersion?: string
+		/** Defaults to this build's protocol, so a test opts into a mismatch. */
+		apiVersion?: number
+	} = {},
 ): FakeDaemon {
 	const sent: { to?: string; subject: string; text: string }[] = []
 	const modes: string[] = []
@@ -144,6 +151,7 @@ function fakeDaemon(
 				mode: currentMode,
 				pending: pendingRecords.length,
 				...(over.daemonVersion === undefined ? {} : { version: over.daemonVersion }),
+				apiVersion: over.apiVersion ?? 1,
 			}),
 		pending: async () => ok({ pending: pendingRecords }),
 		mode: async () => ok({ mode: currentMode }),
@@ -947,7 +955,7 @@ test("a daemon from the previous build is replaced, once", async () => {
 	// Such a daemon mints nothing this build can resolve, so replies would be rejected with the
 	// cursor already past them.
 	const t = fakeTimers()
-	const daemon = fakeDaemon({ mode: "on", daemonVersion: "0.0.0-old" })
+	const daemon = fakeDaemon({ mode: "on", daemonVersion: "0.0.0-old", apiVersion: 0 })
 	const notes: string[] = []
 	const pi = boot(daemon, t.timers, ctx(notes))
 	await pi.fire("session_start")
@@ -987,8 +995,8 @@ test("status names the daemon's build, and flags a stale one", async () => {
 	await captured.get("mailbridge")!("status", ctx(notes))
 	const panel = notes.find((n) => /daemon:/.test(n)) ?? ""
 	assert.match(panel, /daemon version 0\.0\.1/, `panel: ${panel}`)
-	assert.match(panel, /this session is \d+\.\d+\.\d+/, "and names the session's build when they differ")
-	assert.match(panel, /replacing it/)
+	assert.match(panel, /protocol 1/, "the protocol is part of the panel")
+	assert.doesNotMatch(panel, /replacing it/, "an older build on the same protocol is fine")
 })
 
 test("a replacement that cannot respawn keeps the poll loop alive", async () => {
@@ -997,7 +1005,7 @@ test("a replacement that cannot respawn keeps the poll loop alive", async () => 
 	// new session.
 	const t = fakeTimers()
 	const notes: string[] = []
-	const daemon = fakeDaemon({ mode: "on", daemonVersion: "0.0.0-old" })
+	const daemon = fakeDaemon({ mode: "on", daemonVersion: "0.0.0-old", apiVersion: 0 })
 	const pi = fakePi(ctx(notes))
 	let ensures = 0
 	mailbridge(pi, {

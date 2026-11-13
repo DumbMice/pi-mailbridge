@@ -228,6 +228,12 @@ live holder makes the newcomer exit 0, and a file left by a crash is stolen by a
 (not an unlink-then-retake, which lets two starters both win). The listening port is a second
 guard, for a foreign listener - a bind failure also exits 0. `ensureDaemon()` then probes `/health` and reuses the winner.
 
+**Two versions, two clocks.** `/health` carries both: `apiVersion` (the wire contract, `API_VERSION`)
+and `version` (the package build, diagnostic). A session replaces a daemon whose `apiVersion`
+differs - never negotiates - and additive wire changes are gated by `capabilities` rather than a
+protocol bump. State files carry `v` (`STATE_VERSION`): absent means schema 1 and is read and
+stamped on the next save, older is migrated on read, newer is refused for reading *and* writing.
+
 **It starts when a session needs it.** `pi install` runs nothing. On `session_start`, if the config
 is usable, the extension probes `/health` and spawns the daemon detached when nothing answers; in-pi
 `/mailbridge setup` does the same after writing the config, while headless `--setup` only writes
@@ -298,6 +304,7 @@ src/
     token.ts            HMAC sign/verify, subjects
     token-source.ts     XOAUTH2 command tokens
   daemon/
+    api.ts              the wire contract: API_VERSION, capabilities, endpoint list
     imapflow.ts         imapflow adapter
     main.ts             CLI + lifecycle
     process.ts          UID-cursor scan → authorize → route → parse → persist
@@ -313,6 +320,7 @@ src/
     paths.ts            XDG dirs
     pending-store.ts    durable pending + claim/ack state machine
     registry.ts         one outstanding decision per session
+    schema.ts           on-disk schema version: refuse newer, migrate older
     routes.ts           short routing ids, TTL
     secret.ts           shared HMAC/bearer key, atomic 0600
     threads.ts          outbound Message-IDs: threading + reply chain

@@ -34,6 +34,7 @@ import { dirname } from "node:path"
 import { randomBytes } from "node:crypto"
 
 import { statePath } from "./paths.ts"
+import { StateVersionError, checkStateVersion, stamp } from "./schema.ts"
 
 /** Keep this many live routes. One per session (reused and refreshed), not per mail. */
 export const ROUTES_CAP = 2_000
@@ -54,6 +55,7 @@ export interface RouteRecord {
 }
 
 interface RoutesFile {
+	v?: number
 	items: RouteRecord[]
 }
 
@@ -66,12 +68,14 @@ function load(env: NodeJS.ProcessEnv): RouteRecord[] {
 	try {
 		if (!existsSync(p)) return []
 		const parsed = JSON.parse(readFileSync(p, "utf8")) as Partial<RoutesFile>
+		checkStateVersion("routes.json", parsed)
 		if (!Array.isArray(parsed?.items)) return []
 		return parsed.items.filter(
 			(r): r is RouteRecord =>
 				typeof r?.id === "string" && typeof r?.sessionId === "string" && typeof r?.expiresAt === "number",
 		)
-	} catch {
+	} catch (error) {
+		if (error instanceof StateVersionError) throw error
 		return []
 	}
 }
@@ -152,7 +156,7 @@ function save(env: NodeJS.ProcessEnv, items: RouteRecord[]): void {
 	mkdirSync(dirname(p), { recursive: true, mode: 0o700 })
 	const tmp = `${p}.${process.pid}.tmp`
 	const trimmed = items.length > ROUTES_CAP ? items.slice(items.length - ROUTES_CAP) : items
-	writeFileSync(tmp, JSON.stringify({ items: trimmed } satisfies RoutesFile), { mode: 0o600 })
+	writeFileSync(tmp, JSON.stringify({ ...stamp(), items: trimmed } satisfies RoutesFile), { mode: 0o600 })
 	renameSync(tmp, p)
 }
 

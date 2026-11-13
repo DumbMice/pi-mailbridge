@@ -16,6 +16,7 @@ import type { ResolvedConfig } from "../core/config.ts"
 import type { ScanSummary } from "../core/status.ts"
 
 type ScanSummaryLike = ScanSummary
+import { CAPABILITIES } from "./api.ts"
 import type { MailSource } from "./process.ts"
 import { ackPending, claimPending, listPending } from "../store/pending-store.ts"
 import { journal } from "../store/journal.ts"
@@ -102,8 +103,10 @@ export interface DaemonDeps {
 	configLoadedAt?: () => number
 	/** Is the IMAP watcher connected? A revoked credential shows here, not in the process. */
 	imapHealthy?: () => boolean
-	/** This build's version, so a session can replace a daemon left over from before an update. */
+	/** This build's version. Diagnostic only - compatibility is `apiVersion`. */
 	version?: string
+	/** The wire contract this daemon implements. */
+	apiVersion?: number
 	/** How long after the last ping to exit. Default 120s. */
 	idleTimeoutMs?: number
 	env?: NodeJS.ProcessEnv
@@ -224,9 +227,11 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				lastPingAgoMs: newestPing ? Math.max(0, now() - newestPing) : null,
 				idleExitEnabled: deps.exitWhenIdle ? deps.exitWhenIdle() : false,
 				lastScan: deps.scanSummary?.() ?? null,
-				// A session compares this with its own build; a daemon serving old code cannot
-				// resolve routing ids the new extension mints.
+				// Diagnostic (which build), and the contract (which protocol). The session
+				// replaces a daemon whose apiVersion differs; the version is for the panel.
 				version: deps.version,
+				apiVersion: deps.apiVersion,
+				capabilities: CAPABILITIES,
 				configLoadedAt: deps.configLoadedAt?.() ?? null,
 				imap: deps.imapHealthy ? (deps.imapHealthy() ? "connected" : "disconnected") : "unknown",
 			})

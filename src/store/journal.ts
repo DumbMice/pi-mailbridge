@@ -11,11 +11,13 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname } from "node:path"
 
 import { statePath } from "./paths.ts"
+import { StateVersionError, checkStateVersion, stamp } from "./schema.ts"
 
 /** Keep the last N acked UIDs. */
 export const JOURNAL_CAP = 5_000
 
 interface JournalFile {
+	v?: number
 	uids: number[]
 	/** The UIDVALIDITY these UIDs were acked under. */
 	uidValidity?: number
@@ -30,11 +32,13 @@ function loadFile(env: NodeJS.ProcessEnv): JournalFile {
 	try {
 		if (!existsSync(p)) return { uids: [] }
 		const parsed = JSON.parse(readFileSync(p, "utf8")) as Partial<JournalFile>
+		checkStateVersion("journal.json", parsed)
 		return {
 			uids: Array.isArray(parsed?.uids) ? parsed.uids.filter((n) => typeof n === "number") : [],
 			...(typeof parsed?.uidValidity === "number" ? { uidValidity: parsed.uidValidity } : {}),
 		}
-	} catch {
+	} catch (error) {
+		if (error instanceof StateVersionError) throw error
 		return { uids: [] }
 	}
 }
@@ -44,7 +48,7 @@ function save(env: NodeJS.ProcessEnv, file: JournalFile): void {
 	mkdirSync(dirname(p), { recursive: true, mode: 0o700 })
 	const tmp = `${p}.${process.pid}.tmp`
 	const trimmed = file.uids.length > JOURNAL_CAP ? file.uids.slice(file.uids.length - JOURNAL_CAP) : file.uids
-	writeFileSync(tmp, JSON.stringify({ ...file, uids: trimmed } satisfies JournalFile), { mode: 0o600 })
+	writeFileSync(tmp, JSON.stringify({ ...stamp(), ...file, uids: trimmed } satisfies JournalFile), { mode: 0o600 })
 	renameSync(tmp, p)
 }
 

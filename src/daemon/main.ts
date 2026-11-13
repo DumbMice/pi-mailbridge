@@ -22,6 +22,7 @@
 
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs"
 import { statePath } from "../store/paths.ts"
+import { assertStateReadable } from "../store/schema.ts"
 import { dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -56,6 +57,7 @@ import { listPending } from "../store/pending-store.ts"
 import { advanceCursor, isPrimed, markPrimed, readCursor } from "../store/uid-cursor.ts"
 import { alreadyPrimedMessage, runPrime } from "../core/prime.ts"
 import { packageVersion } from "../core/version.ts"
+import { API_VERSION } from "./api.ts"
 import { recordOutbound } from "../store/threads.ts"
 import { tokenFromSubject } from "../core/token.ts"
 
@@ -658,6 +660,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		// panel then said "(none yet)" while the daemon was happily polling.
 		scanSummary: () => ({ ...(lastScan ?? {}), ...(lastCheckedAt ? { checkedAt: lastCheckedAt } : {}) }),
 		version: packageVersion(import.meta.url),
+		apiVersion: API_VERSION,
 		// The file's mtime, not a clock reading: comparing mtime to mtime has no clock coupling.
 		configLoadedAt: () => configLoadedAt,
 		imapHealthy: () => currentWatcher?.isHealthy() ?? false,
@@ -682,6 +685,15 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		log(`http server failed: ${error.message}`)
 		process.exit(1)
 	})
+
+	// Refuse a state directory written by a newer build before touching it: a load-time throw
+	// inside a request or a scan would surface late and repeatedly.
+	try {
+		assertStateReadable(process.env)
+	} catch (error) {
+		log((error as Error).message)
+		process.exit(EXIT_CONFIG)
+	}
 
 	const lock = acquireDaemonLock(process.env)
 	if (!lock.ok) {

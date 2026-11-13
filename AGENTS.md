@@ -58,8 +58,27 @@ release note say the daemon "rebuilds" - as if `tsc` ran on a user's machine.
   Never "rebuild". `startRuntime()` wires them; a replacement re-creates them.
 - **spawn / replace / restart** - the daemon *process*. `ensureDaemon` spawns it; a version
   mismatch replaces it; `/mailbridge restart` restarts it.
-- **version** - the package version, one per build. `/health` carries `version`, the panel prints
-  "daemon version", and the object that compares them is `needsRestart`.
+- **version** - the package version, one per build: diagnostic only, for the panel and bug reports.
+- **protocol** (`API_VERSION` in `daemon/api.ts`) - the wire contract. Strict equality: a daemon on
+  another protocol is replaced, never negotiated down.
+- **schema version** (`STATE_VERSION` in `store/schema.ts`) - the on-disk shape. Refuse newer,
+  migrate older.
+
+## Compatibility
+
+Two clocks, because they recover differently. A **protocol** mismatch is fixed by replacing a
+process (seconds). A **schema** mismatch is data: it can only be migrated, or refused.
+
+- **Adding** to the wire inside one protocol version: new fields optional, new endpoints or fields
+  gated by `CAPABILITIES`; never flip optional to required, never remove or rename a field, never
+  narrow a type. A field you stop sending stays accepted.
+- **Breaking** the wire: bump `API_VERSION`, and expect every running daemon to be replaced. The
+  schema test in `test/api-schema.test.ts` freezes the endpoint list so this is deliberate.
+- **State files** (`STATE_VERSION` in `store/schema.ts`): absent `v` means schema 1 (read it, stamp on the next save); older is migrated on
+  read; newer is refused for both reading *and* writing. Filtering unknown records and saving the
+  rest is how state is silently lost.
+- **Shims** carry a tag: `// COMPAT(<name>): added in vX, remove after <date>`. `rg "COMPAT\("` is
+  the cleanup backlog.
 
 ## Style
 

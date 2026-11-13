@@ -347,8 +347,9 @@ last scan with mail: 14:02:11 — examined 2, kept 1, rejected 1
 rejections: not-allowlisted 1
 ```
 
-The version on the first line is the daemon's package version. If it differs from the session's, the
-line says so and the daemon is replaced within a minute (see Lifecycle).
+The version on the first line is the daemon's package version. What decides whether the session can
+use it is the **protocol** (`protocol 1`): a daemon on another protocol is replaced within a minute
+(see Lifecycle); a different package version on the same protocol is fine.
 
 A non-zero `rejected` count means mail was seen and not accepted. `handled:` lines are the
 accepted paths, `attachments dropped:` is a partial loss, and a full queue defers rather than
