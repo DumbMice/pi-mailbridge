@@ -1465,6 +1465,9 @@ test("/mailbridge restart does not claim a restart that never happened", async (
 		makeClient: () => daemon.client,
 		ensureDaemon: async () => true,
 		probeHealth: async () => true,
+		// The daemon is wedged in a logout, so the port never closes. A zero budget makes that the
+		// answer on the first probe instead of fifty.
+		stopWaitMs: 0,
 		timers: t.timers,
 		pollMs: 60_000,
 	})
@@ -1474,7 +1477,100 @@ test("/mailbridge restart does not claim a restart that never happened", async (
 	await captured.get("mailbridge")!("restart", ctx(notes))
 	const said = notes.join("\n")
 	assert.ok(!/restarted with the current code/.test(said), `it must not claim a restart: ${said}`)
-	assert.ok(/could not stop the old one/.test(said), `it must say the old process survived: ${said}`)
+	assert.ok(/still answering after the stop request/.test(said), `it must say the old process survived: ${said}`)
+})
+
+test("/mailbridge restart trusts the port over the shutdown reply", async () => {
+	// `/shutdown` answers before it closes: the handler releases the lock, stops the watcher and
+	// logs out of IMAP first, so a wedged connection keeps /health alive after a 200 - and
+	// `ensureDaemon` would reuse that survivor. A timeout says nothing at all. Both used to be
+	// reported as "restarted with the current code", at info.
+	for (const reply of [
+		{ ok: true as const, data: { ok: true } },
+		{ ok: false as const, status: 0, code: "timeout" },
+	]) {
+		const t = fakeTimers()
+		const notes: string[] = []
+		const levels: string[] = []
+		const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+		const daemon = fakeDaemon({ mode: "on" })
+		daemon.client.shutdown = async () => reply
+		const pi = fakePi(ctx(notes))
+		pi.registerCommand = (name, spec) => {
+			captured.set(name, spec.handler)
+		}
+		mailbridge(pi, {
+			env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+			loadConfig: config,
+			secret: () => SECRET,
+			makeClient: () => daemon.client,
+			ensureDaemon: async () => true,
+			probeHealth: async () => true,
+			stopWaitMs: 0,
+			timers: t.timers,
+			pollMs: 60_000,
+		})
+		await pi.fire("session_start")
+		for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+		const c = ctx(notes)
+		c.ui.notify = (message: string, level?: string) => {
+			notes.push(message)
+			levels.push(level ?? "info")
+		}
+		await captured.get("mailbridge")!("restart", c)
+		const said = notes.join("\n")
+		assert.ok(
+			!/restarted with the current code/.test(said),
+			`reply ${JSON.stringify(reply)} must not read as success: ${said}`,
+		)
+		assert.ok(/still answering after the stop request/.test(said), `and must say why: ${said}`)
+	}
+})
+
+test("every restart outcome carries the right level", async () => {
+	// `notify` takes a level and no test pinned it, so a failure reported at info (or the
+	// reverse) was invisible.
+	const cases: { name: string; reply?: { ok: false; status: number; code?: string }; healthy: boolean; want: string }[] = [
+		{ name: "restarted", healthy: true, want: "info" },
+		{ name: "already gone", reply: { ok: false, status: 0, code: "network" }, healthy: true, want: "info" },
+		{ name: "survived", reply: { ok: false, status: 401 }, healthy: true, want: "error" },
+		{ name: "did not come back", healthy: false, want: "error" },
+	]
+	for (const c of cases) {
+		const t = fakeTimers()
+		const notes: string[] = []
+		const levels: string[] = []
+		const captured = new Map<string, (args: string, ctx: ExtensionCtxLike) => Promise<void>>()
+		const daemon = fakeDaemon({ mode: "on" })
+		if (c.reply) daemon.client.shutdown = async () => c.reply!
+		const pi = fakePi(ctx(notes))
+		pi.registerCommand = (name, spec) => {
+			captured.set(name, spec.handler)
+		}
+		mailbridge(pi, {
+			env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+			loadConfig: config,
+			secret: () => SECRET,
+			makeClient: () => daemon.client,
+			ensureDaemon: async () => c.healthy,
+			// The survivor is what the port says, not the reply.
+			probeHealth: async () => c.reply?.status === 401,
+			stopWaitMs: 0,
+			timers: t.timers,
+			pollMs: 60_000,
+		})
+		await pi.fire("session_start")
+		for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+		const context = ctx(notes)
+		context.ui.notify = (message: string, level?: string) => {
+			notes.push(message)
+			levels.push(level ?? "info")
+		}
+		await captured.get("mailbridge")!("restart", context)
+		assert.equal(levels.at(-1), c.want, `"${c.name}" must be ${c.want}: ${JSON.stringify(notes)}`)
+	}
 })
 
 test("/mailbridge restart against an already-stopped daemon reports a restart, not a failure", async () => {
@@ -1486,6 +1582,7 @@ test("/mailbridge restart against an already-stopped daemon reports a restart, n
 	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
 	const daemon = fakeDaemon({ mode: "on" })
 	daemon.client.shutdown = async () => ({ ok: false as const, status: 0, code: "network" })
+	// Nothing is listening, so every probe says so and this test needs no wait at all.
 	const pi = fakePi(ctx(notes))
 	pi.registerCommand = (name, spec) => {
 		captured.set(name, spec.handler)

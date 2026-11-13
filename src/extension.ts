@@ -101,6 +101,8 @@ export interface MailbridgeDeps {
 	versionCheckMs?: number
 	/** How often the poll may respawn a dead daemon. Defaults to a minute. */
 	respawnBackoffMs?: number
+	/** How long to wait for a stopped daemon's port to close. Defaults to five seconds. */
+	stopWaitMs?: number
 	timers?: SettleTimers
 	/** Poll interval for pending replies. */
 	pollMs?: number
@@ -312,7 +314,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		// dying daemon and "reuses" it - the replacement then reports success while the old
 		// protocol is still being served. Wait for the port to stop answering.
 		const base = clientBase ?? currentBaseUrl()
-		const deadline = Date.now() + 5_000
+		const deadline = Date.now() + (deps.stopWaitMs ?? 5_000)
 		while (Date.now() < deadline && (await probe({ baseUrl: base }))) {
 			await new Promise((resolve) => setTimeout(resolve, 100))
 		}
@@ -361,6 +363,21 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	// beside it must be the compiled build wherever one exists (Node refuses type stripping in
 	// node_modules). See daemon/script.ts.
 	const daemonScript = (): string => resolveDaemonScript(import.meta.url)
+
+	/**
+	 * Wait for the listener to close, bounded, and report whether something still answers.
+	 *
+	 * `/shutdown` answers before it closes: the handler releases the lock, stops the watcher and
+	 * logs out of IMAP first, so a wedged connection keeps `/health` alive well past the reply.
+	 * The return value is the *last* probe, so a caller does not ask a second time.
+	 */
+	async function waitForPortToClose(base: string): Promise<boolean> {
+		const deadline = Date.now() + (deps.stopWaitMs ?? 5_000)
+		while (Date.now() < deadline && (await probe({ baseUrl: base }))) {
+			await new Promise((resolve) => setTimeout(resolve, 100))
+		}
+		return probe({ baseUrl: base })
+	}
 
 	/**
 	 * Build the client, notifier and delivery runner. Called on session_start and again
@@ -1008,17 +1025,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						nothingToStop = Boolean(result && !result.ok && result.status === 0 && result.code === "network")
 						client = undefined
 						runner = undefined
-						// `/shutdown` answers before it closes the listener, so a fixed sleep can
-						// probe the dying process and "reuse" it - reporting a restart that never
-						// happened. Wait until the port stops answering, bounded.
-						const base = clientBase ?? currentBaseUrl()
-						const deadline = Date.now() + 5_000
-						while (Date.now() < deadline && (await probe({ baseUrl: base }))) {
-							await new Promise((resolve) => setTimeout(resolve, 100))
-						}
-						// Asked here, after the wait and before the respawn: whether the old daemon is
-						// still on the port is the only evidence that a restart did or did not happen.
-						survivor = await probe({ baseUrl: base })
+						// Whether something still answers here is the only evidence that a restart did
+						// or did not happen, and `ensureDaemon` would happily reuse a survivor.
+						survivor = await waitForPortToClose(clientBase ?? currentBaseUrl())
 					}
 					const ensured = await ensureDaemonDetailed()
 					if (ensured.healthy) {
@@ -1052,9 +1061,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						message = ensured.incompatible
 							? `daemon is still on another protocol (${ensured.apiVersion ?? "0"} → ${API_VERSION}) — close pi and start it again`
 							: `daemon did not come back${ensured.error ? ` (${ensured.error})` : ""} — run /mailbridge restart again`
-					} else if (stopRefused && survivor) {
+					} else if (survivor && !nothingToStop) {
+						// `ok:true` is not proof of exit: a shutdown that is still logging out of IMAP
+						// keeps answering, and so does a timeout. Only the port can say.
 						level = "error"
-						message = "a daemon is answering, but this session could not stop the old one — close pi and start it again"
+						message = "a daemon is still answering after the stop request — close pi and start it again"
 					} else if (!stopping) {
 						// No key means no client, and a daemon that was already running has one from
 						// its own startup: this session has just minted a different key, so "restarted"
