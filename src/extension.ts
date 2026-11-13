@@ -129,8 +129,6 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	let lastVersionCheck = 0
 	/** Set when a respawn still spoke another protocol: only a new pi session can fix that. */
 	let protocolStuck = false
-	/** Set when the daemon is owned by a supervisor: restarting it is the supervisor's job. */
-	let supervisedMismatch = false
 
 	// Computed per use, not once: `config` is replaced whenever a /mailbridge command
 	// reloads it, and a frozen URL means editing daemon.port leaves every probe (including
@@ -266,25 +264,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 */
 	async function replaceOutdatedDaemon(): Promise<boolean> {
 		// Once a respawn has proved the mismatch is not ours to fix, stop trying.
-		if (protocolStuck || supervisedMismatch) return false
+		if (protocolStuck) return false
 		if (Date.now() - lastVersionCheck < (deps.versionCheckMs ?? VERSION_CHECK_MS)) return false
 		lastVersionCheck = Date.now()
 		const health = await client?.health()
 		if (!health?.ok || apiCompatible(API_VERSION, health.data.apiVersion)) return false
-
-		// A supervised daemon (exitWhenIdle: false: something else owns it) must not be shut down from
-		// here: it exits 0, `Restart=on-failure` does not bring it back, and the daemon we spawn
-		// instead inherits this process's env - where exitWhenIdle is true, so the mailbox stops
-		// being watched as soon as pi closes. Ask the supervisor to do it.
-		if (health.data.idleExitEnabled === false) {
-			supervisedMismatch = true
-			ctx?.ui.notify(
-				`mailbridge: the daemon is supervised and speaks protocol ${health.data.apiVersion ?? "0"} ` +
-					`(this session: ${API_VERSION}) — restart it the way you started it, where it is managed`,
-				"warning",
-			)
-			return true
-		}
 
 		ctx?.ui.notify(
 			`mailbridge: replacing the running daemon (protocol ${health.data.apiVersion ?? "0"} → ${API_VERSION})`,
@@ -525,7 +509,6 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		}
 
 		protocolStuck = false
-		supervisedMismatch = false
 		const ensured = await ensureDaemonDetailed()
 		if (!ensured.healthy) {
 			c.ui.notify(

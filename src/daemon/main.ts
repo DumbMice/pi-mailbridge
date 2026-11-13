@@ -653,9 +653,6 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		shutdown: () => {
 			void shutdown("shutdown requested")
 		},
-		// Stop when the last pi session goes away. `daemon.exitWhenIdle: false` keeps it
-		// resident instead, which is what an external supervisor wants.
-		exitWhenIdle: () => currentConfig.daemon.exitWhenIdle !== false,
 		// Always carry the freshness stamp: on a quiet mailbox `lastScan` is absent, and the
 		// panel then said "(none yet)" while the daemon was happily polling.
 		scanSummary: () => ({ ...(lastScan ?? {}), ...(lastCheckedAt ? { checkedAt: lastCheckedAt } : {}) }),

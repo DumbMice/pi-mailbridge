@@ -81,11 +81,6 @@ export interface DaemonDeps {
 	 */
 	shutdown?: () => void
 	/**
-	 * Exit once every client has stopped pinging. Only enforced after at least one
-	 * client has pinged, so an externally supervised daemon never exits at boot.
-	 */
-	exitWhenIdle?: () => boolean
-	/**
 	 * Called after a mode change. Turning mode on must trigger a scan: the only other
 	 * triggers are an IMAP `exists` (a NEW arrival) and reconnect, so without this a reply
 	 * that arrived while the channel was closed would wait for unrelated mail.
@@ -159,16 +154,16 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 	/** live SSE response objects */
 	const streams = new Set<http.ServerResponse>()
 
-	// Liveness of pi sessions. A session pings on its poll tick; when every session has
-	// gone quiet the daemon stops, so an updated package cannot leave an orphan running
-	// old code, and nothing reads a mailbox no session will consume.
+	// Liveness of pi sessions. A session pings on its poll tick; when every session has gone
+	// quiet the daemon stops - always, and by design: an updated package cannot leave an orphan
+	// running old code, and nothing reads a mailbox no session will consume. Before the first
+	// ping it is not reaped, so a boot-time start is never mistaken for an idle one.
 	const pings = new Map<string, number>()
 	let sawClient = false
 	const idleTimeout = deps.idleTimeoutMs ?? 120_000
 
 	const idleCheck = setInterval(() => {
 		if (!sawClient) return
-		if (deps.exitWhenIdle && !deps.exitWhenIdle()) return
 		const newest = Math.max(0, ...pings.values())
 		if (Date.now() - newest <= idleTimeout) return
 		deps.shutdown?.()
@@ -225,7 +220,6 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				// Liveness: how many sessions are pinging, and how long ago the last one did.
 				clients: pings.size,
 				lastPingAgoMs: newestPing ? Math.max(0, now() - newestPing) : null,
-				idleExitEnabled: deps.exitWhenIdle ? deps.exitWhenIdle() : false,
 				lastScan: deps.scanSummary?.() ?? null,
 				// Diagnostic (which build), and the contract (which protocol). The session
 				// replaces a daemon whose apiVersion differs; the version is for the panel.

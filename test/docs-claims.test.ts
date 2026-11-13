@@ -1029,19 +1029,3 @@ test("the two version axes are documented and kept distinct", () => {
 	assert.match(schema, /export const STATE_VERSION = 1/)
 })
 
-test("the docs do not require a supervisor, and say who restarts a supervised daemon", () => {
-	// The package works without one (pi spawns, or you run it), and a supervised daemon must not
-	// be shut down by a session - that is what this documents and the code now does.
-	const readme = flat(doc("README.md"))
-	assert.match(readme, /optional/i, "states that it is optional")
-	// And not as an always-on watcher: the architecture says no session means no consumer, so a
-	// resident daemon is an escape hatch for process ownership, not a way to watch an empty house.
-	assert.match(readme, /not a way to watch mail while you are away/i, "does not sell it as always-on")
-	assert.match(readme, /cannot deliver/i, "says what a sessionless daemon cannot do")
-	assert.match(readme, /attaches to whatever already answers/i, "and that a session adopts an existing daemon")
-	assert.match(readme, /restart it where it is managed/, "and who restarts a supervised one")
-
-	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
-	assert.match(extension, /idleExitEnabled === false/, "the code checks for a supervisor")
-	assert.match(extension, /supervised and speaks protocol/, "and says so instead of replacing")
-})

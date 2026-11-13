@@ -68,8 +68,6 @@ export interface ResolvedConfig {
 	daemon: {
 		host: string
 		port: number
-		/** Exit once no pi session is pinging. Default true; set false for an external supervisor. */
-		exitWhenIdle?: boolean
 		/** Grace period after the last ping before exiting. Default 120. */
 		idleTimeoutSecs?: number
 		/** Safety-net catch-up scan cadence, so a silent IDLE cannot strand a reply. Default 60; 0 disables. */
@@ -104,7 +102,7 @@ const DEFAULTS: Omit<ResolvedConfig, "warnings"> = {
 		allowSelfReplies: false,
 		tokenTtlHours: 30 * 24,
 	},
-	daemon: { host: "127.0.0.1", port: 4177, exitWhenIdle: true, idleTimeoutSecs: 120, scanIntervalSecs: 60 },
+	daemon: { host: "127.0.0.1", port: 4177, idleTimeoutSecs: 120, scanIntervalSecs: 60 },
 	notify: {
 		onSettled: true,
 		debounceMs: 10_000,
@@ -191,12 +189,7 @@ function envOverrides(env: NodeJS.ProcessEnv): Record<string, unknown> {
 	set(["mail", "smtp", "password"], env.PI_MAILBRIDGE_SMTP_PASS)
 	set(["mail", "to"], env.PI_MAILBRIDGE_TO)
 	set(["daemon", "port"], env.PI_MAILBRIDGE_PORT)
-	// For a supervisor-owned daemon: the unit you run sets this to false, because
-	// a supervised daemon must not exit on its own: the shipped unit uses Restart=on-failure
 	// but a clean exit would still end the service.
-	if (env.PI_MAILBRIDGE_EXIT_WHEN_IDLE !== undefined) {
-		set(["daemon", "exitWhenIdle"], !/^(0|false|no|off)$/i.test(String(env.PI_MAILBRIDGE_EXIT_WHEN_IDLE).trim()))
-	}
 	set(["device", "name"], env.PI_MAILBRIDGE_DEVICE)
 	// Token commands are argv lists; accept JSON or a comma-separated argv.
 	if (env.PI_MAILBRIDGE_IMAP_TOKEN_CMD) set(["mail", "imap", "tokenCommand"], parseArgv(env.PI_MAILBRIDGE_IMAP_TOKEN_CMD))
@@ -214,7 +207,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 	// Every check below dereferences these sections, and loadConfig's contract is that it never
 	// throws. A JSON `null` is not a record, and the env merge runs after the file merge - so a
 	// null section can come back as a *partial* record (e.g. `{"daemon": null}` plus
-	// PI_MAILBRIDGE_EXIT_WHEN_IDLE leaves a daemon with no host and no port, which would bind an
+	// A daemon env var over a null section leaves a record with no host and no port, which would bind an
 	// ephemeral port and drop the single-instance guard). Repair by filling the defaults
 	// underneath whatever survived, rather than replacing it.
 	const sections = resolved as unknown as Record<string, unknown>

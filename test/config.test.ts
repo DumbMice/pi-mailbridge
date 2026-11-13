@@ -31,14 +31,6 @@ test("a non-numeric debounceMs falls back and warns", () => {
 	assert.ok(cfg.warnings.some((w) => w.includes("debounceMs")))
 })
 
-test("PI_MAILBRIDGE_EXIT_WHEN_IDLE=false keeps a supervised daemon resident", () => {
-	// A supervisor may use Restart=always, so a daemon that exits for idleness
-	// would restart forever. The override is what makes that unit correct.
-	assert.equal(loadConfig({ PI_MAILBRIDGE_EXIT_WHEN_IDLE: "false" }).daemon.exitWhenIdle, false)
-	assert.equal(loadConfig({ PI_MAILBRIDGE_EXIT_WHEN_IDLE: "0" }).daemon.exitWhenIdle, false)
-	assert.equal(loadConfig({ PI_MAILBRIDGE_EXIT_WHEN_IDLE: "true" }).daemon.exitWhenIdle, true)
-})
-
 test("a null section warns instead of throwing, as loadConfig promises", () => {
 	// `{"daemon": null}` is an ordinary "I meant the defaults" edit. It used to crash
 	// loadConfig, which takes down both the daemon and the pi extension at activation.
@@ -84,16 +76,15 @@ test("every section survives a null, not just the ones that were patched", () =>
 })
 
 test("a partial section from the env merge still gets its defaults", () => {
-	// `{"daemon": null}` plus PI_MAILBRIDGE_EXIT_WHEN_IDLE leaves a daemon record with no host
+	// `{"daemon": null}` plus a daemon env var leaves a daemon record with no host
 	// and no port, which would bind an ephemeral port and drop the "port is the lock" invariant.
 	const dir = mkdtempSync(join(tmpdir(), "cfg-null-env-"))
 	mkdirSync(join(dir, "pi-mailbridge"), { recursive: true })
 	writeFileSync(configPath({ XDG_CONFIG_HOME: dir }), JSON.stringify({ daemon: null }))
 
-	const config = loadConfig({ XDG_CONFIG_HOME: dir, PI_MAILBRIDGE_EXIT_WHEN_IDLE: "false" })
-	assert.equal(config.daemon.host, "127.0.0.1")
-	assert.equal(config.daemon.port, 4177)
-	assert.equal(config.daemon.exitWhenIdle, false, "the env value still wins")
+	const config = loadConfig({ XDG_CONFIG_HOME: dir, PI_MAILBRIDGE_PORT: "5000" })
+	assert.equal(config.daemon.host, "127.0.0.1", "defaults fill the hole")
+	assert.equal(config.daemon.port, 5000, "and the env value still wins")
 })
 
 test("scanIntervalSecs: null is refused, because Number(null) is 0", () => {

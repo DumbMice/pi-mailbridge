@@ -427,7 +427,7 @@ test("POST /shutdown acknowledges before exiting, and needs auth", async () => {
 
 // --- lifetime: exit when no session is left --------------------------------
 
-function idleRig(over: { exitWhenIdle?: () => boolean; idleTimeoutMs?: number } = {}) {
+function idleRig(over: { idleTimeoutMs?: number } = {}) {
 	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-idle-")) }
 	const state = { stops: 0 }
 	const service = createDaemonService({
@@ -439,7 +439,6 @@ function idleRig(over: { exitWhenIdle?: () => boolean; idleTimeoutMs?: number } 
 		shutdown: () => {
 			state.stops++
 		},
-		exitWhenIdle: over.exitWhenIdle ?? (() => true),
 		idleTimeoutMs: over.idleTimeoutMs ?? 300,
 	})
 	return { service, state }
@@ -485,22 +484,6 @@ test("a session saying goodbye lets the daemon stop early", async () => {
 		const afterBye = await (await post("/bye", { instanceId: "pi-2" })).json()
 		assert.equal((afterBye as { clients: number }).clients, 1, "the other session is still live")
 		assert.equal(state.stops, 0)
-	} finally {
-		await service.close()
-	}
-})
-
-test("exitWhenIdle false keeps a resident daemon resident", async () => {
-	const { service, state } = idleRig({ exitWhenIdle: () => false, idleTimeoutMs: 200 })
-	const { port } = await service.listen(0, "127.0.0.1")
-	try {
-		await fetch(`http://127.0.0.1:${port}/ping`, {
-			method: "POST",
-			headers: { ...auth(), "content-type": "application/json" },
-			body: JSON.stringify({ instanceId: "pi-1" }),
-		})
-		await new Promise((r) => setTimeout(r, 900))
-		assert.equal(state.stops, 0, "supervised mode ignores idleness")
 	} finally {
 		await service.close()
 	}

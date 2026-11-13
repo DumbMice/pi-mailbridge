@@ -42,27 +42,11 @@ pi install npm:pi-mailbridge
 | `/mailbridge setup` | writes the config, then starts (or reloads) the daemon and wires this session to it |
 | `/mailbridge smoke` / `restart` | reuse, reload or replace the running daemon |
 | `pi-mailbridge --setup` (headless) | writes the config and exits — **no daemon**; start it yourself, or let a session start it |
-| last pi session closes | the daemon exits after `daemon.idleTimeoutSecs` (120 s), unless `daemon.exitWhenIdle: false` |
-| your own supervisor (docker restart policy, launchd, runit…) | runs the daemon directly; set `exitWhenIdle: false` so it stays resident instead of exiting with the last pi session |
+| last pi session closes | the daemon exits after `daemon.idleTimeoutSecs` (120 s) — always; there is no "stay resident" switch |
 
-**Running the daemon under your own supervisor is optional, and it is not a way to watch mail while
-you are away.** The designed deployment is a daemon *owned by pi*: it starts with the first session,
-exits when the last one has been gone for `daemon.idleTimeoutSecs`, and reads nothing when nobody is
-there to receive it. Supervise it yourself only when the daemon's lifetime must not be tied to a
-single pi process:
-
-- pi cannot own a child process (a sandbox, or a container whose process tree is replaced), or
-- pi runs as a short-lived CLI many times, and reconnecting IMAP on every run is the cost you are
-  avoiding — one resident watcher serves them all.
-
-A session attaches to whatever already answers on the port — a daemon started by your supervisor, by
-hand, or by an earlier session is reused, never duplicated. With zero sessions a resident daemon
-still holds the connection and scans, but it cannot deliver anything: notifications are sent by a
-session and only a session can claim a reply.
-
-What changes under a supervisor is *who restarts it*: a supervised daemon (`exitWhenIdle: false`) is
-never shut down by a session, because the session cannot bring it back — so a protocol mismatch there
-asks you to restart it where it is managed.
+A session attaches to whatever already answers on the port — a daemon started by hand or by an
+earlier session is reused, never duplicated. Nothing keeps it resident: with no sessions it scans
+but cannot deliver, so a daemon that outlived pi would read a mailbox for nobody.
 
 After `pi update` the session notices a daemon on a different **protocol** — `/health` carries
 `apiVersion` — and replaces it (once a minute at most). A different package *version* on the same
@@ -256,7 +240,7 @@ about what runs automatically, not about what the model may then do.
 
 ### The headless entry point
 
-For a container, a supervisor you run yourself, or a first run on a remote box:
+For a container, a headless box, or a first run on a remote machine:
 
 | Flag | Effect |
 | --- | --- |
@@ -460,7 +444,6 @@ environment variables. A working example: [`config.example.json`](./config.examp
 | `security.allowSelfReplies` | `false` | one address for both roles: accept a self-addressed message, but only a real reply |
 | `security.tokenTtlHours` | `720` | lifetime of a route id, signed token and reply-chain entry |
 | `daemon.host` / `.port` | `127.0.0.1` / `4177` | loopback HTTP; a lock file in the state directory is the instance lock, and the port is a second guard |
-| `daemon.exitWhenIdle` | `true` | exit once no pi session pings; `false` for a supervised daemon |
 | `daemon.idleTimeoutSecs` | `120` | grace period after the last ping |
 | `daemon.scanIntervalSecs` | `60` | catch-up scan while mode is on, so a silent IDLE cannot strand a reply; `0` disables |
 | `notify.onSettled` | `true` | email when an agent settles |
@@ -534,8 +517,8 @@ on every scan; a single transient failure is retried.
 
 ## Environment overrides
 
-Config values can be overridden per-process — this is how a supervisor you run keeps the daemon
-resident without editing your config file:
+Config values can be overridden per-process, which is useful for a container or a shell that starts
+the daemon without editing your config file:
 
 | Variable | Sets |
 | --- | --- |
@@ -544,7 +527,6 @@ resident without editing your config file:
 | `PI_MAILBRIDGE_TO` | `mail.to` |
 | `PI_MAILBRIDGE_PORT` | `daemon.port` |
 | `PI_MAILBRIDGE_DEVICE` | `device.name` |
-| `PI_MAILBRIDGE_EXIT_WHEN_IDLE` | `daemon.exitWhenIdle` (`false` for a supervised daemon) |
 | `PI_MAILBRIDGE_IMAP_TOKEN_CMD`, `PI_MAILBRIDGE_SMTP_TOKEN_CMD` | `mail.imap.tokenCommand`, `mail.smtp.tokenCommand` (argv list; JSON or comma-separated) |
 
 ## Agent tools
@@ -562,7 +544,7 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 
 ```bash
 # 1. the daemon — stop it however you started it (pi exits it when the last session closes)
-#    If you supervise it yourself, stop that job first.
+#    If you started it yourself, stop that process first.
 
 # 2. the package — the reverse of however you installed it, e.g.
 #    pi remove npm:pi-mailbridge

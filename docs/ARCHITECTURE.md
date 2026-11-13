@@ -239,11 +239,6 @@ is usable, the extension probes `/health` and spawns the daemon detached when no
 `/mailbridge setup` does the same after writing the config, while headless `--setup` only writes
 the file. The daemon is not tied to the mode: `on`/`off` gate scanning and delivery, not existence.
 
-**A supervisor is respected.** `exitWhenIdle: false` in `/health` marks a daemon that something
-else owns (the shipped unit). A session will not shut such a daemon down for a protocol mismatch:
-it would exit 0, `Restart=on-failure` would leave it down, and the spawned replacement would not
-belong to the unit. It asks the operator to restart it where it is managed.
-
 **It stops when the last session does.** Every session pings `/ping` on its poll tick
 (10s) and sends `/bye` on `session_shutdown`. Once no ping has arrived for
 `daemon.idleTimeoutSecs` (default 120), the daemon exits. This is deliberate:
@@ -261,12 +256,9 @@ belong to the unit. It asks the operator to restart it where it is managed.
 Mail that arrives while it is down is not lost: the **catch-up scan** runs on the next
 start, from the stored UID cursor.
 
-Set `daemon.exitWhenIdle: false` only when the daemon's lifetime must outlive a pi process: pi
-cannot own a child (sandbox, replaced container tree), or pi is invoked as a short-lived CLI and
-you want one steady watcher instead of an IMAP reconnect per run. That is an escape hatch, not an
-always-on agent - with no sessions it scans but cannot deliver, which is why the idle rule exists in
-the first place. The rule is also disabled until the first client has ever pinged, so a supervised
-daemon never exits just because pi is closed at boot.
+There is deliberately no switch to keep it resident: with no sessions it scans but cannot deliver,
+so a daemon that outlived pi would read a mailbox for nobody. The idle rule is also disabled until
+the first client has ever pinged, so a daemon started before pi is never reaped mid-boot.
 
 ## 7. Failure modes
 

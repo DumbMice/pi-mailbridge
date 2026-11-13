@@ -130,8 +130,7 @@ function fakeDaemon(
 		daemonVersion?: string
 		/** Defaults to this build's protocol, so a test opts into a mismatch. */
 		apiVersion?: number
-		/** Whether the daemon may exit when idle; false means a supervisor owns it. */
-		idleExitEnabled?: boolean
+
 	} = {},
 ): FakeDaemon {
 	const sent: { to?: string; subject: string; text: string }[] = []
@@ -156,7 +155,6 @@ function fakeDaemon(
 				pending: pendingRecords.length,
 				...(over.daemonVersion === undefined ? {} : { version: over.daemonVersion }),
 				apiVersion: over.apiVersion ?? 1,
-				idleExitEnabled: over.idleExitEnabled ?? true,
 			}),
 		pending: async () => ok({ pending: pendingRecords }),
 		mode: async () => ok({ mode: currentMode }),
@@ -1127,41 +1125,3 @@ test("the replacement waits for the old listener to close before spawning", asyn
 	assert.ok(probes >= 2, "probed until it stopped answering")
 })
 
-test("a supervised daemon is asked to restart, not shut down", async () => {
-	// A supervisor owns it: /shutdown would exit 0, the supervisor's restart policy would not
-	// necessarily bring it back, and the daemon we would spawn inherits pi's env where
-	// exitWhenIdle is true. Ask the operator to restart it there, once.
-	const t = fakeTimers()
-	const notes: string[] = []
-	const daemon = fakeDaemon({ mode: "on", apiVersion: 0, idleExitEnabled: false })
-	const pi = fakePi(ctx(notes))
-	mailbridge(pi, {
-		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
-		loadConfig: config,
-		secret: () => SECRET,
-		makeClient: () => daemon.client,
-		ensureDaemon: async () => true,
-		probeHealth: async () => false,
-		versionCheckMs: 0,
-		timers: t.timers,
-		pollMs: 60_000,
-	})
-	await pi.fire("session_start")
-	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
-
-	t.queue.shift()?.handler()
-	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
-	t.queue.shift()?.handler()
-	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
-
-	assert.equal(daemon.shutdowns, 0, "never shut down a supervised daemon")
-	assert.ok(
-		notes.some((n) => /restart it the way you started it/.test(n)),
-		`notes: ${JSON.stringify(notes)}`,
-	)
-	assert.equal(
-		notes.filter((n) => /supervised and speaks protocol/.test(n)).length,
-		1,
-		"said once, not every tick",
-	)
-})

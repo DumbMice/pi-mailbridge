@@ -2,6 +2,15 @@
 
 ## 0.1.0 — unreleased
 
+### The daemon always exits when idle; no residency switch
+
+`daemon.exitWhenIdle` is gone, along with `PI_MAILBRIDGE_EXIT_WHEN_IDLE` and the `/health`
+field that reported it. The design has one rule: the daemon is pi's child, it serves sessions,
+and it stops when the last one has been quiet for `daemon.idleTimeoutSecs`. A "stay resident"
+option only ever existed to work around systemd, and it invited the reading that a sessionless
+daemon is useful - it is not: it scans but cannot deliver. The idle rule is still suspended until
+the first client has ever pinged, so a daemon started before pi is never reaped mid-boot.
+
 ### The systemd unit is gone
 
 It was never required, and framing it as a way to keep watching mail when nobody was at pi
@@ -9,8 +18,8 @@ contradicted the design: no session means no consumer, so a sessionless daemon s
 Removed with it: the unit, its documentation, the `PI_MAILBRIDGE_DIR` variable it introduced, and
 every "three things the unit cannot guess" instruction. If you want the daemon's lifetime to
 outlive a pi process (an environment where pi cannot own a child, or short-lived CLI runs), run it
-under whatever supervisor you already have and set `daemon.exitWhenIdle: false`; a session will then
-leave it alone instead of replacing it.
+the daemon is pi's child and exits with the last session; there is no supported way to keep it
+running on its own.
 
 Feature-complete for the single-user, one-mailbox case. Exercised end to end against a live QQ
 mailbox in both layouts (two addresses, and one address for both roles); personal Outlook was
@@ -139,9 +148,8 @@ it can only be re-opened from the terminal. Nothing was published, so there is n
 Replacing a supervised daemon was a trap: `/shutdown` exits 0, `Restart=on-failure` does not
 bring it back, and the daemon a session spawns instead inherits that session's environment, where
 `exitWhenIdle` is true - so the mailbox stopped being watched as soon as pi closed, while the unit
-read `inactive`. A session now leaves a supervised daemon (`idleExitEnabled: false` on `/health`)
-alone and says to restart it where it is managed, once. A supervisor remains optional:
-the daemon can also be run by hand, by a container entrypoint, or by pi.
+read `inactive`. This is what motivated removing supervised operation entirely: the daemon is pi's
+child.
 
 ### The extension spawns the build, and a replacement checks what it got
 
@@ -350,7 +358,7 @@ changes because nothing could replace a running process. Stopping also means no 
 means no watcher - nothing fetches and parses every incoming message for a session that
 cannot claim it. Mail that arrives meanwhile is covered by the catch-up scan.
 
-`daemon.exitWhenIdle: false` keeps it resident for a supervisor; the idle rule is
+the idle rule is
 disabled until the first client has ever pinged, so an externally started daemon never
 exits merely because pi is closed.
 
@@ -386,7 +394,7 @@ exited, the session polled a dead port until a manual reload.
   `dist/` already on disk; nothing is built at runtime — `prepublishOnly` builds once and
   `pi install` receives that.)
 - `session_start` and the recovery path share one `startRuntime()`, so they cannot drift.
-- `/health` now reports `clients`, `lastPingAgoMs` and `idleExitEnabled`, which is what
+- `/health` now reports `clients` and `lastPingAgoMs`, which is what
   made this diagnosable: `clients: 0` with a live session proves the poll is not running.
 
 ### All notifications for a session thread into one conversation

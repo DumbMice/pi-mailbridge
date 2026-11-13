@@ -7,7 +7,7 @@
 // Detached, with output appended to daemon.log (not stdio:ignore: a silent daemon made the
 // catch-up failures invisible). The daemon owns the mailbox and must outlive the
 // process that started it so another session (or the phone) can still be served. It is not
-// immortal: it exits once every session has stopped pinging - see `daemon.exitWhenIdle`.
+// immortal: it exits once every session has stopped pinging.
 
 import { spawn as nodeSpawn, type SpawnOptions } from "node:child_process"
 import { chmodSync, closeSync, mkdirSync, openSync, renameSync, statSync } from "node:fs"
@@ -256,8 +256,6 @@ export function createDaemonClient(options: DaemonClientOptions) {
 				apiVersion?: number
 				/** Additive features inside that contract. */
 				capabilities?: string[]
-				/** False when a supervisor owns the daemon (it must not be shut down by us). */
-				idleExitEnabled?: boolean
 				/** "connected" | "disconnected" | "unknown" */
 				imap?: string
 			}>("GET", "/health"),
