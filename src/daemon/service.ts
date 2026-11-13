@@ -154,17 +154,18 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 	/** live SSE response objects */
 	const streams = new Set<http.ServerResponse>()
 
-	// Liveness of pi sessions. A session pings on its poll tick; when every session has gone
-	// quiet the daemon stops - always, and by design: an updated package cannot leave an orphan
-	// running old code, and nothing reads a mailbox no session will consume. Before the first
-	// ping it is not reaped, so a boot-time start is never mistaken for an idle one.
+	// Liveness of pi sessions. A session pings on its poll tick; when every session has gone quiet
+	// the daemon stops - always, and by design: an updated package cannot leave an orphan running
+	// old code, and nothing reads a mailbox no session will consume. A daemon nobody ever pings
+	// (started by hand, and pi never attached) stops on the same clock.
 	const pings = new Map<string, number>()
-	let sawClient = false
+	// Idleness is measured from the daemon's own start when nobody has pinged yet, so a fresh
+	// daemon gets the full grace period rather than looking infinitely stale.
+	const startedAt = Date.now()
 	const idleTimeout = deps.idleTimeoutMs ?? 120_000
 
 	const idleCheck = setInterval(() => {
-		if (!sawClient) return
-		const newest = Math.max(0, ...pings.values())
+		const newest = Math.max(startedAt, ...pings.values())
 		if (Date.now() - newest <= idleTimeout) return
 		deps.shutdown?.()
 	}, Math.min(15_000, Math.max(1_000, Math.floor(idleTimeout / 4))))
@@ -334,7 +335,6 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 						if (oldest === undefined) break
 						pings.delete(oldest)
 					}
-					sawClient = true
 					return send(200, { ok: true, clients: pings.size })
 				}
 

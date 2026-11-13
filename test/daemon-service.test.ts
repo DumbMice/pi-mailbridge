@@ -444,12 +444,15 @@ function idleRig(over: { idleTimeoutMs?: number } = {}) {
 	return { service, state }
 }
 
-test("a daemon that no session has ever pinged keeps running", async () => {
+test("a daemon nobody ever pings still exits on the idle clock", async () => {
+	// "Always exit" includes the case a supervisor used to serve: started by hand, pi never
+	// attaches. It scans but cannot deliver, so it must not linger.
 	const { service, state } = idleRig({ idleTimeoutMs: 200 })
-	const { port } = await service.listen(0, "127.0.0.1")
+	await service.listen(0, "127.0.0.1")
 	try {
-		await new Promise((r) => setTimeout(r, 900))
-		assert.equal(state.stops, 0, "an externally started daemon must not exit just because pi is absent")
+		// The check itself runs at most once a second (the timeout is clamped to >= 1 s).
+		await new Promise((r) => setTimeout(r, 1_500))
+		assert.equal(state.stops, 1, "no ping for longer than the timeout means exit")
 	} finally {
 		await service.close()
 	}
