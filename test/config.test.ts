@@ -174,3 +174,13 @@ test("an idle timeout below the ping period is refused, because it would flap", 
 	writeFileSync(configPath(env), JSON.stringify({ daemon: { idleTimeoutSecs: 30 } }))
 	assert.equal(loadConfig(env).daemon.idleTimeoutSecs, 30, "30 s is allowed")
 })
+
+test("a hand-edited mail.to that is not an address is reported", () => {
+	// setup validates it, but a typo in config.json is otherwise silent until something tries to
+	// send - and then only in the daemon's log.
+	const dir = mkdtempSync(join(tmpdir(), "cfg-to-"))
+	const env = { XDG_CONFIG_HOME: dir }
+	mkdirSync(join(dir, "pi-mailbridge"), { recursive: true })
+	writeFileSync(configPath(env), JSON.stringify({ mail: { to: "you-at-example.com" } }))
+	assert.ok(loadConfig(env).warnings.some((w) => /mail\.to does not look like/.test(w)))
+})

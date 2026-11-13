@@ -320,6 +320,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 	const imap = resolved.mail.imap
 	if (!imap.host || !imap.user) warnings.push("mail.imap.host and mail.imap.user are required")
 	if (!resolved.mail.to) warnings.push("mail.to is required")
+	// Setup validates this now; a hand-edited config still can be a typo, and every notification
+	// would go nowhere while the daemon reported itself healthy.
+	else if (!String(resolved.mail.to).includes("@")) {
+		warnings.push("mail.to does not look like an email address — notifications cannot be delivered")
+	}
 	if (resolved.security.allowFrom.length === 0) {
 		warnings.push("security.allowFrom is empty — every sender will be rejected (fail closed)")
 	}
