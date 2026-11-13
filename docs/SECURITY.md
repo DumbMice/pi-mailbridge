@@ -98,9 +98,9 @@ A legitimate email can still contain text that reads like instructions
 - Defaults to binding `127.0.0.1`; `daemon.host` can change that, but there is no TLS and
   no user model beyond the bearer token, so do not. Nothing else about the daemon is
   reachable without the token, apart from the `/health` liveness probe. That returns mode,
-  pending/clients counts, the decision-registry size, ping timing, whether idle-exit is armed,
-  the number of SSE subscribers, the last scan's
-  reason *counts*, and the config file's mtime and whether IMAP is connected — no mail content, no addresses, no subjects.
+  pending/clients counts, the decision-registry size, ping timing, the number of SSE subscribers,
+  the last scan's reason *counts*, the build and protocol versions, and the config file's mtime and
+  whether IMAP is connected — no mail content, no addresses, no subjects.
 - Bearer token from `secret.key`, mode `0600`, created first-writer-wins,
   compared in constant time.
 - Body cap 1 MB; registry cap 10 000; SSE client cap 100.
@@ -171,8 +171,8 @@ daemon down. Treat `secret.key` as equivalent to the mailbox password.
   **DMARC is off in this shape by default**, because a provider may deliver a message from
   your address to the same address with no `Authentication-Results` header at all (QQ does),
   which would reject every reply. `/mailbridge setup` writes it that way; setting it back on is
-  reported by `/mailbridge check` and by `--check`, which exits non-zero — under the shipped
-  unit that stops it at `ExecStartPre`. Prefer a dedicated mailbox.
+  reported by `/mailbridge check` and by `--check`, which exits non-zero — gate a supervisor or CI
+  on that. Prefer a dedicated mailbox.
 - **Multiple machines, one mailbox.** Each daemon only claims replies whose route id, token
   or chain entry names its own device, so they cannot steal each other's work. They share
   the allowlist (one config each), but **each machine has its own `secret.key`** — it is a

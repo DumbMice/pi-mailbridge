@@ -650,8 +650,8 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		},
 		// Lets `/mailbridge restart` replace the process, not just its config, so an
 		// updated package actually takes effect.
-		shutdown: () => {
-			void shutdown("shutdown requested")
+		shutdown: (reason?: string) => {
+			void shutdown(reason ?? "shutdown requested")
 		},
 		// Always carry the freshness stamp: on a quiet mailbox `lastScan` is absent, and the
 		// panel then said "(none yet)" while the daemon was happily polling.

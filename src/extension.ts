@@ -205,8 +205,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			try {
 				// Heartbeat: the daemon exits when every session stops pinging, so a quiet
 				// daemon is a stopping daemon.
-				const ping = await client?.ping(instanceId)
-				if (ping && !ping.ok) {
+				const ping = client ? await client.ping(instanceId) : undefined
+				if (!client || (ping && !ping.ok)) {
 					// The daemon exited for idleness (or crashed). Nothing else would bring it
 					// back for this session, so the poll becomes the supervisor.
 					const now = Date.now()
@@ -537,11 +537,15 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		notifier?.settled({ aborted: event["aborted"] === true })
 	})
 
-	pi.on("session_shutdown", () => {
+	pi.on("session_shutdown", async () => {
+		// A settle inside the debounce window is a notification the user asked for; dropping it
+		// because pi is closing makes a one-shot run (`pi -p`) mail nothing at all. The daemon
+		// outlives us for the idle timeout, so the send can still land.
+		await notifier?.flush().catch(() => undefined)
+		notifier?.cancel()
 		// Release our liveness slot so an idle daemon can exit promptly rather than
 		// waiting out the grace period.
 		void client?.bye(instanceId)
-		notifier?.cancel()
 		stopPolling()
 		client = undefined
 		runner = undefined
@@ -868,8 +872,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					const ensure = deps.ensureDaemon ?? ((base: string, script: string) => ensureDaemon({ baseUrl: base, scriptPath: script, env }).then((r) => r.healthy))
 					if (client) {
 						await client.shutdown()
-						// Give the process a moment to release the port before respawning.
-						await new Promise((resolve) => setTimeout(resolve, 400))
+						// `/shutdown` answers before it closes the listener, so a fixed sleep can
+						// probe the dying process and "reuse" it - reporting a restart that never
+						// happened. Wait until the port stops answering, bounded.
+						const base = clientBase ?? currentBaseUrl()
+						const deadline = Date.now() + 5_000
+						while (Date.now() < deadline && (await probe({ baseUrl: base }))) {
+							await new Promise((resolve) => setTimeout(resolve, 100))
+						}
 					}
 					const healthy = await ensure(currentBaseUrl(), daemonScript())
 					if (healthy && !client) {

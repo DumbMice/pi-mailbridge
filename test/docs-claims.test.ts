@@ -566,7 +566,7 @@ test("SECURITY's /health list matches ARCHITECTURE's", () => {
 			["pending", /pending/],
 			["client", /client/],
 			["ping", /ping/],
-			["idle", /idle/],
+			["version", /version/],
 			["scan", /scan/],
 			// The field is named configLoadedAt in code and "mtime" in prose; both are right.
 			["mtime", /configloadedat|mtime/],
@@ -577,7 +577,9 @@ test("SECURITY's /health list matches ARCHITECTURE's", () => {
 	const architecture = fields(doc("docs/ARCHITECTURE.md"))
 	const security = fields(doc("docs/SECURITY.md"))
 	// SECURITY need not repeat every field, but it must not be missing a whole category.
-	const important = ["mode", "pending", "ping", "idle", "scan", "mtime"]
+	// "idle" used to be required because /health reported whether idle-exit was armed; that field
+	// is gone (the daemon always exits), so the check pins the protocol/build fields instead.
+	const important = ["mode", "pending", "ping", "version", "scan", "mtime"]
 	for (const field of important) {
 		assert.ok(architecture.includes(field), `ARCHITECTURE's /health row omits ${field}`)
 		assert.ok(security.includes(field), `SECURITY's /health list omits ${field}`)

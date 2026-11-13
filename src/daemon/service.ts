@@ -79,7 +79,7 @@ export interface DaemonDeps {
 	 * `/reload` re-reads config but cannot replace running code, so an updated
 	 * package would otherwise keep executing the previous version until reboot.
 	 */
-	shutdown?: () => void
+	shutdown?: (reason?: string) => void
 	/**
 	 * Called after a mode change. Turning mode on must trigger a scan: the only other
 	 * triggers are an IMAP `exists` (a NEW arrival) and reconnect, so without this a reply
@@ -167,7 +167,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 	const idleCheck = setInterval(() => {
 		const newest = Math.max(startedAt, ...pings.values())
 		if (Date.now() - newest <= idleTimeout) return
-		deps.shutdown?.()
+		deps.shutdown?.(`idle: no ping for ${Math.round(idleTimeout / 1000)}s`)
 	}, Math.min(15_000, Math.max(1_000, Math.floor(idleTimeout / 4))))
 	// Never hold the process open just for this timer.
 	if (typeof idleCheck.unref === "function") idleCheck.unref()

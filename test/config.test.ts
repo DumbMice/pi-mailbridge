@@ -157,3 +157,20 @@ test("an idle timeout that would kill the daemon, and a TTL that would never exp
 		assert.ok(config.warnings.some((w) => /tokenTtlHours/.test(w)))
 	}
 })
+
+test("an idle timeout below the ping period is refused, because it would flap", () => {
+	// A timeout shorter than the session's poll interval reaps the daemon between pings: it
+	// serves ~6 s, dies, respawns at most once a minute, and says nothing. 30 s is 3x the poll.
+	const dir = mkdtempSync(join(tmpdir(), "cfg-idle-"))
+	const env = { XDG_CONFIG_HOME: dir }
+	mkdirSync(join(dir, "pi-mailbridge"), { recursive: true })
+
+	for (const short of [5, 9, 10, 29]) {
+		writeFileSync(configPath(env), JSON.stringify({ daemon: { idleTimeoutSecs: short } }))
+		const config = loadConfig(env)
+		assert.equal(config.daemon.idleTimeoutSecs, 120, `idleTimeoutSecs: ${short} would flap`)
+		assert.ok(config.warnings.some((w) => /idleTimeoutSecs/.test(w)))
+	}
+	writeFileSync(configPath(env), JSON.stringify({ daemon: { idleTimeoutSecs: 30 } }))
+	assert.equal(loadConfig(env).daemon.idleTimeoutSecs, 30, "30 s is allowed")
+})

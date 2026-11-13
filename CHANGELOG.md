@@ -4,22 +4,28 @@
 
 ### The daemon always exits when idle; no residency switch
 
+(0.1.0 is unreleased, so removing a `/health` field does not bump `API_VERSION`: no client ever
+saw protocol 1 with it. A released protocol would have needed the bump, per AGENTS.md.)
+
 `daemon.exitWhenIdle` is gone, along with `PI_MAILBRIDGE_EXIT_WHEN_IDLE` and the `/health`
 field that reported it. The design has one rule: the daemon is pi's child, it serves sessions,
 and it stops when the last one has been quiet for `daemon.idleTimeoutSecs`. A "stay resident"
 option only ever existed to work around systemd, and it invited the reading that a sessionless
-daemon is useful - it is not: it scans but cannot deliver. The idle rule is still suspended until
-the first client has ever pinged, so a daemon started before pi is never reaped mid-boot.
+daemon is useful - it is not: it scans but cannot deliver.
+
+Idleness is measured from the daemon's own start until a session pings, then from the last ping.
+So a hand-started daemon with no pi attached now exits one `daemon.idleTimeoutSecs` after it
+starts; there is no supported way to keep it running on its own. The timeout's floor is 30 s
+(three poll intervals), because a shorter one reaps the daemon between pings.
 
 ### The systemd unit is gone
 
 It was never required, and framing it as a way to keep watching mail when nobody was at pi
 contradicted the design: no session means no consumer, so a sessionless daemon scans for nobody.
 Removed with it: the unit, its documentation, the `PI_MAILBRIDGE_DIR` variable it introduced, and
-every "three things the unit cannot guess" instruction. If you want the daemon's lifetime to
-outlive a pi process (an environment where pi cannot own a child, or short-lived CLI runs), run it
-the daemon is pi's child and exits with the last session; there is no supported way to keep it
-running on its own.
+every "three things the unit cannot guess" instruction. If your environment cannot let pi own a
+child (a sandbox, or a container whose process tree is replaced), there is now no supported way to
+keep a daemon resident: it is pi's child and exits with the last session.
 
 Feature-complete for the single-user, one-mailbox case. Exercised end to end against a live QQ
 mailbox in both layouts (two addresses, and one address for both roles); personal Outlook was
@@ -143,13 +149,12 @@ nothing — and neither name appeared in `/mailbridge help`. They are subcommand
 work as a mail reply, except `/mailbridge on`: with the mode off nothing is scanned or drained, so
 it can only be re-opened from the terminal. Nothing was published, so there is no alias to carry.
 
-### A supervised daemon is restarted by its supervisor, not by a session
+### A session settles before it lets go
 
-Replacing a supervised daemon was a trap: `/shutdown` exits 0, `Restart=on-failure` does not
-bring it back, and the daemon a session spawns instead inherits that session's environment, where
-`exitWhenIdle` is true - so the mailbox stopped being watched as soon as pi closed, while the unit
-read `inactive`. This is what motivated removing supervised operation entirely: the daemon is pi's
-child.
+Quitting pi inside `notify.debounceMs` of a settle used to drop the notification: the shutdown
+handler cancelled the debounce and the `flush()` path had no caller. A one-shot run therefore
+mailed nothing at all. Shutdown now flushes a pending settle before dropping the notifier; the
+daemon outlives the session for the idle timeout, so the send can still land.
 
 ### The extension spawns the build, and a replacement checks what it got
 

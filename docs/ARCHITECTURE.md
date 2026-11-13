@@ -70,7 +70,7 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/health` | liveness probe; **unauthenticated** by design (mode, pending/client counts, the decision-registry size, emitted as both `sessions` and `registry` — sessions *with an outstanding decision*, not live sessions; live ones are `clients` — ping timing, idle-exit armed, SSE subscribers, the last scan's summary, `configLoadedAt`; no content, no addresses) |
+| GET | `/health` | liveness probe; **unauthenticated** by design (mode, pending count, the decision-registry size, emitted as both `sessions` and `registry` — sessions *with an outstanding decision*, not live sessions; live ones are `clients` — ping timing, SSE subscribers, the last scan's summary, `configLoadedAt`, `version`, `apiVersion` and `capabilities`; no content, no addresses) |
 | GET | `/events` | SSE: `delivery`, `mode` (no client uses it; sessions poll) |
 | GET | `/pending` | the delivery channel: polled every 10 s, and replayed on reconnect |
 | POST | `/claim` | `{uid, instanceId, uidValidity?}` — atomic claim; refused as `stale-space` when the record belongs to another UID space |
@@ -84,9 +84,8 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 | POST | `/reload` | re-read config: stop the watcher, reload, redial. On failure it restores the previous config and warns; a refused connect returns `ok` with a warning |
 | POST | `/shutdown` | stop the daemon (used by the restart path) |
 
-Bounds: body ≤ 1 MB, registry ≤ 10 000 entries, SSE clients ≤ 100. A second
-daemon start fails with `EADDRINUSE` and exits quietly — that *is* the
-single-instance lock.
+Bounds: body ≤ 1 MB, registry ≤ 10 000 entries, SSE clients ≤ 100. A second daemon start exits 0
+on `daemon.lock` (and, as a second guard, on `EADDRINUSE`) — quiet by design.
 
 ## 4. Routing token
 
@@ -213,8 +212,7 @@ process topology (an RPC supervisor owning `pi --mode rpc` children).
 ## 6a. Lifetime: singleton, and it stops when you do
 
 **Who starts it.** Whichever comes first: the extension on `session_start`; `/mailbridge
-setup` or `/mailbridge restart` when the session has no runtime yet; a supervisor (the
-supervisor); or the poll tick, which respawns a daemon that exited while the session was
+setup` or `/mailbridge restart` when the session has no runtime yet; or the poll tick, which respawns a daemon that exited while the session was
 still alive. It is spawned *detached* so it outlives the process that started it and can
 serve other sessions. When a session finds one already running, it compares `/health`'s
 `configLoadedAt` with `config.json`'s mtime and issues `/reload` if the file is newer, so a
@@ -257,8 +255,9 @@ Mail that arrives while it is down is not lost: the **catch-up scan** runs on th
 start, from the stored UID cursor.
 
 There is deliberately no switch to keep it resident: with no sessions it scans but cannot deliver,
-so a daemon that outlived pi would read a mailbox for nobody. The idle rule is also disabled until
-the first client has ever pinged, so a daemon started before pi is never reaped mid-boot.
+so a daemon that outlived pi would read a mailbox for nobody. Idleness is measured from the
+daemon's own start until a session pings, so a hand-started daemon gets one full grace period and
+then exits - it is not exempt.
 
 ## 7. Failure modes
 

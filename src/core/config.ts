@@ -189,7 +189,6 @@ function envOverrides(env: NodeJS.ProcessEnv): Record<string, unknown> {
 	set(["mail", "smtp", "password"], env.PI_MAILBRIDGE_SMTP_PASS)
 	set(["mail", "to"], env.PI_MAILBRIDGE_TO)
 	set(["daemon", "port"], env.PI_MAILBRIDGE_PORT)
-	// but a clean exit would still end the service.
 	set(["device", "name"], env.PI_MAILBRIDGE_DEVICE)
 	// Token commands are argv lists; accept JSON or a comma-separated argv.
 	if (env.PI_MAILBRIDGE_IMAP_TOKEN_CMD) set(["mail", "imap", "tokenCommand"], parseArgv(env.PI_MAILBRIDGE_IMAP_TOKEN_CMD))
@@ -285,11 +284,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 	}
 
 	// A zero or NaN idle timeout makes the daemon exit ~1 s after the first ping, which looks
-	// like a crash-loop; a NaN token TTL makes a route never expire. Both fail closed.
+	// like a crash-loop; a NaN token TTL makes a route never expire. Both fail closed. The floor
+	// is 3x the session poll interval: a timeout shorter than the ping period reaps the daemon
+	// between ticks, so it would flap instead of serving.
 	const rawIdle: unknown = resolved.daemon.idleTimeoutSecs
 	const idle = typeof rawIdle === "number" ? rawIdle : Number.NaN
-	if (!Number.isFinite(idle) || idle < 5) {
-		if (rawIdle !== undefined) warnings.push("daemon.idleTimeoutSecs must be a number of at least 5 — using 120")
+	if (!Number.isFinite(idle) || idle < 30) {
+		if (rawIdle !== undefined) {
+			warnings.push("daemon.idleTimeoutSecs must be at least 30 (three poll intervals) — using 120")
+		}
 		resolved.daemon = { ...resolved.daemon, idleTimeoutSecs: 120 }
 	}
 

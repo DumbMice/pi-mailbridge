@@ -193,7 +193,7 @@ someone forging your address.** With it off, a spoofed `From` passes the allowli
 a stranger out is **routing** — they would need a live `[pi:…]` route id they had read from one of
 your notifications. If your provider does stamp `Authentication-Results` on self-mail you can set
 it back to `true`, but `/mailbridge check` and `--check` then report the combination and exit
-non-zero, and the shipped unit stops at `ExecStartPre`.
+non-zero, and `--check` exits non-zero, which is what a CI or a process manager should gate on.
 
 Once configured, prove it without pi:
 

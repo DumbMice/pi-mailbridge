@@ -1125,3 +1125,42 @@ test("the replacement waits for the old listener to close before spawning", asyn
 	assert.ok(probes >= 2, "probed until it stopped answering")
 })
 
+
+test("a failed replacement leaves a session that can still recover", async () => {
+	// The replacement clears the client before respawning. If the respawn fails, every later
+	// recovery path used to need a client - and the poll only respawned on a failed ping - so
+	// "retrying" was a lie: no daemon and no further attempt for the rest of the session.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on", apiVersion: 0 })
+	const pi = fakePi(ctx(notes))
+	let ensures = 0
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => {
+			ensures += 1
+			return ensures === 1 // the first start works, the replacement's respawn does not
+		},
+		probeHealth: async () => false,
+		versionCheckMs: 0,
+		timers: t.timers,
+		pollMs: 10_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
+
+	// Replacement tick: shuts the old daemon down, fails to respawn.
+	t.queue.find((q) => q.ms === 10_000)?.handler()
+	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
+	assert.ok(notes.some((n) => /did not come back/.test(n)), `notes: ${JSON.stringify(notes)}`)
+	const afterFailure = ensures
+
+	// The next tick must try again even though there is no client left.
+	const next = t.queue.find((q) => q.ms !== 10_000 || true)
+	next?.handler()
+	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
+	assert.ok(ensures > afterFailure, "a session with no client still tries to get one")
+})
