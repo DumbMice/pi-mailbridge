@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-11-13
 
 ### A crash, a vanished reply, and a corrupt queue
 
