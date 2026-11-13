@@ -124,6 +124,14 @@ nothing — and neither name appeared in `/mailbridge help`. They are subcommand
 work as a mail reply, except `/mailbridge on`: with the mode off nothing is scanned or drained, so
 it can only be re-opened from the terminal. Nothing was published, so there is no alias to carry.
 
+### A session replaces a daemon left over from the previous build
+
+`pi update` reloads the extension while the daemon keeps executing what it started with; it mints
+and resolves routing ids from the old code, so replies after an upgrade could be rejected with the
+cursor already past them. `/health` now carries the daemon's package version, and a session
+compares it against its own once a minute: a different build (or a daemon from before the field
+existed) is shut down and respawned. If this build cannot identify itself, nothing is killed.
+
 ### The package ships a build, because Node cannot strip types inside node_modules
 
 `pi install npm:pi-mailbridge` was broken in a way no local test could see: the extension loads

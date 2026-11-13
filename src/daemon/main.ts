@@ -55,6 +55,7 @@ import { runSetup } from "../core/setup.ts"
 import { listPending } from "../store/pending-store.ts"
 import { advanceCursor, isPrimed, markPrimed, readCursor } from "../store/uid-cursor.ts"
 import { alreadyPrimedMessage, runPrime } from "../core/prime.ts"
+import { packageVersion } from "../core/version.ts"
 import { recordOutbound } from "../store/threads.ts"
 import { tokenFromSubject } from "../core/token.ts"
 
@@ -656,6 +657,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		// Always carry the freshness stamp: on a quiet mailbox `lastScan` is absent, and the
 		// panel then said "(none yet)" while the daemon was happily polling.
 		scanSummary: () => ({ ...(lastScan ?? {}), ...(lastCheckedAt ? { checkedAt: lastCheckedAt } : {}) }),
+		version: packageVersion(import.meta.url),
 		// The file's mtime, not a clock reading: comparing mtime to mtime has no clock coupling.
 		configLoadedAt: () => configLoadedAt,
 		imapHealthy: () => currentWatcher?.isHealthy() ?? false,

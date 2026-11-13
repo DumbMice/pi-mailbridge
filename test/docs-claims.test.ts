@@ -994,3 +994,15 @@ test("the lifecycle says install starts nothing and a session starts the daemon"
 	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
 	assert.match(extension, /pi\.on\("session_start"[\s\S]{0,1200}ensureDaemonSafe\(\)/, "session_start spawns")
 })
+
+test("the docs say a session replaces a daemon from an older build", () => {
+	// Without this, `pi update` leaves a daemon minting ids the new extension cannot resolve.
+	for (const file of ["README.md", "docs/ARCHITECTURE.md", "CHANGELOG.md"]) {
+		assert.match(doc(file), /version/i, `${file} should mention the version check`)
+	}
+	const readme = flat(doc("README.md"))
+	assert.match(readme, /replaces? (?:it|the daemon)|replaced/i, "README states the replacement")
+	const source = readFileSync(join(root, "src/extension.ts"), "utf8")
+	assert.match(source, /replaceOutdatedDaemon/, "and the code does it")
+	assert.match(source, /VERSION_CHECK_MS/, "throttled, so a failing respawn cannot loop")
+})

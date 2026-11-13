@@ -239,7 +239,9 @@ the file. The daemon is not tied to the mode: `on`/`off` gate scanning and deliv
 
 - an updated package cannot leave an orphaned process running old code - the exact trap
   that cost an evening, where a daemon started at 15:09 kept serving after several code
-  changes because nothing could replace it;
+  changes because nothing could replace it. Idle exit alone is not enough while a session is
+  open, so `/health` reports the daemon's version and a session replaces a daemon from another
+  build (throttled to once a minute);
 - no session means no consumer: settle notifications are sent *by* a session, and no
   session can claim a pending reply;
 - a daemon with no sessions still fetches and parses every incoming message looking for
@@ -289,6 +291,7 @@ src/
     reply-parse.ts      quote stripping, address + AR-header pinning
     settle.ts           idle debounce, turn-settled notification
     status.ts           scan summary → the lines /mailbridge status prints
+    version.ts          this build's version, and when a daemon must be replaced
     sent-index.ts       record the Message-ID the provider actually delivered
     setup.ts            first-run scaffolding
     smoke.ts            end-to-end send-and-read-back check

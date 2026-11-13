@@ -102,6 +102,8 @@ export interface DaemonDeps {
 	configLoadedAt?: () => number
 	/** Is the IMAP watcher connected? A revoked credential shows here, not in the process. */
 	imapHealthy?: () => boolean
+	/** This build's version, so a session can replace a daemon left over from before an update. */
+	version?: string
 	/** How long after the last ping to exit. Default 120s. */
 	idleTimeoutMs?: number
 	env?: NodeJS.ProcessEnv
@@ -222,6 +224,9 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				lastPingAgoMs: newestPing ? Math.max(0, now() - newestPing) : null,
 				idleExitEnabled: deps.exitWhenIdle ? deps.exitWhenIdle() : false,
 				lastScan: deps.scanSummary?.() ?? null,
+				// A session compares this with its own build; a daemon serving old code cannot
+				// resolve routing ids the new extension mints.
+				version: deps.version,
 				configLoadedAt: deps.configLoadedAt?.() ?? null,
 				imap: deps.imapHealthy ? (deps.imapHealthy() ? "connected" : "disconnected") : "unknown",
 			})

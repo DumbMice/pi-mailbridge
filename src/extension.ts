@@ -19,6 +19,7 @@ import { createSettleNotifier, type SettleContext, type SettleNotifier } from ".
 import { createDeliveryRunner, type DeliveryRunner } from "./core/deliveries.ts"
 import { toUserContent, type UserContent } from "./core/attachments.ts"
 import { parseMailCommand } from "./core/mail-command.ts"
+import { needsRestart, packageVersion } from "./core/version.ts"
 import { daemonBaseUrl, ensureDaemon, createDaemonClient, type DaemonClient } from "./daemon/spawn.ts"
 import { parseMailbridgeCommand, USAGE } from "./core/commands.ts"
 import { runSetup } from "./core/setup.ts"
@@ -34,6 +35,8 @@ import { fileURLToPath } from "node:url"
 const POLL_MS = 10_000
 /** How often the poll may try to start a dead daemon. */
 const RESPAWN_BACKOFF_MS = 60_000
+/** How often to ask a healthy daemon which build it is. */
+const VERSION_CHECK_MS = 60_000
 
 /** The slice of the pi runtime this extension uses. */
 export interface ExtensionLike {
@@ -116,6 +119,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	const instanceId = `pi-${process.pid}`
 	/** Throttle for respawning a daemon that exited for idleness. */
 	let lastRespawnAttempt = 0
+	/** Throttles the post-update daemon replacement; a failed respawn must not loop. */
+	let lastVersionCheck = 0
 
 	// Computed per use, not once: `config` is replaced whenever a /mailbridge command
 	// reloads it, and a frozen URL means editing daemon.port leaves every probe (including
@@ -208,6 +213,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// Fall through to the reschedule below: returning here is what stopped the
 					// poll loop permanently after a single failed ping.
 				} else {
+					// After `pi update` the daemon can still be running the previous build: it
+					// mints nothing and resolves nothing, so every reply after the upgrade would
+					// be rejected with the cursor already past it. Replace it once the build
+					// differs, throttled so a failing respawn cannot loop.
+					if (await replaceOutdatedDaemon()) return
 					const mode = await client?.mode()
 					if (mode?.ok) emailMode = mode.data.mode === "on" ? "on" : "off"
 					// `/mailbridge off` closes the channel: no claim, no injection while it is off.
@@ -234,6 +244,35 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	}
 
 	// ---- lifecycle ---------------------------------------------------------
+
+	/**
+	 * Is the running daemon this build? Returns true when it replaced one.
+	 *
+	 * The extension and the daemon are separate processes with separate lifetimes: `pi update`
+	 * reloads this module while the daemon keeps executing what it started with. A version it
+	 * cannot resolve routing ids against is worse than no daemon, because replies are consumed.
+	 */
+	async function replaceOutdatedDaemon(): Promise<boolean> {
+		const mine = packageVersion(import.meta.url)
+		if (mine === "unknown" || Date.now() - lastVersionCheck < VERSION_CHECK_MS) return false
+		lastVersionCheck = Date.now()
+		const health = await client?.health()
+		if (!health?.ok || !needsRestart(mine, health.data.version)) return false
+
+		ctx?.ui.notify(
+			`mailbridge: replacing the running daemon (${health.data.version ?? "older build"} → ${mine})`,
+			"info",
+		)
+		await client?.shutdown()
+		client = undefined
+		runner = undefined
+		notifier?.cancel()
+		notifier = undefined
+		if (!(await ensureDaemonSafe())) return false
+		if (!(await startRuntime())) return false
+		startPolling()
+		return true
+	}
 
 	// This module is `extension.ts` in a checkout and `extension.js` in the published build. The
 	// daemon beside it follows the same shape: `main.ts` needs `--experimental-strip-types`, and

@@ -45,6 +45,11 @@ pi install npm:pi-mailbridge
 | last pi session closes | the daemon exits after `daemon.idleTimeoutSecs` (120 s), unless `daemon.exitWhenIdle: false` |
 | `systemctl --user start pi-mailbridge` | the unit runs the daemon directly and keeps it resident (`exitWhenIdle: false`) |
 
+After `pi update` the session notices a daemon left over from the previous build — `/health`
+carries its version — and replaces it (once a minute at most). Without that, a new extension
+would mint routing ids an old daemon cannot resolve, and replies would be rejected with the
+cursor already past them.
+
 The daemon exists whether or not email mode is on; `/mailbridge on` and `off` gate scanning and
 delivery, not the process. So a hung daemon is never "because the mode is off", and the mode being
 off does not stop it from answering `/health`.

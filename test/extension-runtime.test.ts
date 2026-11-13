@@ -116,9 +116,13 @@ interface FakeDaemon {
 	claimArgs: (number | undefined)[]
 	ackArgs: (number | undefined)[]
 	pendingRecords: PendingRecord[]
+	/** How many times a session asked the daemon to exit. */
+	shutdowns: number
 }
 
-function fakeDaemon(over: { mode?: "on" | "off"; pending?: PendingRecord[]; sendOk?: boolean } = {}): FakeDaemon {
+function fakeDaemon(
+	over: { mode?: "on" | "off"; pending?: PendingRecord[]; sendOk?: boolean; daemonVersion?: string } = {},
+): FakeDaemon {
 	const sent: { to?: string; subject: string; text: string }[] = []
 	const modes: string[] = []
 	const registered: string[] = []
@@ -127,12 +131,20 @@ function fakeDaemon(over: { mode?: "on" | "off"; pending?: PendingRecord[]; send
 	const claimArgs: (number | undefined)[] = []
 	const ackArgs: (number | undefined)[] = []
 	let currentMode = over.mode ?? "on"
+	let daemonUp = true
+	let shutdowns = 0
 	const pendingRecords = over.pending ?? []
 
 	const ok = <T>(data: T): DaemonResult<T> => ({ ok: true, data })
 
 	const client = {
-		health: async () => ok({ ok: true, mode: currentMode, pending: pendingRecords.length }),
+		health: async () =>
+			ok({
+				ok: true,
+				mode: currentMode,
+				pending: pendingRecords.length,
+				...(over.daemonVersion === undefined ? {} : { version: over.daemonVersion }),
+			}),
 		pending: async () => ok({ pending: pendingRecords }),
 		mode: async () => ok({ mode: currentMode }),
 		setMode: async (mode: "on" | "off") => {
@@ -142,7 +154,12 @@ function fakeDaemon(over: { mode?: "on" | "off"; pending?: PendingRecord[]; send
 		},
 		// The tick's first call. Without it the whole tick threw and the swallow-all catch
 		// hid it, so gate tests passed for the wrong reason.
-		ping: async () => ok({ ok: true, clients: 1 }),
+		ping: async () => (daemonUp ? ok({ ok: true, clients: 1 }) : ({ ok: false, status: 0 } as const)),
+		shutdown: async () => {
+			shutdowns += 1
+			daemonUp = false
+			return ok({ ok: true })
+		},
 		claim: async (uid: number, _id: string, uidValidity?: number) => {
 			claimArgs.push(uidValidity)
 			return ok({ ok: true })
@@ -167,7 +184,20 @@ function fakeDaemon(over: { mode?: "on" | "off"; pending?: PendingRecord[]; send
 		},
 	}
 
-	return { client: client as never, sent, modes, registered, released, acked, claimArgs, ackArgs, pendingRecords }
+	return {
+		client: client as never,
+		sent,
+		modes,
+		registered,
+		released,
+		acked,
+		claimArgs,
+		ackArgs,
+		pendingRecords,
+		get shutdowns() {
+			return shutdowns
+		},
+	}
 }
 
 function boot(daemon: FakeDaemon, timers: SettleTimers, c = ctx()) {
@@ -910,4 +940,25 @@ test("/mailbridge on builds the missing runtime instead of reporting a hollow ON
 	await captured.get("mailbridge")!("on", ctx(notes))
 	assert.deepEqual(daemon.modes, ["on"], "the mode change went through the daemon, not a local file")
 	assert.ok(notes.some((n) => /email mode ON/.test(n)), `notes: ${JSON.stringify(notes)}`)
+})
+
+test("a daemon from the previous build is replaced, once", async () => {
+	// `pi update` reloads the extension while the daemon keeps executing what it started with.
+	// Such a daemon mints nothing this build can resolve, so replies would be rejected with the
+	// cursor already past them.
+	const t = fakeTimers()
+	const daemon = fakeDaemon({ mode: "on", daemonVersion: "0.0.0-old" })
+	const notes: string[] = []
+	const pi = boot(daemon, t.timers, ctx(notes))
+	await pi.fire("session_start")
+
+	// Two ticks inside the throttle window: one replacement, not one per tick.
+	for (let i = 0; i < 2; i += 1) {
+		const tick = t.queue.shift()
+		tick?.handler()
+		for (let j = 0; j < 6; j += 1) await new Promise((r) => setImmediate(r))
+	}
+
+	assert.equal(daemon.shutdowns, 1, "the outdated daemon was shut down once")
+	assert.ok(notes.some((n) => /replacing the running daemon/.test(n)), `notes: ${JSON.stringify(notes)}`)
 })
