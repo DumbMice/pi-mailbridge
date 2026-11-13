@@ -76,9 +76,28 @@ jobs:
 
       - run: npm ci
 
-      - name: Publish (dry run)
+      - name: Gate (the same scripts prepublishOnly runs)
+        run: |
+          npm run typecheck
+          npm test
+
+      # A re-tag of an existing version is a mistake worth naming, rather than an npm error
+      # after the gate has already run.
+      - name: The version must not be on the registry yet
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
+        run: |
+          name="$(node -p 'require("./package.json").name')"
+          version="$(node -p 'require("./package.json").version')"
+          if npm view "${name}@${version}" version >/dev/null 2>&1; then
+            echo "::error::${name}@${version} is already published; bump the version and tag again"
+            exit 1
+          fi
+
+      - name: Pack only (no registry, no upload)
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run
-        run: npm publish --access public --dry-run
+        run: |
+          npm pack --dry-run
+          echo "dry run: tarball above was built and validated, nothing was uploaded"
 
       - name: Publish
         if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
