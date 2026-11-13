@@ -20,7 +20,7 @@ import { createDeliveryRunner, type DeliveryRunner } from "./core/deliveries.ts"
 import { toUserContent, type UserContent } from "./core/attachments.ts"
 import { parseMailCommand } from "./core/mail-command.ts"
 import { API_VERSION, apiCompatible } from "./daemon/api.ts"
-import { probeHealth } from "./daemon/spawn.ts"
+import { probeHealth, probeHealthDetail } from "./daemon/spawn.ts"
 import { resolveDaemonScript } from "./daemon/script.ts"
 import { daemonBaseUrl, ensureDaemon, createDaemonClient, type DaemonClient } from "./daemon/spawn.ts"
 import { parseMailbridgeCommand, USAGE } from "./core/commands.ts"
@@ -95,8 +95,12 @@ export interface MailbridgeDeps {
 	) => Promise<boolean | { healthy: boolean; incompatible?: boolean; error?: string; apiVersion?: number }>
 	/** Injected by tests: is something answering on this base URL? */
 	probeHealth?: (options: { baseUrl: string }) => Promise<boolean>
+	/** As above, but reporting the protocol that answered. */
+	probeHealthDetail?: (options: { baseUrl: string }) => Promise<{ ok: boolean; apiVersion?: number }>
 	/** How often to re-check the daemon's protocol. Defaults to a minute. */
 	versionCheckMs?: number
+	/** How often the poll may respawn a dead daemon. Defaults to a minute. */
+	respawnBackoffMs?: number
 	timers?: SettleTimers
 	/** Poll interval for pending replies. */
 	pollMs?: number
@@ -220,7 +224,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// The daemon exited for idleness (or crashed). Nothing else would bring it
 					// back for this session, so the poll becomes the supervisor.
 					const now = Date.now()
-					if (now - lastRespawnAttempt > RESPAWN_BACKOFF_MS) {
+					if (now - lastRespawnAttempt > (deps.respawnBackoffMs ?? RESPAWN_BACKOFF_MS)) {
 						lastRespawnAttempt = now
 						const healthy = await ensureDaemonSafe()
 						if (healthy) {
@@ -284,9 +288,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		// `undefined` means *nothing answered* - the dead-daemon path owns that, and treating it as
 		// a protocol mismatch would "replace" a daemon that is not there instead of respawning it.
 		const health = client ? await client.health() : undefined
-		const theirs = known?.incompatible
-			? (known.apiVersion ?? 0)
-			: (known?.apiVersion ?? (health?.ok ? (health.data.apiVersion ?? 0) : undefined))
+		let theirs = known?.incompatible ? (known.apiVersion ?? 0) : known?.apiVersion
+		if (theirs === undefined && health?.ok) theirs = health.data.apiVersion ?? 0
+		if (theirs === undefined && !client) {
+			// No client and no client to ask: ask the port. `ok:false` (nothing answered) stays
+			// undefined so the dead-daemon path keeps ownership of a daemon that is not there.
+			const found = await probeDetail({ baseUrl: clientBase ?? currentBaseUrl() })
+			if (found.ok) theirs = found.apiVersion ?? 0
+		}
 		if (theirs === undefined || apiCompatible(API_VERSION, theirs)) return false
 
 		ctx?.ui.notify(
@@ -310,9 +319,12 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 		// A failed respawn must not end the poll loop: with `runner` gone, a re-arm tied to it
 		// would stop the only thing that notices the daemon is missing.
-		if (!(await ensureDaemonSafe()) || !(await replaceRuntime())) {
+		const ensured = await ensureDaemonDetailed()
+		if (!ensured.healthy || !(await replaceRuntime())) {
 			ctx?.ui.notify(
-				"mailbridge: the daemon did not come back after the update — retrying, and /mailbridge restart forces it",
+				ensured.incompatible
+					? `mailbridge: the daemon is still on protocol ${ensured.apiVersion ?? "0"} (this session: ${API_VERSION}) — /mailbridge restart forces it`
+					: `mailbridge: the daemon did not come back after the update${ensured.error ? ` (${ensured.error})` : ""} — retrying, and /mailbridge restart forces it`,
 				"warning",
 			)
 			return true
@@ -335,6 +347,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	}
 
 	const probe = deps.probeHealth ?? probeHealth
+	const probeDetail =
+		deps.probeHealthDetail ??
+		(deps.probeHealth
+			? async (options: { baseUrl: string }): Promise<{ ok: boolean; apiVersion?: number }> => ({ ok: await deps.probeHealth!(options) })
+			: probeHealthDetail)
 
 	// The pi manifest points at this TypeScript file inside the installed package, so the daemon
 	// beside it must be the compiled build wherever one exists (Node refuses type stripping in
@@ -975,8 +992,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// same rule the protocol replacement follows, and the remedy its own warning
 					// names.
 					const stopping = client ?? buildClient()
+					let stopped = false
 					if (stopping) {
-						await stopping.shutdown().catch(() => undefined)
+						const result = await stopping.shutdown().catch(() => undefined)
+						stopped = Boolean(result?.ok)
 						client = undefined
 						runner = undefined
 						// `/shutdown` answers before it closes the listener, so a fixed sleep can
@@ -1011,14 +1030,16 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						// because a command, unlike the poll tick, has no finally to do it.
 						startPolling()
 					}
-					c.ui.notify(
-						ensured.healthy
-							? "daemon restarted with the current code"
-							: ensured.incompatible
-								? `daemon is still on another protocol (${ensured.apiVersion ?? "0"} → ${API_VERSION}) and did not stop — close pi and start it again`
-								: `daemon did not come back${ensured.error ? ` (${ensured.error})` : ""} — run /mailbridge restart again`,
-						ensured.healthy ? "info" : "error",
-					)
+					// Tell the user what happened, not what was attempted: an answering daemon that
+					// was never stopped is not a restart.
+					const message = !ensured.healthy
+						? ensured.incompatible
+							? `daemon is still on another protocol (${ensured.apiVersion ?? "0"} → ${API_VERSION}) — close pi and start it again`
+							: `daemon did not come back${ensured.error ? ` (${ensured.error})` : ""} — run /mailbridge restart again`
+						: stopping && !stopped
+							? "a daemon is answering, but this session could not stop the old one — close pi and start it again"
+							: "daemon restarted with the current code"
+					c.ui.notify(message, ensured.healthy && (!stopping || stopped) ? "info" : "error")
 					return
 				}
 			}

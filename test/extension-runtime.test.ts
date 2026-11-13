@@ -1147,6 +1147,9 @@ test("a failed replacement leaves a session that can still recover", async () =>
 		},
 		probeHealth: async () => false,
 		versionCheckMs: 0,
+		// The retry itself is throttled in production (a minute); this test is about whether the
+		// session can retry at all once its client is gone.
+		respawnBackoffMs: 0,
 		timers: t.timers,
 		pollMs: 10_000,
 	})
@@ -1385,8 +1388,90 @@ test("a failed protocol replacement still leaves a poll loop behind", async () =
 	await pi.fire("session_start")
 	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
 
-	assert.ok(notes.some((n) => /did not come back after the update/.test(n)), `notes: ${JSON.stringify(notes)}`)
+	// Named, not flattened: the daemon is still speaking protocol 0, and saying so is the only
+	// thing that explains why a "retry" never works.
+	assert.ok(notes.some((n) => /still on protocol 0/.test(n)), `notes: ${JSON.stringify(notes)}`)
 	assert.ok(t.queue.some((q) => q.ms === 60_000), "and the poll is still armed to retry")
+})
+
+test("a client-less poll can still replace a daemon on another protocol", async () => {
+	// The round-1 fix called the replacement from the tick, but with no client it had no way to
+	// learn the protocol and returned immediately - the exact dead end it was meant to close.
+	// Reached the way it happens in the field: a failed replacement at startup leaves no client,
+	// and the poll it armed is the only thing that can still fix the daemon.
+	const t = fakeTimers()
+	const daemon = fakeDaemon({ mode: "on", apiVersion: 0 })
+	const notes: string[] = []
+	const pi = fakePi(ctx(notes))
+	let ensures = 0
+	let detailProbes = 0
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		// The shutdown never takes: every probe finds the same daemon on protocol 0.
+		ensureDaemon: async () => {
+			ensures += 1
+			return ensures <= 3 ? { healthy: false, incompatible: true, apiVersion: 0 } : true
+		},
+		probeHealth: async () => false,
+		probeHealthDetail: async () => {
+			detailProbes += 1
+			return { ok: true, apiVersion: 0 }
+		},
+		versionCheckMs: 0,
+		timers: t.timers,
+		pollMs: 10_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
+	const afterStartup = daemon.shutdowns
+	assert.ok(t.queue.some((q) => q.ms === 10_000), "the failed replacement left a poll armed")
+
+	t.queue.find((q) => q.ms === 10_000)?.handler()
+	for (let i = 0; i < 14; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.ok(afterStartup >= 1, `startup already tried to stop it (${afterStartup})`)
+	// Without a client the only way to learn the protocol is to ask the port, which is precisely
+	// what the tick did not do before this fix.
+	assert.ok(detailProbes > 0, "the tick probed the protocol with no client")
+	assert.ok(
+		daemon.shutdowns > afterStartup,
+		`the client-less poll stopped the old-protocol daemon again (${daemon.shutdowns} vs ${afterStartup})`,
+	)
+})
+
+test("/mailbridge restart does not claim a restart that never happened", async () => {
+	// shutdown() answers {ok:false} rather than throwing, so discarding it let a 401 (or a dead
+	// port) read as success: the probe-wait expired, spawn found the same process, and the toast
+	// said "restarted with the current code".
+	const t = fakeTimers()
+	const notes: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const daemon = fakeDaemon({ mode: "on" })
+	daemon.client.shutdown = async () => ({ ok: false as const, status: 401 })
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		probeHealth: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	await captured.get("mailbridge")!("restart", ctx(notes))
+	const said = notes.join("\n")
+	assert.ok(!/restarted with the current code/.test(said), `it must not claim a restart: ${said}`)
+	assert.ok(/could not stop the old one/.test(said), `it must say the old process survived: ${said}`)
 })
 
 test("/mailbridge restart can stop a daemon this session has no client for", async () => {
