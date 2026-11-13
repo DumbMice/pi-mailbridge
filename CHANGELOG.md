@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.1.2 — 2026-11-13
+
+The release that fixes the ways this package could quietly do the wrong thing.
+
+- **A renamed file could be mailed as an image.** `![shot](./x.png)` checked magic bytes;
+  `[notes](./x.png)` checked only the extension, so any file called `.png` went out labelled
+  `image/png` - a config, a key. The link path now sniffs too, refuses a mismatch, and labels the
+  part with the type the bytes actually are.
+- **A checkout ran the previous build.** Both the daemon a session spawns and the `pi-mailbridge`
+  CLI preferred `dist/` whenever it existed, and `dist/` is only rebuilt by `pretest`
+  /`prepublishOnly` - so an edit to `src/daemon/*` ran old code with an unchanged `API_VERSION`
+  and no warning. A checkout now runs its sources; an installed package still runs the build.
+- **An incomplete install said the wrong thing.** With no `dist/`, the CLI spawned the TypeScript
+  entry from inside `node_modules` and died on Node's `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`
+  instead of saying "reinstall the package".
+- **`main` named a file plain Node cannot import.** It points at `dist/extension.js` now; pi never
+  read `main` (it uses `pi.extensions`), so the field only misled other tools.
+- **`daemon.host` was never validated** - the one setting that removes the loopback assumption.
+  A non-loopback host is now reported by `/mailbridge check` and fails `pi-mailbridge --check`,
+  the same way an `allowSelfReplies` + DMARC combination already does.
+- **The package page showed alt text instead of the diagram.** npm renders the README out of the
+  tarball, where a relative `src` has no base; the images and the ten doc links are absolute now,
+  and a test keeps them that way.
+- SECURITY.md §2.1 states the assumption the DMARC check rests on (the topmost
+  `Authentication-Results` is your provider's only if your provider writes one), with the measured
+  both-directions failure and the two responses that work.
+
 ## 0.1.1 — 2026-11-13
 
 No behaviour change. This is the release that proves the pipeline: publishing now happens in CI

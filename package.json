@@ -1,6 +1,6 @@
 {
   "name": "@dumbmice/pi-mailbridge",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Drive Pi coding-agent sessions from your mailbox: get an email when an agent settles, reply to resume that exact session.",
   "keywords": [
     "pi",
