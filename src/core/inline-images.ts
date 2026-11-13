@@ -8,7 +8,8 @@
 //                                      relative path and a cid: anchor is unreliable
 //
 // The result is mailed, so the safety rules are the point: an image must sniff as an image
-// (magic bytes, not an extension), a non-image must have an allowlisted extension, every
+// (magic bytes, not an extension) whether it was written as an image or as a link, a non-image
+// must have an allowlisted extension, every
 // file is size- and count-capped, and anything unreadable degrades to a sentence instead of
 // a broken link. Content is hashed, so one file referenced twice rides once.
 //
@@ -396,6 +397,18 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 			return `${inner} ${note("not attached", "file not found")}`
 		}
 
+		// An extension is a claim, not a fact. The image rules above sniff; without this the link
+		// path did not, so `[notes](./notes.png)` mailed any bytes at all labelled image/png -
+		// the one thing the allowlist exists to prevent. Raster types are checkable; SVG is XML,
+		// has no signature to check, and is attached as a file rather than inlined.
+		let attachmentType = contentType
+		if (contentType.startsWith("image/") && contentType !== "image/svg+xml") {
+			const kind = sniffImage(bytes)
+			if (!kind) return refuse("not-an-image", "not an image")
+			// Name it for what it is: a real PNG called report.jpg should arrive as image/png.
+			attachmentType = kind.contentType
+		}
+
 		// Same content, same part: a report linked from two places is attached once.
 		const digest = createHash("sha256").update(bytes).digest("hex").slice(0, 16)
 		const existing = byCid.get(`file-${digest}`)
@@ -407,7 +420,7 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 			const attachment: InlineAttachment = {
 				filename,
 				content: bytes,
-				contentType,
+				contentType: attachmentType,
 				contentDisposition: "attachment",
 			}
 			byCid.set(`file-${digest}`, attachment)

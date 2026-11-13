@@ -140,6 +140,34 @@ test("a linked file outside the allowlist is not attached", () => {
 	}
 })
 
+test("a linked file claiming to be an image must be one", () => {
+	// The image path sniffed; the link path trusted the extension. `[notes](./notes.png)` mailed
+	// whatever bytes were in the file, labelled image/png - a renamed key, a config, anything.
+	const root = dir()
+	writeFileSync(join(root, "notes.png"), "PRIVATE-KEY-MATERIAL\n")
+	const result = inlineLocalImages('<p><a href="notes.png">the notes</a></p>', { root })
+	assert.equal(result.attachments.length, 0, "not attached")
+	assert.deepEqual(result.skipped.map((s) => s.reason), ["not-an-image"])
+	assert.match(result.html, /\[not attached: not an image\]/)
+})
+
+test("a linked image is attached with the type its bytes say, not its name", () => {
+	const root = dir()
+	writeFileSync(join(root, "shot.jpg"), PNG) // a real PNG, misnamed
+	const result = inlineLocalImages('<p><a href="shot.jpg">screenshot</a></p>', { root })
+	assert.equal(result.attachments.length, 1)
+	assert.equal(result.attachments[0]!.contentType, "image/png")
+	assert.equal(result.attachments[0]!.contentDisposition, "attachment")
+})
+
+test("a linked SVG is still allowed: XML has no signature to sniff", () => {
+	const root = dir()
+	writeFileSync(join(root, "diagram.svg"), "<svg xmlns='http://www.w3.org/2000/svg'/>")
+	const result = inlineLocalImages('<p><a href="diagram.svg">diagram</a></p>', { root })
+	assert.equal(result.attachments.length, 1)
+	assert.equal(result.attachments[0]!.contentType, "image/svg+xml")
+})
+
 test("an attached file is capped before it is read", () => {
 	// The refusal message is identical whether the cap runs before or after the read, so the
 	// assertion has to be on the read itself: a 15 GB log must not be loaded into memory on the
