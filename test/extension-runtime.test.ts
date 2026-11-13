@@ -1416,6 +1416,9 @@ test("a client-less poll can still replace a daemon on another protocol", async 
 			return ensures <= 3 ? { healthy: false, incompatible: true, apiVersion: 0 } : true
 		},
 		probeHealth: async () => false,
+		// The shutdown does not take: the daemon keeps answering, and keeps speaking protocol 0.
+		// `probeHealth` is false so the bounded wait after /shutdown does not spend five real
+		// seconds - it is the wait that is stubbed away here, not the survivor.
 		probeHealthDetail: async () => {
 			detailProbes += 1
 			return { ok: true, apiVersion: 0 }
@@ -1472,6 +1475,38 @@ test("/mailbridge restart does not claim a restart that never happened", async (
 	const said = notes.join("\n")
 	assert.ok(!/restarted with the current code/.test(said), `it must not claim a restart: ${said}`)
 	assert.ok(/could not stop the old one/.test(said), `it must say the old process survived: ${said}`)
+})
+
+test("/mailbridge restart against an already-stopped daemon reports a restart, not a failure", async () => {
+	// The common path: the daemon idle-exited, and the user runs restart to bring it back.
+	// `shutdown()` returns {ok:false, status:0} for a refused connection, which read as "could
+	// not stop the old one" - an error toast, for a restart that fully worked.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const daemon = fakeDaemon({ mode: "on" })
+	daemon.client.shutdown = async () => ({ ok: false as const, status: 0, code: "network" })
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		probeHealth: async () => false,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	await captured.get("mailbridge")!("restart", ctx(notes))
+	const said = notes.join("\n")
+	assert.ok(!/could not stop the old one/.test(said), `nothing survived to fail on: ${said}`)
+	assert.ok(/already gone; a new one is up/.test(said), `it must report the restart: ${said}`)
 })
 
 test("/mailbridge restart can stop a daemon this session has no client for", async () => {

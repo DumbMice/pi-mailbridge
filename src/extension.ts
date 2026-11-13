@@ -350,7 +350,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	const probeDetail =
 		deps.probeHealthDetail ??
 		(deps.probeHealth
-			? async (options: { baseUrl: string }): Promise<{ ok: boolean; apiVersion?: number }> => ({ ok: await deps.probeHealth!(options) })
+			? async (options: { baseUrl: string }): Promise<{ ok: boolean; apiVersion?: number }> =>
+					// A seam that only says "something answers" cannot also say "and it is protocol 0",
+					// so it means the protocol this build speaks - otherwise every such stub looks
+					// like an outdated daemon and gets shut down.
+					({ ok: await deps.probeHealth!(options), apiVersion: API_VERSION })
 			: probeHealthDetail)
 
 	// The pi manifest points at this TypeScript file inside the installed package, so the daemon
@@ -992,10 +996,16 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// same rule the protocol replacement follows, and the remedy its own warning
 					// names.
 					const stopping = client ?? buildClient()
-					let stopped = false
+					// `ok` means it acknowledged. `status: 0` means nothing took the connection: the
+					// daemon was already gone, which is not a failure to stop it - and the most
+					// common way to run this command. A 401 or a timeout is a real refusal.
+					let stopRefused = false
+					let nothingToStop = false
+					let survivor = false
 					if (stopping) {
 						const result = await stopping.shutdown().catch(() => undefined)
-						stopped = Boolean(result?.ok)
+						stopRefused = Boolean(result && !result.ok && result.status !== 0)
+						nothingToStop = Boolean(result && !result.ok && result.status === 0 && result.code === "network")
 						client = undefined
 						runner = undefined
 						// `/shutdown` answers before it closes the listener, so a fixed sleep can
@@ -1006,6 +1016,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						while (Date.now() < deadline && (await probe({ baseUrl: base }))) {
 							await new Promise((resolve) => setTimeout(resolve, 100))
 						}
+						// Asked here, after the wait and before the respawn: whether the old daemon is
+						// still on the port is the only evidence that a restart did or did not happen.
+						survivor = await probe({ baseUrl: base })
 					}
 					const ensured = await ensureDaemonDetailed()
 					if (ensured.healthy) {
@@ -1032,14 +1045,28 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					}
 					// Tell the user what happened, not what was attempted: an answering daemon that
 					// was never stopped is not a restart.
-					const message = !ensured.healthy
-						? ensured.incompatible
+					let message: string
+					let level: "info" | "warning" | "error" = "info"
+					if (!ensured.healthy) {
+						level = "error"
+						message = ensured.incompatible
 							? `daemon is still on another protocol (${ensured.apiVersion ?? "0"} → ${API_VERSION}) — close pi and start it again`
 							: `daemon did not come back${ensured.error ? ` (${ensured.error})` : ""} — run /mailbridge restart again`
-						: stopping && !stopped
-							? "a daemon is answering, but this session could not stop the old one — close pi and start it again"
+					} else if (stopRefused && survivor) {
+						level = "error"
+						message = "a daemon is answering, but this session could not stop the old one — close pi and start it again"
+					} else if (!stopping) {
+						// No key means no client, and a daemon that was already running has one from
+						// its own startup: this session has just minted a different key, so "restarted"
+						// is not something it can claim.
+						level = "warning"
+						message = "daemon is up, but this session minted a new key — if a daemon was already running, stop it and run this again"
+					} else {
+						message = nothingToStop
+							? "the old daemon was already gone; a new one is up with the current code"
 							: "daemon restarted with the current code"
-					c.ui.notify(message, ensured.healthy && (!stopping || stopped) ? "info" : "error")
+					}
+					c.ui.notify(message, level)
 					return
 				}
 			}
