@@ -276,12 +276,6 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 						withheld: all.length - offered.length,
 					})
 				}
-				case "GET /withheld": {
-					const mine = deps.getConfig?.()?.device.name
-					const all = listPending(env)
-					const held = mine ? all.filter((r) => r.device !== undefined && r.device !== mine).length : 0
-					return send(200, { withheld: held })
-				}
 
 				case "GET /mode":
 					return send(200, { mode: readMode(env) })

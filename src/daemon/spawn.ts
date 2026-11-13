@@ -281,9 +281,8 @@ export function createDaemonClient(options: DaemonClientOptions) {
 				/** "connected" | "disconnected" | "unknown" */
 				imap?: string
 			}>("GET", "/health"),
-		withheld: () => call<{ withheld: number }>("GET", "/withheld"),
 		pending: () =>
-			call<{ pending: PendingRecord[] }>(
+			call<{ pending: PendingRecord[]; withheld?: number }>(
 				"GET",
 				`/pending?device=${encodeURIComponent(deviceName)}`,
 			),
@@ -308,7 +307,7 @@ export function createDaemonClient(options: DaemonClientOptions) {
 		// the whole SMTP transaction, so a slow-but-healthy relay must not be cut off: the
 		// generic 15 s ceiling would drop the one mail this product exists to deliver.
 		send: (message: {
-			/** "settle" is exempt from the daemon's notification budget. */
+			/** "settle" and "decision" are exempt from the daemon's notification budget. */
 			kind?: "settle" | "decision" | "notification"
 			to?: string
 			subject: string

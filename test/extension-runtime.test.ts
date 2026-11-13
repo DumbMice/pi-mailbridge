@@ -156,8 +156,7 @@ function fakeDaemon(
 				...(over.daemonVersion === undefined ? {} : { version: over.daemonVersion }),
 				apiVersion: over.apiVersion ?? 1,
 			}),
-		pending: async () => ok({ pending: pendingRecords }),
-		withheld: async () => ok({ withheld: 0 }),
+		pending: async () => ok({ pending: pendingRecords, withheld: 0 }),
 		mode: async () => ok({ mode: currentMode }),
 		setMode: async (mode: "on" | "off") => {
 			currentMode = mode
@@ -1281,4 +1280,37 @@ test("a rejected bearer is reported, and does not read as 'mode off'", async () 
 		notes.some((n) => /email mode (ON|OFF)/.test(n)) === false,
 		"and it did not claim the mode changed",
 	)
+})
+
+test("the status panel says when replies are held for another device", async () => {
+	// After a rename these are the user's own replies, invisible: the panel is the only place
+	// that can say so without leaking their content.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on" })
+	;(daemon.client as unknown as { pending: unknown }).pending = async () => ({
+		ok: true as const,
+		data: { pending: [], withheld: 3 },
+	})
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		probeHealth: async () => false,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	await captured.get("mailbridge")!("status", ctx(notes))
+
+	const panel = notes.find((n) => /daemon:/.test(n)) ?? ""
+	assert.match(panel, /held for another device: 3/, panel)
+	assert.match(panel, /renamed device\.name/, "and names the likely cause")
 })

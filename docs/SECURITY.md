@@ -255,8 +255,9 @@ model output. The controls, all fail-closed:
 Residual risk, plainly: anything the agent can read and re-materialise inside the project can be
 mailed to the address the daemon sends to, up to the cap, including a file that happens to contain secrets and archives
 whose contents the allowlist cannot inspect. Sending is capped at ten
-notifications a minute per daemon (`429 send_budget`), refused rather than queued, and a settle
-notification is exempt so a burst cannot silence "your agent is waiting". That stops bursts, not a
+model-driven notifications a minute per daemon (`429 send_budget`), refused rather than queued.
+Settle notifications and decision requests are exempt: a settle says the agent is waiting, and a
+decision is already bounded at one outstanding per session by the registry. That stops bursts, not a
 sustained loop: ten a minute is 600 an hour and the budget resets when the daemon restarts, so tool
 scoping remains the defence.
 

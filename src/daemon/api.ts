@@ -28,7 +28,6 @@ export const ENDPOINTS = [
 	"GET /events",
 	"GET /health",
 	"GET /pending",
-	"GET /withheld",
 	"GET /mode",
 	"POST /claim",
 	"POST /ack",

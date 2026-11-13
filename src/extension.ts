@@ -684,9 +684,6 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				// No client in *this* session is not the same as no daemon on the port.
 				const alive = health?.ok ? true : await probe({ baseUrl: clientBase ?? currentBaseUrl() })
 				const pending = client ? await client.pending() : undefined
-				// Records this daemon holds for another device (a renamed machine, a copied state
-				// dir) are not offered by /pending and never claimed; say how many, not which.
-				const withheld = client?.withheld ? await client.withheld() : undefined
 				// The daemon is a separate process with its own lifetime; after `pi update` it can
 				// be an older build, so name it here rather than making the user read /health.
 				const daemonVersion = health?.ok ? (health.data.version ?? "unknown") : "unknown"
@@ -707,9 +704,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						`mailbox: ${config.mail.to || "(unset)"}`,
 						`allowlist: ${config.security.allowFrom.join(", ") || "(empty — denies all)"}`,
 						`pending replies: ${pending?.ok ? pending.data.pending.length : "?"}`,
-						...(withheld?.ok && withheld.data.withheld > 0
+						// From the same response: /pending reports what it did not offer.
+						...(pending?.ok && (pending.data.withheld ?? 0) > 0
 							? [
-									`held for another device: ${withheld.data.withheld} (a renamed device.name, or a copied state directory; see docs/ARCHITECTURE.md)`,
+									`held for another device: ${pending.data.withheld} (a renamed device.name, or a copied state directory; see docs/ARCHITECTURE.md)`,
 								]
 							: []),
 						...formatScan(health?.ok ? (health.data.lastScan ?? null) : null),

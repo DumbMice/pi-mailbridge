@@ -1149,6 +1149,8 @@ test("a settle notification is exempt from the send budget", async () => {
 		for (let i = 0; i < 10; i += 1) assert.equal((await send()).status, 200, `notification ${i + 1}`)
 		assert.equal((await send()).status, 429, "the budget is exhausted for notifications")
 		assert.equal((await send("settle")).status, 200, "but a settle still goes out")
+		assert.equal((await send("decision")).status, 200, "and so does a decision")
+		assert.equal((await send()).status, 429, "while a notification is still refused")
 	} finally {
 		await h.close()
 	}
