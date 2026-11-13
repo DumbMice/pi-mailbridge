@@ -1485,7 +1485,7 @@ test("/mailbridge restart does not claim a restart that never happened", async (
 	await captured.get("mailbridge")!("restart", ctx(notes))
 	const said = notes.join("\n")
 	assert.ok(!/restarted with the current code/.test(said), `it must not claim a restart: ${said}`)
-	assert.ok(/still answering after the stop request/.test(said), `it must say the old process survived: ${said}`)
+	assert.ok(/rejected this session's key/.test(said), `it must name the rejection: ${said}`)
 })
 
 test("/mailbridge restart trusts the port over the shutdown reply", async () => {
@@ -1582,7 +1582,77 @@ test("/mailbridge restart parks the tick before it stops the daemon", async () =
 	assert.match(notes.join("\n"), /restarted with the current code/)
 })
 
-test("a tick already in flight when restart begins does nothing", async () => {
+test("a tick suspended in its ping when restart begins stops there", async () => {
+	// The pause flag is checked at tick entry, but a tick can already be past that point,
+	// suspended on the ping. When it resumes it finds `client === undefined` (the command nulled
+	// it while stopping) and would read that as "dead daemon", spawn inside the wait, and hand the
+	// command its "still answering" evidence. This is the case the entry check cannot cover.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const daemon = fakeDaemon({ mode: "on" })
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	let ensures = 0
+	let release: (() => void) | undefined
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => {
+			ensures += 1
+			return true
+		},
+		// The suspended tick resumes exactly here: inside the wait, while the command still owns
+		// the loop being parked.
+		probeHealth: async () => {
+			release?.()
+			return false
+		},
+		stopWaitMs: 0,
+		timers: t.timers,
+		pollMs: 10_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	// Only now: session_start pings too. The first ping from here on - the tick's - is held.
+	const originalPing = daemon.client.ping
+	let deferred = false
+	daemon.client.ping = async () => {
+		if (!deferred) {
+			deferred = true
+			await new Promise<void>((resolve) => {
+				release = resolve
+			})
+		}
+		return originalPing(SESSION)
+	}
+
+	// Enter the tick, which suspends inside ping.
+	t.queue.find((q) => q.ms === 10_000)?.handler()
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	const before = ensures
+
+	// Now the command runs, parks the loop and stops the daemon.
+	const running = captured.get("mailbridge")!("restart", ctx(notes))
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+	// The suspended tick resumes here, while the command is inside its wait.
+	release?.()
+	await Promise.race([running, new Promise((r) => setImmediate(() => r("TIMEOUT")))]).then((v) => process.stderr.write(`DBG restart=${v}
+`))
+	await Promise.race([running, new Promise((r) => setTimeout(() => r("TIMEOUT2"), 500))]).then((v) => process.stderr.write(`DBG2 restart=${v}
+`))
+	for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.equal(ensures - before, 1, `only the restart spawns (ensures ${before} -> ${ensures})`)
+	assert.match(notes.join("\n"), /restarted with the current code/)
+})
+
+test("a tick already in flight when restart begins does not touch the daemon", async () => {
 	// Parking the timer cannot recall a tick that is already inside `tick()`. Left alone it would
 	// find the daemon this command is stopping, respawn or re-attach it, and hand the command the
 	// "still answering" evidence it is measuring. The pause flag makes that tick a no-op.
@@ -1771,7 +1841,7 @@ test("every restart outcome carries the right level", async () => {
 			healthy: true,
 			probe: true,
 			want: "error",
-			text: /still answering after the stop request/,
+			text: /rejected this session's key/,
 		},
 		{ name: "did not come back", healthy: false, want: "error", text: /did not come back/ },
 		{ name: "still on another protocol", healthy: false, incompatible: true, want: "error", text: /still on another protocol \(0 → 1\)/ },

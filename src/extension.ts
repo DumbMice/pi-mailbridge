@@ -92,7 +92,9 @@ export interface MailbridgeDeps {
 	ensureDaemon?: (
 		baseUrl: string,
 		scriptPath: string,
-	) => Promise<boolean | { healthy: boolean; incompatible?: boolean; error?: string; apiVersion?: number }>
+	) => Promise<
+		boolean | { healthy: boolean; started?: boolean; incompatible?: boolean; error?: string; apiVersion?: number }
+	>
 	/** Injected by tests: is something answering on this base URL? */
 	probeHealth?: (options: { baseUrl: string }) => Promise<boolean>
 	/** As above, but reporting the protocol that answered. */
@@ -230,12 +232,17 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				// Heartbeat: the daemon exits when every session stops pinging, so a quiet
 				// daemon is a stopping daemon.
 				const ping = client ? await client.ping(instanceId) : undefined
+				// Checked again after the await: a tick that entered before `stopPolling()` was
+				// suspended right here, and with the client nulled by the command it would read as
+				// "dead daemon" and respawn inside the wait that is measuring the port.
+				if (pollPaused) return
 				if (!client || (ping && !ping.ok)) {
 					// No client is not only "dead daemon": it can also be "a daemon on another
 					// protocol that this session never managed to replace". Only the no-client case
 					// is checked here - with a live client, a failed ping means it is gone, and the
 					// protocol is the else-branch's business.
 					if (!client && (await replaceOutdatedDaemon())) return
+					if (pollPaused) return
 					// The daemon exited for idleness (or crashed). Nothing else would bring it
 					// back for this session, so the poll becomes the supervisor.
 					const now = Date.now()
@@ -257,6 +264,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// be rejected with the cursor already past it. Replace it once the build
 					// differs, throttled so a failing respawn cannot loop.
 					if (await replaceOutdatedDaemon()) return
+					if (pollPaused) return
 					const mode = await client?.mode()
 					if (mode?.ok) emailMode = mode.data.mode === "on" ? "on" : "off"
 					// `/mailbridge off` closes the channel: no claim, no injection while it is off.
@@ -1026,6 +1034,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// for the restart this command just performed. Every exit below re-arms it.
 					stopPolling()
 					try {
+						// A restart exists to repair a session too: the one-shot 401 notice and the
+						// protocol lockout must not survive the daemon they were about.
+						tokenRejected = false
+						protocolStuck = false
+						lastRespawnAttempt = 0
 					// To stop it we need a client even when this session has no runtime yet - the
 					// same rule the protocol replacement follows, and the remedy its own warning
 					// names.
@@ -1036,9 +1049,13 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// first): not a failure to stop, and the commonest way to run this command.
 					let nothingToStop = false
 					let survivor = false
+					let rejected = false
 					if (stopping) {
 						const result = await stopping.shutdown().catch(() => undefined)
 						nothingToStop = Boolean(result && !result.ok && result.status === 0 && result.code === "network")
+						// A 401 is not a wedged daemon: retrying cannot help until it exits, and the
+						// advice below has to say so.
+						rejected = Boolean(result && !result.ok && (result.status === 401 || result.status === 403))
 						client = undefined
 						runner = undefined
 						// Whether something still answers here is the only evidence that a restart did
@@ -1059,7 +1076,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						}
 						if (!(await replaceRuntime())) {
 							c.ui.notify(
-								"daemon restarted, but this session could not attach — run /mailbridge restart again",
+								stopping
+									? "daemon restarted, but this session could not attach — run /mailbridge restart again"
+									: "the daemon is up, but this session could not attach — run /mailbridge restart again",
 								"warning",
 							)
 							return
@@ -1081,6 +1100,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						level = "warning"
 						message =
 							"the old daemon was already gone, but something is still serving its port — try again, or close pi if it keeps answering"
+					} else if (survivor && rejected) {
+						// Retrying cannot work: the survivor rejects this session's key, and it keeps
+						// the port until it exits on its own.
+						level = "error"
+						message = "the daemon rejected this session's key, so it could not be stopped — stop it (or let it idle out) and start pi again"
 					} else if (survivor) {
 						// `ok:true` is not proof of exit: a shutdown that is still logging out of IMAP
 						// keeps answering, and so does a timeout. Only the port can say.

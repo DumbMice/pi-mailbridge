@@ -2,7 +2,7 @@
 
 ## 0.1.0 — unreleased
 
-### Round six: a crash, a lost phone reply, and a corrupt queue
+### A crash, a vanished reply, and a corrupt queue
 
 - **A fork failure crashed pi.** `spawn()` reports `EAGAIN`/`EMFILE`/a sandbox refusing `exec` as
   an `error` event; with no listener Node rethrows it in the caller - the pi session - while no
