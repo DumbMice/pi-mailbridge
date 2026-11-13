@@ -1358,3 +1358,65 @@ test("session_start replaces a stale daemon once, not twice", async () => {
 	assert.equal(modes, 1, "one runtime, built once")
 	assert.equal(daemon.shutdowns, 1, "the stale daemon was replaced")
 })
+
+test("a failed protocol replacement still leaves a poll loop behind", async () => {
+	// session_start replaces an incompatible daemon and returns. When the replacement failed it
+	// had no runtime and no poll loop - while the toast said it was retrying.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on", apiVersion: 0 })
+	let ensures = 0
+	const pi = fakePi(ctx(notes))
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		// Always incompatible: the shutdown does not take, so every spawn probe sees it again.
+		ensureDaemon: async () => {
+			ensures += 1
+			return { healthy: false, incompatible: true, apiVersion: 0 }
+		},
+		probeHealth: async () => false,
+		versionCheckMs: 0,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.ok(notes.some((n) => /did not come back after the update/.test(n)), `notes: ${JSON.stringify(notes)}`)
+	assert.ok(t.queue.some((q) => q.ms === 60_000), "and the poll is still armed to retry")
+})
+
+test("/mailbridge restart can stop a daemon this session has no client for", async () => {
+	// The no-client session is exactly where restart is the documented remedy. It used to skip
+	// the shutdown entirely, find the same daemon, and ask the user to run it again.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const daemon = fakeDaemon({ mode: "on" })
+	let clients = 0
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-restart-")) },
+		loadConfig: () => ({ ...config(), mail: { ...config().mail, to: "", imap: { ...config().mail.imap, host: "", user: "" } } }),
+		secret: () => SECRET,
+		makeClient: () => {
+			clients += 1
+			return daemon.client
+		},
+		ensureDaemon: async () => true,
+		probeHealth: async () => false,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	assert.equal(clients, 0, "no config, so no runtime")
+
+	await captured.get("mailbridge")!("restart", ctx(notes))
+	assert.equal(daemon.shutdowns, 1, "the shutdown was attempted without a client")
+})

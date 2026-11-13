@@ -212,6 +212,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				// daemon is a stopping daemon.
 				const ping = client ? await client.ping(instanceId) : undefined
 				if (!client || (ping && !ping.ok)) {
+					// No client is not only "dead daemon": it can also be "a daemon on another
+					// protocol that this session never managed to replace". Only the no-client case
+					// is checked here - with a live client, a failed ping means it is gone, and the
+					// protocol is the else-branch's business.
+					if (!client && (await replaceOutdatedDaemon())) return
 					// The daemon exited for idleness (or crashed). Nothing else would bring it
 					// back for this session, so the poll becomes the supervisor.
 					const now = Date.now()
@@ -269,16 +274,20 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 * reloads this module while the daemon keeps executing what it started with. A version it
 	 * cannot resolve routing ids against is worse than no daemon, because replies are consumed.
 	 */
-	async function replaceOutdatedDaemon(known?: { apiVersion?: number }): Promise<boolean> {
+	async function replaceOutdatedDaemon(known?: { apiVersion?: number; incompatible?: boolean }): Promise<boolean> {
 		// Once a respawn has proved the mismatch is not ours to fix, stop trying.
 		if (protocolStuck) return false
 		if (Date.now() - lastVersionCheck < (deps.versionCheckMs ?? VERSION_CHECK_MS)) return false
 		lastVersionCheck = Date.now()
 		// No client yet (a fresh session that found a daemon from another install) is exactly the
-		// case this must handle: ask the daemon directly, or use what the spawn probe already saw.
+		// case this must handle: use what the spawn probe already saw, or ask the daemon directly.
+		// `undefined` means *nothing answered* - the dead-daemon path owns that, and treating it as
+		// a protocol mismatch would "replace" a daemon that is not there instead of respawning it.
 		const health = client ? await client.health() : undefined
-		const theirs = known?.apiVersion ?? (health?.ok ? health.data.apiVersion : undefined)
-		if (apiCompatible(API_VERSION, theirs)) return false
+		const theirs = known?.incompatible
+			? (known.apiVersion ?? 0)
+			: (known?.apiVersion ?? (health?.ok ? (health.data.apiVersion ?? 0) : undefined))
+		if (theirs === undefined || apiCompatible(API_VERSION, theirs)) return false
 
 		ctx?.ui.notify(
 			`mailbridge: replacing the running daemon (protocol ${theirs ?? "0"} → ${API_VERSION})`,
@@ -592,6 +601,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			// does not; either way this session must not then build a runtime on top of it.
 			if (ensured.incompatible) {
 				await replaceOutdatedDaemon(ensured)
+				// Success re-arms the poll itself; a failure must too, or the session sits with no
+				// runtime and no loop while the toast says it is retrying.
+				if (ctx) startPolling()
 				return
 			}
 			// Keep polling even with no runtime: the tick retries the spawn, which is the only
@@ -959,10 +971,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// A config reload cannot replace running code, so after an update the
 					// daemon would keep executing the old version. Stop the process and let
 					// the supervisor start a fresh one.
-					const ensure = deps.ensureDaemon ?? ((base: string, script: string) => ensureDaemon({ baseUrl: base, scriptPath: script, env }).then((r) => r.healthy))
-
-					if (client) {
-						await client.shutdown()
+					// To stop it we need a client even when this session has no runtime yet - the
+					// same rule the protocol replacement follows, and the remedy its own warning
+					// names.
+					const stopping = client ?? buildClient()
+					if (stopping) {
+						await stopping.shutdown().catch(() => undefined)
+						client = undefined
+						runner = undefined
 						// `/shutdown` answers before it closes the listener, so a fixed sleep can
 						// probe the dying process and "reuse" it - reporting a restart that never
 						// happened. Wait until the port stops answering, bounded.
@@ -972,19 +988,36 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 							await new Promise((resolve) => setTimeout(resolve, 100))
 						}
 					}
-					const healthy = await ensure(currentBaseUrl(), daemonScript())
-					if (healthy && !client) {
-						// This session never had a runtime (started before the config existed).
-						await ensureRuntime(c.ui)
-					}
-					if (healthy) {
-						// The restart above replaced the runtime; rebuild it through the helper so a
-						// pending settle is not the thing that gets dropped.
-						await replaceRuntime()
+					const ensured = await ensureDaemonDetailed()
+					if (ensured.healthy) {
+						// One rebuild, through the helper: it captures the notifier that holds a
+						// debounced settle, rebuilds, and flushes. Calling ensureRuntime first would
+						// overwrite that notifier and lose the settle.
+						if (!secretFn()) {
+							try {
+								ensureSecret(env)
+							} catch {
+								/* reported by the toast below */
+							}
+						}
+						if (!(await replaceRuntime())) {
+							c.ui.notify(
+								"daemon restarted, but this session could not attach — run /mailbridge restart again",
+								"warning",
+							)
+							return
+						}
+						// The helper rebuilds the runtime; arming the loop is the caller's job here
+						// because a command, unlike the poll tick, has no finally to do it.
+						startPolling()
 					}
 					c.ui.notify(
-						healthy ? "daemon restarted with the current code" : "daemon did not come back — run /mailbridge restart again",
-						healthy ? "info" : "error",
+						ensured.healthy
+							? "daemon restarted with the current code"
+							: ensured.incompatible
+								? `daemon is still on another protocol (${ensured.apiVersion ?? "0"} → ${API_VERSION}) and did not stop — close pi and start it again`
+								: `daemon did not come back${ensured.error ? ` (${ensured.error})` : ""} — run /mailbridge restart again`,
+						ensured.healthy ? "info" : "error",
 					)
 					return
 				}
