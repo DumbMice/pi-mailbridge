@@ -309,6 +309,7 @@ src/
     main.ts             CLI + lifecycle
     process.ts          UID-cursor scan → authorize → route → parse → persist
     scan-queue.ts       one scan at a time; bursts coalesce into a follow-up
+    script.ts           which daemon entry to spawn: the build when one exists
     source-proxy.ts     the MailSource the daemon really uses: live watcher + UIDVALIDITY
     service.ts          the HTTP surface: /health /pending /claim /ack /send /events …
     spawn.ts            ensureDaemon, single-instance

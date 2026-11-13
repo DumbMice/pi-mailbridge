@@ -118,6 +118,8 @@ interface FakeDaemon {
 	pendingRecords: PendingRecord[]
 	/** How many times a session asked the daemon to exit. */
 	shutdowns: number
+	/** Test hook: a supervisor brings the daemon back on the same (wrong) protocol. */
+	setDaemonUp(up: boolean): void
 }
 
 function fakeDaemon(
@@ -204,6 +206,9 @@ function fakeDaemon(
 		pendingRecords,
 		get shutdowns() {
 			return shutdowns
+		},
+		setDaemonUp(up: boolean) {
+			daemonUp = up
 		},
 	}
 }
@@ -1018,6 +1023,8 @@ test("a replacement that cannot respawn keeps the poll loop alive", async () => 
 			ensures += 1
 			return ensures === 1
 		},
+		// The old daemon is gone as soon as it is asked to shut down.
+		probeHealth: async () => false,
 		timers: t.timers,
 		pollMs: 60_000,
 	})
@@ -1029,4 +1036,90 @@ test("a replacement that cannot respawn keeps the poll loop alive", async () => 
 
 	assert.ok(notes.some((n) => /did not come back after the update/.test(n)), `notes: ${JSON.stringify(notes)}`)
 	assert.ok(t.queue.length >= 1, "the poll loop must still be armed")
+})
+
+test("when the respawn still speaks another protocol, stop replacing and say why", async () => {
+	// An old session against a newly installed package: every respawn starts the new daemon,
+	// the old session judges it incompatible and kills it - once a minute, forever, while the
+	// toasts read like progress. The only cure is restarting pi, so stop and say so.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on", apiVersion: 2 })
+	const pi = fakePi(ctx(notes))
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		probeHealth: async () => false,
+		// The throttle is not what is under test here; the latch is.
+		versionCheckMs: 0,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
+
+	const first = t.queue.shift()
+	first?.handler()
+	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.equal(daemon.shutdowns, 1, "replaced once, not every tick")
+	assert.ok(
+		notes.some((n) => /restart pi to load the matching extension/.test(n)),
+		`notes: ${JSON.stringify(notes)}`,
+	)
+
+	// The latch holds: a later tick must not kill it again, even with the throttle out of the
+	// way and the daemon back up on the same wrong protocol (what a supervisor restarts).
+	daemon.setDaemonUp(true)
+	const second = t.queue.shift()
+	second?.handler()
+	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
+	assert.equal(daemon.shutdowns, 1, "and does not keep trying")
+})
+
+test("the replacement waits for the old listener to close before spawning", async () => {
+	// `/shutdown` answers before it closes the port. Probing immediately finds the dying daemon
+	// and "reuses" it, so the replacement reports success while the old protocol is still served.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on", apiVersion: 0 })
+	const order: string[] = []
+	let probes = 0
+	const pi = fakePi(ctx(notes))
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => {
+			order.push("spawn")
+			return true
+		},
+		probeHealth: async () => {
+			order.push("probe")
+			probes += 1
+			return probes === 1
+		},
+		versionCheckMs: 0,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
+	// Only what the replacement does is under test.
+	order.length = 0
+	probes = 0
+	t.queue.shift()?.handler()
+	// The wait between probes is a real 100 ms timer, not a fake one.
+	await new Promise((r) => setTimeout(r, 250))
+	for (let i = 0; i < 20; i += 1) await new Promise((r) => setImmediate(r))
+
+	const firstProbe = order.indexOf("probe")
+	const spawn = order.indexOf("spawn")
+	assert.ok(firstProbe > -1, `the port was probed: ${JSON.stringify(order)}`)
+	assert.ok(spawn > firstProbe, `and the spawn came after the probe said it was gone: ${JSON.stringify(order)}`)
+	assert.ok(probes >= 2, "probed until it stopped answering")
 })

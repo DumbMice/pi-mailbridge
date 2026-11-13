@@ -45,8 +45,9 @@ pi install npm:pi-mailbridge
 | last pi session closes | the daemon exits after `daemon.idleTimeoutSecs` (120 s), unless `daemon.exitWhenIdle: false` |
 | `systemctl --user start pi-mailbridge` | the unit runs the daemon directly and keeps it resident (`exitWhenIdle: false`) |
 
-After `pi update` the session notices a daemon left over from the previous build — `/health`
-carries its version — and replaces it (once a minute at most). Without that, a new extension
+After `pi update` the session notices a daemon on a different **protocol** — `/health` carries
+`apiVersion` — and replaces it (once a minute at most). A different package *version* on the same
+protocol is left alone. Without that, a new extension
 would mint routing ids an old daemon cannot resolve, and replies would be rejected with the
 cursor already past them.
 

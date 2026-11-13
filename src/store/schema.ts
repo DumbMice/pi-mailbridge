@@ -19,6 +19,14 @@ import { statePath } from "./paths.ts"
 
 export const STATE_VERSION = 1
 
+/**
+ * The version assumed for a file written before the field existed.
+ *
+ * Deliberately a constant, not `STATE_VERSION`: if this read `STATE_VERSION`, then bumping the
+ * current version would silently label a legacy file as current and skip its migration.
+ */
+export const LEGACY_SCHEMA = 1
+
 /** Every versioned file, so one probe can refuse the whole directory up front. */
 export const VERSIONED_FILES = [
 	"pending.json",
@@ -54,11 +62,19 @@ export class StateVersionError extends Error {
  */
 export function checkStateVersion(file: string, parsed: unknown): number {
 	const version = (parsed as { v?: unknown } | null | undefined)?.v
-	if (version === undefined) return STATE_VERSION
+	if (version === undefined) return LEGACY_SCHEMA
 	if (typeof version !== "number" || !Number.isFinite(version) || version < 0) {
 		throw new StateVersionError(file, version)
 	}
 	if (version > STATE_VERSION) throw new StateVersionError(file, version)
+	if (version < STATE_VERSION) {
+		// No migrations are registered yet. This guard makes a version bump fail loudly here
+		// instead of quietly reading pre-bump data with post-bump assumptions.
+		throw new Error(
+			`${file} is schema ${version}; this build is ${STATE_VERSION} and has no migration for it. ` +
+				`Register one in store/schema.ts before bumping STATE_VERSION.`,
+		)
+	}
 	return version
 }
 

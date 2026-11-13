@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { STATE_VERSION, StateVersionError, assertStateReadable, checkStateVersion } from "../src/store/schema.ts"
+import { LEGACY_SCHEMA, STATE_VERSION, StateVersionError, assertStateReadable, checkStateVersion } from "../src/store/schema.ts"
 import { listPending, addPending, pendingSize } from "../src/store/pending-store.ts"
 import { journalSize, journal } from "../src/store/journal.ts"
 import { readCursor, advanceCursor } from "../src/store/uid-cursor.ts"
@@ -73,4 +73,13 @@ test("the boot probe names the file and refuses the directory", () => {
 	const clean = env()
 	writeFileSync(path(clean, "routes.json"), "{not json")
 	assert.doesNotThrow(() => assertStateReadable(clean))
+})
+
+test("a legacy file is schema 1 even after the current version moves", () => {
+	// The bug the docs would have hidden: mapping "absent" to STATE_VERSION would label a
+	// pre-versioning file as current, skipping its migration on the day the constant moves.
+	assert.equal(LEGACY_SCHEMA, 1)
+	assert.equal(checkStateVersion("x.json", { items: [] }), LEGACY_SCHEMA)
+	// Today they coincide; the point is that they are separate constants.
+	assert.equal(STATE_VERSION, LEGACY_SCHEMA)
 })

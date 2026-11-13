@@ -992,7 +992,7 @@ test("the lifecycle says install starts nothing and a session starts the daemon"
 
 	// The code, not just the prose: session_start is what probes and spawns.
 	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
-	assert.match(extension, /pi\.on\("session_start"[\s\S]{0,1200}ensureDaemonSafe\(\)/, "session_start spawns")
+	assert.match(extension, /pi\.on\("session_start"[\s\S]{0,1600}ensureDaemonDetailed\(\)/, "session_start spawns")
 })
 
 test("the docs say a session replaces a daemon from an older build", () => {

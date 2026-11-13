@@ -124,6 +124,27 @@ nothing — and neither name appeared in `/mailbridge help`. They are subcommand
 work as a mail reply, except `/mailbridge on`: with the mode off nothing is scanned or drained, so
 it can only be re-opened from the terminal. Nothing was published, so there is no alias to carry.
 
+### The extension spawns the build, and a replacement checks what it got
+
+The build shipped for `bin` and the unit, but the extension - the path `pi install` actually uses -
+still resolved `src/daemon/main.ts` and spawned it with `--experimental-strip-types` from inside
+`node_modules`, which Node refuses. It now resolves the compiled daemon through one pure function
+(`daemon/script.ts`), preferring `dist/` whenever it exists, and both layouts (checkout, installed)
+are unit-tested.
+
+Replacement had two ways to lie: `/shutdown` answers before the listener closes, so an immediate
+probe found the dying daemon and "reused" it - reporting success while the old protocol was still
+served; and the reuse probe never looked at the protocol at all. The replacement now waits for the
+port to stop answering (bounded), and `ensureDaemon` refuses to reuse a daemon on another protocol,
+reporting `incompatible` so the caller replaces rather than adopts. `startRuntime` is unchanged in
+spirit but a respawn that still speaks another protocol now latches and says "restart pi", instead
+of killing the daemon once a minute forever.
+
+A legacy state file is schema 1 by name (`LEGACY_SCHEMA`), not "whatever is current": mapping it to
+`STATE_VERSION` would have labelled pre-versioning files as current and skipped their migration on
+the day the constant moved. `checkStateVersion` also refuses an older file when no migration is
+registered, so a version bump cannot ship without one.
+
 ### A protocol version, separate from the package version
 
 The daemon and the extension now have a wire contract with its own number (`API_VERSION`, reported
@@ -133,9 +154,11 @@ package version becomes diagnostic. Comparing package versions was the wrong kno
 bump would have restarted a working daemon, and the number would mean something different the day a
 second client exists.
 
-State files gained a schema version (`v`) under the "refuse newer, migrate older" rule: a file
+The files whose shape matters - `pending`, `journal`, `routes`, `threads`, `uid-cursor` - gained a
+schema version (`v`) under the "refuse newer, migrate older" rule: a file
 without one is schema 1 and is stamped on its next save; a file from a newer build is refused for
-reading and writing, with one clear message naming both versions, instead of having its
+reading and writing. `mode.json` and the OAuth token cache are deliberately unversioned: both are
+regenerable, and refusing to start over a cache would be worse than rebuilding it, with one clear message naming both versions, instead of having its
 unrecognised records filtered out and the file rewritten without them.
 
 ### A session replaces a daemon left over from the previous build

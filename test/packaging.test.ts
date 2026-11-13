@@ -228,10 +228,12 @@ test("the in-pi flow is documented first, CLI only as headless", () => {
 	assert.match(readme, /--check/, "README should keep the ExecStartPre check documented")
 })
 
-test("the extension resolves the daemon script with fileURLToPath", () => {
-	const src = read("../src/extension.ts")
-	assert.match(src, /fileURLToPath\(new URL\(/, "must convert the URL to a filesystem path properly")
-	assert.doesNotMatch(src, /\.pathname/, "URL.pathname breaks on spaces and non-ASCII paths")
+test("the extension resolves the daemon script through the shared resolver", () => {
+	// Path resolution moved into daemon/script.ts, which is tested against both layouts
+	// (test/daemon-script.test.ts). What must hold here is that the extension uses it, and that
+	// no URL is turned into a path with `.pathname` (breaks on spaces and non-ASCII).
+	assert.match(extensionSource, /resolveDaemonScript\(import\.meta\.url\)/, "uses the resolver")
+	assert.doesNotMatch(extensionSource, /\.pathname/, "URL.pathname breaks on spaces and non-ASCII paths")
 })
 
 test("every parsed subcommand has a handler in the extension", () => {
@@ -291,6 +293,8 @@ test("the daemon entry guard does not compare a URL to a path", () => {
 	const main = readFileSync(fileURLToPath(new URL("../src/daemon/main.ts", import.meta.url)), "utf8")
 	assert.doesNotMatch(main, /`file:\/\/\$\{process\.argv\[1\]\}`/, "compare paths, not a URL and a path")
 	assert.match(main, /realpathSync\(fileURLToPath\(import\.meta\.url\)\)/, "and resolve both sides")
+	// The spawn path is a pure resolver so both layouts are testable (see daemon-script.test.ts).
+	assert.match(extensionSource, /resolveDaemonScript\(import\.meta\.url\)/, "the extension uses the resolver")
 })
 
 test("the daemon starts from an installed package, not just a checkout", () => {

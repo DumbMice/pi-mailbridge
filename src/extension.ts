@@ -20,6 +20,8 @@ import { createDeliveryRunner, type DeliveryRunner } from "./core/deliveries.ts"
 import { toUserContent, type UserContent } from "./core/attachments.ts"
 import { parseMailCommand } from "./core/mail-command.ts"
 import { API_VERSION, apiCompatible } from "./daemon/api.ts"
+import { probeHealth } from "./daemon/spawn.ts"
+import { resolveDaemonScript } from "./daemon/script.ts"
 import { daemonBaseUrl, ensureDaemon, createDaemonClient, type DaemonClient } from "./daemon/spawn.ts"
 import { parseMailbridgeCommand, USAGE } from "./core/commands.ts"
 import { runSetup } from "./core/setup.ts"
@@ -88,6 +90,10 @@ export interface MailbridgeDeps {
 	makeClient?: (baseUrl: string, token: string) => DaemonClient
 	/** Make sure the daemon is up. */
 	ensureDaemon?: (baseUrl: string, scriptPath: string) => Promise<boolean>
+	/** Injected by tests: is something answering on this base URL? */
+	probeHealth?: (options: { baseUrl: string }) => Promise<boolean>
+	/** How often to re-check the daemon's protocol. Defaults to a minute. */
+	versionCheckMs?: number
 	timers?: SettleTimers
 	/** Poll interval for pending replies. */
 	pollMs?: number
@@ -121,6 +127,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	let lastRespawnAttempt = 0
 	/** Throttles the post-update daemon replacement; a failed respawn must not loop. */
 	let lastVersionCheck = 0
+	/** Set when a respawn still spoke another protocol: only a new pi session can fix that. */
+	let protocolStuck = false
 
 	// Computed per use, not once: `config` is replaced whenever a /mailbridge command
 	// reloads it, and a frozen URL means editing daemon.port leaves every probe (including
@@ -255,7 +263,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 * cannot resolve routing ids against is worse than no daemon, because replies are consumed.
 	 */
 	async function replaceOutdatedDaemon(): Promise<boolean> {
-		if (Date.now() - lastVersionCheck < VERSION_CHECK_MS) return false
+		// Once a respawn has proved the mismatch is not ours to fix, stop trying.
+		if (protocolStuck) return false
+		if (Date.now() - lastVersionCheck < (deps.versionCheckMs ?? VERSION_CHECK_MS)) return false
 		lastVersionCheck = Date.now()
 		const health = await client?.health()
 		if (!health?.ok || apiCompatible(API_VERSION, health.data.apiVersion)) return false
@@ -269,9 +279,18 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		runner = undefined
 		notifier?.cancel()
 		notifier = undefined
+
+		// `/shutdown` answers before it closes the listener, so an immediate probe finds the
+		// dying daemon and "reuses" it - the replacement then reports success while the old
+		// protocol is still being served. Wait for the port to stop answering.
+		const base = clientBase ?? currentBaseUrl()
+		const deadline = Date.now() + 5_000
+		while (Date.now() < deadline && (await probe({ baseUrl: base }))) {
+			await new Promise((resolve) => setTimeout(resolve, 100))
+		}
+
 		// A failed respawn must not end the poll loop: with `runner` gone, a re-arm tied to it
-		// would stop the only thing that notices the daemon is missing. The tick keeps running
-		// and retries once the throttle allows.
+		// would stop the only thing that notices the daemon is missing.
 		if (!(await ensureDaemonSafe()) || !(await startRuntime())) {
 			ctx?.ui.notify(
 				"mailbridge: the daemon did not come back after the update — retrying, and /mailbridge restart forces it",
@@ -279,18 +298,29 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			)
 			return true
 		}
+
+		// If the respawn brought back another protocol again, this session is older than the
+		// package on disk. Replacing forever would kill the bridge once a minute, silently.
+		const after = await (client as DaemonClient | undefined)?.health()
+		if (after?.ok && !apiCompatible(API_VERSION, after.data.apiVersion)) {
+			protocolStuck = true
+			ctx?.ui.notify(
+				`mailbridge: this pi session speaks protocol ${API_VERSION} and the installed daemon speaks ` +
+					`${after.data.apiVersion ?? "0"} — restart pi to load the matching extension`,
+				"error",
+			)
+			return true
+		}
 		startPolling()
 		return true
 	}
 
-	// This module is `extension.ts` in a checkout and `extension.js` in the published build. The
-	// daemon beside it follows the same shape: `main.ts` needs `--experimental-strip-types`, and
-	// Node refuses that inside `node_modules`, so the build ships `main.js`.
-	const daemonScript = (): string => {
-		const compiled = fileURLToPath(new URL("./daemon/main.js", import.meta.url))
-		const source = fileURLToPath(new URL("./daemon/main.ts", import.meta.url))
-		return fileURLToPath(import.meta.url).endsWith(".js") && existsSync(compiled) ? compiled : source
-	}
+	const probe = deps.probeHealth ?? probeHealth
+
+	// The pi manifest points at this TypeScript file inside the installed package, so the daemon
+	// beside it must be the compiled build wherever one exists (Node refuses type stripping in
+	// node_modules). See daemon/script.ts.
+	const daemonScript = (): string => resolveDaemonScript(import.meta.url)
 
 	/**
 	 * Build the client, notifier and delivery runner. Called on session_start and again
@@ -441,8 +471,16 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	}
 
 	async function ensureDaemonSafe(): Promise<boolean> {
-		const ensure = deps.ensureDaemon ?? ((base: string, script: string) => ensureDaemon({ baseUrl: base, scriptPath: script, env }).then((r) => r.healthy))
-		return ensure(currentBaseUrl(), daemonScript())
+		return (await ensureDaemonDetailed()).healthy
+	}
+
+	/**
+	 * Spawn-or-reuse, keeping the reason. `incompatible` means something answered but spoke
+	 * another protocol - the replacement path, not the dead-daemon path.
+	 */
+	async function ensureDaemonDetailed(): Promise<{ healthy: boolean; incompatible?: boolean }> {
+		if (deps.ensureDaemon) return { healthy: await deps.ensureDaemon(currentBaseUrl(), daemonScript()) }
+		return ensureDaemon({ baseUrl: currentBaseUrl(), scriptPath: daemonScript(), env })
 	}
 
 	pi.on("session_start", async (_event, c) => {
@@ -470,10 +508,17 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			}
 		}
 
-		const healthy = await ensureDaemonSafe()
-		if (!healthy) {
-			c.ui.notify("mailbridge: daemon not reachable; replies will not arrive", "warning")
-			return
+		protocolStuck = false
+		const ensured = await ensureDaemonDetailed()
+		if (!ensured.healthy) {
+			c.ui.notify(
+				ensured.incompatible
+					? "mailbridge: the running daemon speaks another protocol — restarting it"
+					: "mailbridge: daemon not reachable; replies will not arrive",
+				"warning",
+			)
+			// An incompatible daemon is the version-replacement path, not a dead one.
+			if (!ensured.incompatible || !(await replaceOutdatedDaemon())) return
 		}
 
 		if (!(await startRuntime())) return

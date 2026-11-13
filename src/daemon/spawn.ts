@@ -14,6 +14,7 @@ import { chmodSync, closeSync, mkdirSync, openSync, renameSync, statSync } from 
 import { dirname } from "node:path"
 
 import type { PendingRecord } from "../store/pending-store.ts"
+import { API_VERSION, apiCompatible } from "./api.ts"
 import { statePath } from "../store/paths.ts"
 
 export interface ProbeOptions {
@@ -25,14 +26,31 @@ export interface ProbeOptions {
 
 /** True when a daemon answers /health. Never throws. */
 export async function probeHealth(options: ProbeOptions): Promise<boolean> {
+	const health = await probeHealthDetail(options)
+	return health.ok
+}
+
+/**
+ * `/health`, with the protocol it speaks.
+ *
+ * `ok` means "something answered"; `apiVersion` says whether *this* build can use it. A daemon
+ * from another protocol is alive but unusable, and reusing it would make a replacement look
+ * successful while the mismatch stayed.
+ */
+export async function probeHealthDetail(options: ProbeOptions): Promise<{ ok: boolean; apiVersion?: number }> {
 	const doFetch = options.fetchImpl ?? fetch
 	const controller = new AbortController()
 	const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 750)
 	try {
 		const response = await doFetch(`${options.baseUrl}/health`, { signal: controller.signal })
-		return response.ok
+		if (!response.ok) return { ok: false }
+		const body = (await response.json().catch(() => undefined)) as { apiVersion?: unknown } | undefined
+		return {
+			ok: true,
+			...(typeof body?.apiVersion === "number" ? { apiVersion: body.apiVersion } : {}),
+		}
 	} catch {
-		return false
+		return { ok: false }
 	} finally {
 		clearTimeout(timer)
 	}
@@ -57,8 +75,10 @@ export interface EnsureDaemonOptions {
 export interface EnsureDaemonResult {
 	/** True when this call spawned the process. */
 	started: boolean
-	/** True when the daemon answers /health afterwards. */
+	/** True when the daemon answers /health afterwards, on this build's protocol. */
 	healthy: boolean
+	/** Something answered but spoke another protocol; it must be replaced, not reused. */
+	incompatible?: boolean
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
@@ -73,8 +93,12 @@ const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(r
  */
 export async function ensureDaemon(options: EnsureDaemonOptions): Promise<EnsureDaemonResult> {
 	const doFetch = options.fetchImpl ?? fetch
-	if (await probeHealth({ baseUrl: options.baseUrl, fetchImpl: doFetch })) {
-		return { started: false, healthy: true }
+	const found = await probeHealthDetail({ baseUrl: options.baseUrl, fetchImpl: doFetch })
+	if (found.ok) {
+		// Reuse only a daemon this build can talk to. An incompatible one is reported so the
+		// caller can replace it, instead of being adopted and failing on the first request.
+		if (apiCompatible(API_VERSION, found.apiVersion)) return { started: false, healthy: true }
+		return { started: false, healthy: false, incompatible: true }
 	}
 
 	const spawn = options.spawnImpl ?? nodeSpawn

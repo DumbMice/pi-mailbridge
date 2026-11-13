@@ -56,8 +56,8 @@ release note say the daemon "rebuilds" - as if `tsc` ran on a user's machine.
   `pretest`. Never at runtime. "The compiled daemon", "the package build".
 - **wire / re-create** - the session's in-process objects (`client`, `notifier`, `runner`).
   Never "rebuild". `startRuntime()` wires them; a replacement re-creates them.
-- **spawn / replace / restart** - the daemon *process*. `ensureDaemon` spawns it; a version
-  mismatch replaces it; `/mailbridge restart` restarts it.
+- **spawn / replace / restart** - the daemon *process*. `ensureDaemon` spawns it, refuses to reuse one on another protocol, and
+  the session replaces it; `/mailbridge restart` restarts it.
 - **version** - the package version, one per build: diagnostic only, for the panel and bug reports.
 - **protocol** (`API_VERSION` in `daemon/api.ts`) - the wire contract. Strict equality: a daemon on
   another protocol is replaced, never negotiated down.

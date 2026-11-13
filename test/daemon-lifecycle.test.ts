@@ -461,3 +461,25 @@ test("a failed sent-copy read-back is reported, not swallowed", async () => {
 	await new Promise((r) => setTimeout(r, 0))
 	assert.equal(missed, 0, "a captured id reports nothing")
 })
+
+test("a daemon on another protocol is not reused, and is not raced either", async () => {
+	// Reusing whatever answers is how a replacement reports success while the old protocol is
+	// still being served; spawning beside it just loses the port battle.
+	let spawns = 0
+	const result = await ensureDaemon({
+		baseUrl: daemonBaseUrl(await freePort()),
+		scriptPath: "/tmp/does-not-matter.ts",
+		spawnImpl: () => {
+			spawns += 1
+			return { unref() {} }
+		},
+		fetchImpl: (async () =>
+			new Response(JSON.stringify({ ok: true, apiVersion: 2 }), { status: 200 })) as unknown as typeof fetch,
+		sleep: async () => {},
+	})
+
+	assert.equal(result.started, false)
+	assert.equal(result.healthy, false)
+	assert.equal(result.incompatible, true, "the reason is reported, not flattened to 'unreachable'")
+	assert.equal(spawns, 0, "a live daemon on the same port would only make the child exit")
+})
