@@ -1,4 +1,5 @@
 import { test } from "node:test"
+import { PENDING_CAP as pendingCap, PENDING_MAX_BYTES as pendingMaxBytes } from "../src/store/pending-store.ts"
 import assert from "node:assert/strict"
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
@@ -1103,4 +1104,22 @@ test("the diagrams are in the published package", () => {
 	for (const image of ["docs/images/notification.png", "docs/images/flow.svg"]) {
 		assert.ok(existsSync(join(root, image)), `${image} is missing`)
 	}
+})
+
+test("the documented queue bounds match the constants they describe", () => {
+	// The prose numbers are the ones a user reads in a troubleshooting table, and this file is the
+	// repo's mechanism for keeping prose honest. Derive them from the constants and match the whole
+	// sentence: asserting that "8 MB" appears somewhere let one of three occurrences drift.
+	const spaced = String(pendingCap).replace(/\B(?=(\d{3})+(?!\d))/g, " ")
+	const megabytes = `${pendingMaxBytes / 1024 / 1024} MB`
+	const flat = (text: string): string => text.replace(/\s+/g, " ")
+
+	assert.ok(
+		flat(doc("README.md")).includes(`1 000 undelivered replies, or ${megabytes}`),
+		"README's pending-full row must state both bounds",
+	)
+	assert.ok(
+		flat(doc("docs/ARCHITECTURE.md")).includes(`at most ${spaced} records or ${megabytes}`),
+		"ARCHITECTURE's pipeline invariant must state both bounds",
+	)
 })

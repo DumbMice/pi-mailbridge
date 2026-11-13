@@ -1,7 +1,8 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { formatScan, type ScanSummary } from "../src/core/status.ts"
+import { formatScan, queueLimits, type ScanSummary } from "../src/core/status.ts"
+import { PENDING_CAP, PENDING_MAX_BYTES } from "../src/store/pending-store.ts"
 
 const base: ScanSummary = { at: 0, examined: 2, persisted: 1, rejected: 1, reasons: {} }
 
@@ -56,4 +57,23 @@ test("staleness stays visible after the first message", () => {
 	assert.doesNotMatch(fresh[0]!, /last checked/)
 	const stale = formatScan({ at, checkedAt: at + 600_000, examined: 1, persisted: 1, rejected: 0, reasons: {} })
 	assert.match(stale[0]!, /last checked/)
+})
+
+test("the queue line names both bounds, from the constants rather than from prose", () => {
+	const lines = formatScan({ ...base, rejected: 0, reasons: { "pending-full": 1 } })
+	const line = lines.find((l) => /queue full/.test(l)) ?? ""
+	assert.ok(line.includes(String(PENDING_CAP)), `names the record cap: ${line}`)
+	assert.ok(
+		line.includes(`${Math.round(PENDING_MAX_BYTES / 1024 / 1024)} MB`),
+		`and the byte ceiling: ${line}`,
+	)
+	assert.equal(queueLimits(), `${PENDING_CAP} replies or ${Math.round(PENDING_MAX_BYTES / 1024 / 1024)} MB queued`)
+})
+
+test("an expiry is not reported as a rejection", () => {
+	// The scan that expires a record under pressure accepts its own message; the panel used to
+	// print "rejected 0" and "rejections: expired 1" in the same breath.
+	const lines = formatScan({ ...base, rejected: 0, persisted: 1, reasons: { expired: 1 } })
+	assert.ok(lines.some((l) => l.startsWith("rejections: none")), lines.join("\n"))
+	assert.ok(lines.some((l) => /aged out under queue pressure: expired 1/.test(l)), lines.join("\n"))
 })

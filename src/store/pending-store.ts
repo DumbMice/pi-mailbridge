@@ -25,9 +25,9 @@ export const PENDING_CAP = 1_000
  *
  * It must stay comfortably above the largest single record the scanner can accept, or the queue
  * would refuse that record forever with nothing to expire (the stall described in process.ts).
- * That record is `MAX_BODY_CHARS` (100 000) plus a 1 MB attachment total base64'd (~1.33 MB), so
- * ~1.5 MB; 8 MB leaves room for several. `test/pending-store.test.ts` asserts the relationship
- * rather than trusting this comment.
+ * That record is `MAX_BODY_CHARS` (100 000) plus a 1 MB attachment total base64'd (~1.33 MB) plus a
+ * subject capped at `MAX_SUBJECT_CHARS` (300), so ~1.5 MB; 8 MB leaves room for several.
+ * `test/pending-store.test.ts` asserts the relationship rather than trusting this comment.
  */
 export const PENDING_MAX_BYTES = 8 * 1024 * 1024
 /** A claim older than this is considered abandoned and may be re-taken. */

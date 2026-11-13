@@ -120,7 +120,9 @@ desired behaviour, not an error.
 - Replies keep the id because mail clients prefix — `Re: [pi:…] …`. Parsing
   tolerates `Re:`, `RE:`, `AW:`, `Re[2]:`.
 - Expiry bounds replay: an id older than `tokenTtlHours` resolves to nothing, and the
-  reply chain ages out on the same clock.
+  reply chain ages out on the same clock. A short id is refreshed once less than half its TTL
+  remains, so after the last notification it is valid for between `tokenTtlHours / 2` and the
+  full TTL — and the chain, stamped with the full TTL at send time, covers the gap.
 
 ### What identifies a reply
 

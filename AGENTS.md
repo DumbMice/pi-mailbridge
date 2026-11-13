@@ -107,8 +107,9 @@ doc.
 
 ## Publishing
 
-A tag publishes; nothing does it from a laptop any more. Bump `package.json` (and the two version
-mentions in the README), date the changelog, then:
+A tag publishes; nothing does it from a laptop any more. Bump `package.json`
+(and the two version mentions in the README, and `package-lock.json` — `npm version patch` does
+both lockfile fields for you), date the changelog, then:
 
 ```bash
 git tag -a v<version> -m "pi-mailbridge <version>" && git push origin main --tags

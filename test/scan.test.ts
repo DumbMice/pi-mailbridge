@@ -6,7 +6,7 @@ import { join } from "node:path"
 
 import type { ResolvedConfig } from "../src/core/config.ts"
 import { signToken } from "../src/core/token.ts"
-import { MAX_BODY_CHARS, scanAndProcess, type MailSource, type RawMessage } from "../src/daemon/process.ts"
+import { MAX_BODY_CHARS, MAX_SUBJECT_CHARS, scanAndProcess, type MailSource, type RawMessage } from "../src/daemon/process.ts"
 import { addPending, getPending, pendingSize, PENDING_CAP } from "../src/store/pending-store.ts"
 import { listPending } from "../src/store/pending-store.ts"
 import { journal } from "../src/store/journal.ts"
@@ -440,6 +440,30 @@ test("an unknown route id falls through to the reply chain instead of dropping t
 	assert.equal(r.reasons["route-miss"], 1, "the miss is recorded")
 	assert.equal(r.persisted, 1, "and the reply still arrives via the chain")
 	assert.equal(listPending(e)[0]!.sessionId, SESSION)
+})
+
+test("a multi-megabyte subject is truncated before it reaches the queue", async () => {
+	// The stored subject is display only - routing read the raw header - and it was the one field
+	// the scanner did not bound. Unbounded, one such message produced a record larger than
+	// PENDING_MAX_BYTES, which addPending then refused on every scan with nothing to expire: a
+	// permanent stall of all inbound mail. Asserting the helper is not enough; this drives the scan.
+	const e = env()
+	recordOutbound(e, { messageId: "<root@qq.com>", sessionId: SESSION, device: "test-device", subject: "x" })
+	const huge = "s".repeat(2_000_000)
+	const r = await scanAndProcess(config(), {
+		source: source([
+			msg(1, {
+				subject: `Re: [pi:ffffff] ${huge}`,
+				headers: { authResults: [GOOD_AR], inReplyTo: "<root@qq.com>" },
+			}),
+		]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.persisted, 1, "the reply is delivered")
+	const stored = listPending(e)[0]!
+	assert.ok(stored.subject.length <= MAX_SUBJECT_CHARS + 20, `stored ${stored.subject.length} chars`)
+	assert.match(stored.subject, /\[truncated\]$/)
 })
 
 test("our own threaded notification is not injected as a reply", async () => {

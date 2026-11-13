@@ -4,6 +4,8 @@
 // in the extension where no test could reach it - which is how an unconditional "queue full"
 // line shipped in its first version.
 
+import { PENDING_CAP, PENDING_MAX_BYTES } from "../store/pending-store.ts"
+
 export interface ScanSummary {
 	/** When the last scan that saw mail ran; absent until one has. */
 	at?: number
@@ -36,6 +38,23 @@ const HANDLED = new Set([
 /** Deferred, not dropped: the queue was full and the same UID is retried. */
 const DEFERRED = new Set(["pending-full"])
 
+/**
+ * Aged out under queue pressure. Not a rejection of anything in *this* scan - the record was
+ * already queued and undeliverable - so listing it under "rejections" beside `rejected 0` read
+ * as the same contradiction the counter fix was meant to remove.
+ */
+const EXPIRED = new Set(["expired"])
+
+/**
+ * The queue's two bounds, named from the constants.
+ *
+ * Hardcoding the numbers here is how the panel would start lying the day one of them changed -
+ * with a green suite, because the only assertion matched the words "queue full".
+ */
+export function queueLimits(): string {
+	return `${PENDING_CAP} replies or ${Math.round(PENDING_MAX_BYTES / 1024 / 1024)} MB queued`
+}
+
 export function formatScan(summary: ScanSummary | null | undefined): string[] {
 	if (!summary) return ["last scan: (never — is the daemon running?)"]
 	if (summary.at === undefined) {
@@ -52,7 +71,8 @@ export function formatScan(summary: ScanSummary | null | undefined): string[] {
 			.map(([reason, n]) => `${reason} ${n}`)
 			.join(", ")
 
-	const refused = list((r) => !HANDLED.has(r) && !DEFERRED.has(r) && !r.startsWith("attachment-"))
+	const refused = list((r) => !HANDLED.has(r) && !DEFERRED.has(r) && !EXPIRED.has(r) && !r.startsWith("attachment-"))
+	const expired = list((r) => EXPIRED.has(r))
 	const handled = list((r) => HANDLED.has(r))
 	const dropped = list((r) => r.startsWith("attachment-"))
 	const deferred = entries.some(([reason]) => DEFERRED.has(reason))
@@ -69,11 +89,12 @@ export function formatScan(summary: ScanSummary | null | undefined): string[] {
 		`rejections: ${refused || "none"}`,
 		...(handled ? [`handled: ${handled}`] : []),
 		...(dropped ? [`attachments dropped: ${dropped}`] : []),
+		...(expired ? [`aged out under queue pressure: ${expired}`] : []),
 		// Conditional, and it says what the reader should do about it. Both bounds are named: a
-		// byte-full queue can hold six replies, so "1 000" alone read as a contradiction with the
-		// "pending replies: 6" line right above it.
+		// byte-full queue can hold six replies, so the count alone read as a contradiction with
+		// the "pending replies: 6" line right above it.
 		...(deferred
-			? ["queue full: 1 000 replies or 8 MB queued — deferred, not dropped; start a session so they drain"]
+			? [`queue full: ${queueLimits()} — deferred, not dropped; start a session so they drain`]
 			: []),
 	]
 }

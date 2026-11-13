@@ -30,6 +30,20 @@ import { advanceCursor, readCursor } from "../store/uid-cursor.ts"
 
 /** Longest body we keep. Well above any real instruction; far below "a whole newsletter". */
 export const MAX_BODY_CHARS = 100_000
+/**
+ * Longest subject we persist. Routing already happened on the raw header, so this is a display
+ * field - and it is the one field the scanner does not otherwise bound (`MAX_MESSAGE_BYTES` is the
+ * only upstream limit, and it is the same size as the whole queue's ceiling). Without this cap a
+ * single message carrying a multi-megabyte `Subject:` header produced a record larger than
+ * `PENDING_MAX_BYTES`, which `addPending` then refused on every scan with nothing to expire: a
+ * permanent stall of all inbound mail. `test/pending-store.test.ts` pins the relationship.
+ */
+export const MAX_SUBJECT_CHARS = 300
+
+export function persistedSubject(subject: string | undefined): string {
+	const value = subject ?? ""
+	return value.length > MAX_SUBJECT_CHARS ? `${value.slice(0, MAX_SUBJECT_CHARS)} [truncated]` : value
+}
 
 export interface RawMessage {
 	uid: number
@@ -271,7 +285,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 					uid,
 					sessionId,
 					from: authz.from,
-					subject: message.subject ?? "",
+					subject: persistedSubject(message.subject),
 					body: note,
 					receivedAt: message.receivedAt ?? now(),
 					...(uidValidity === undefined ? {} : { uidValidity }),
@@ -297,7 +311,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			uid,
 			sessionId,
 			from: authz.from,
-			subject: message.subject ?? "",
+			subject: persistedSubject(message.subject),
 			body,
 			...(accepted.length ? { attachments: accepted } : {}),
 			receivedAt: message.receivedAt,

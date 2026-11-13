@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+Three changes that have not shipped yet. The version is deliberately not bumped.
+
+- **`/mailbridge` no longer freezes the agent process on a lock.** `ensureRouteForSession` ran under
+  `routes.lock` for every notification, and the wait sleeps the calling thread - measured at 3012 ms
+  with the lock held, on the pi main thread. A session with a live route now returns it without
+  taking the lock, and the route is only refreshed (or re-pointed at a renamed device) when needed.
+- **The pending queue is bounded in bytes, not only in records.** 1 000 records at the 100k-char
+  body cap was a ~100 MB file rewritten on every claim and ack; the ceiling is now 8 MB of stored
+  records as well. Refusal is a stall, not a drop: the cursor holds and the reply is retried, and a
+  queue inherited from an earlier version that is already over 8 MB simply defers *new* mail until
+  it drains - nothing is discarded, and the seven-day pressure expiry still frees an abandoned
+  backlog.
+- **The stored subject is capped at 300 characters.** It is display only (routing read the raw
+  header), and it was the one field the scanner did not bound: a multi-megabyte `Subject:` header
+  produced a record bigger than the queue's ceiling, which would then be refused on every scan with
+  nothing to expire.
+
+Also: a non-loopback `daemon.host` is now reported by `/mailbridge check` and fails
+`pi-mailbridge --check` (it was silent), and the panel names both queue bounds instead of a count
+that could not explain a byte-full queue.
+
 ## 0.1.3 — 2026-11-13
 
 - **The package page showed alt text instead of the images.** The README's markup was fixed to

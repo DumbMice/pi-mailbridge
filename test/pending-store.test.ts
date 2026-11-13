@@ -16,7 +16,7 @@ import {
 	pendingSize,
 } from "../src/store/pending-store.ts"
 import { PENDING_MAX_BYTES, recordBytes } from "../src/store/pending-store.ts"
-import { MAX_BODY_CHARS } from "../src/daemon/process.ts"
+import { MAX_BODY_CHARS, MAX_SUBJECT_CHARS, persistedSubject } from "../src/daemon/process.ts"
 import { MAX_ATTACHMENTS, MAX_TOTAL_BYTES } from "../src/core/attachments.ts"
 import { advanceCursor, readCursor, resetCursor } from "../src/store/uid-cursor.ts"
 import { statePath } from "../src/store/paths.ts"
@@ -367,7 +367,9 @@ test("the default ceiling is exercised, and it is above the largest record we ac
 		uid: 1,
 		sessionId: "s1",
 		from: "you@example.com",
-		subject: "s".repeat(200),
+		// The scanner's real maximum: an over-long header is truncated at persistence time
+		// (`persistedSubject`), so this is the largest subject that can reach the store.
+		subject: persistedSubject("s".repeat(8 * 1024 * 1024)),
 		body: "a".repeat(MAX_BODY_CHARS),
 		attachments: Array.from({ length: MAX_ATTACHMENTS }, (_, i) => ({
 			name: `a${i}.png`,
@@ -384,6 +386,18 @@ test("the default ceiling is exercised, and it is above the largest record we ac
 	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-pending-default-")) }
 	assert.equal(addPending(env, { ...biggest, body: "a".repeat(PENDING_MAX_BYTES + 1) }).ok, false)
 	assert.equal(listPending(env).length, 0)
+})
+
+test("an enormous subject is truncated before it reaches the queue", () => {
+	// Routing reads the raw subject; the stored copy is display only - and the one field the
+	// scanner does not otherwise bound. Unbounded, a multi-megabyte Subject: header made a record
+	// bigger than PENDING_MAX_BYTES, which was then refused on every scan with nothing to expire.
+	const huge = "s".repeat(2_000_000)
+	const capped = persistedSubject(huge)
+	assert.ok(capped.length <= MAX_SUBJECT_CHARS + 20, `capped to ${capped.length}`)
+	assert.match(capped, /\[truncated\]$/)
+	assert.equal(persistedSubject(undefined), "")
+	assert.equal(persistedSubject("short"), "short")
 })
 
 test("a body of CJK characters is counted in UTF-8 bytes, not code units", () => {

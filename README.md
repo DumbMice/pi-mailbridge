@@ -342,7 +342,7 @@ Every scan records why each message was refused, so this is answerable:
 ```
 
 ```
-daemon: healthy (http://127.0.0.1:4177) — daemon version 0.1.3
+daemon: healthy (http://127.0.0.1:4177) — daemon version 0.1.3, protocol 1
 device: dev-box-7
 mode: on
 imap: connected
@@ -385,7 +385,7 @@ proof the channel is open.
 | `attachment-*` | an attachment was dropped (type, size, count) | see the suffix |
 | `pending-full` | the queue is at its limit: 1 000 undelivered replies, or 8 MB of queued bodies and attachments (about six 1 MB-attachment replies) | start a session so they drain; nothing is discarded, the cursor waits |
 | `send_budget` | more than ten notifications in a minute were requested | a loop is mailing; the budget refuses rather than spending the account's quota |
-| `too-large` | over 8 MiB, refused before the body was downloaded | send a smaller one; inbound attachments are capped at 4 files and 1 MB *in total* |
+| `too-large` | over 8 MB, refused before the body was downloaded | send a smaller one; inbound attachments are capped at 4 files and 1 MB *in total* |
 
 Where to look:
 
@@ -449,7 +449,7 @@ environment variables. A working example: [`config.example.json`](https://github
 | `security.trustedAuthservId` | unset | pin the trusted `Authentication-Results` host; leave unset for Microsoft consumer accounts |
 | `security.allowHeaderThreading` | `true` | accept a reply whose subject id was lost, by matching `In-Reply-To`/`References` |
 | `security.allowSelfReplies` | `false` | one address for both roles: accept a self-addressed message, but only a real reply |
-| `security.tokenTtlHours` | `720` | lifetime of a route id, signed token and reply-chain entry |
+| `security.tokenTtlHours` | `720` | lifetime of a signed token and a reply-chain entry; a route id is refreshed once half its TTL is left, so it is guaranteed for at least `tokenTtlHours / 2` after the last notification, and the chain covers the rest |
 | `daemon.host` / `.port` | `127.0.0.1` / `4177` | loopback HTTP; a lock file in the state directory is the instance lock, and the port is a second guard |
 | `daemon.idleTimeoutSecs` | `120` | grace period after the last ping |
 | `daemon.scanIntervalSecs` | `60` | catch-up scan while mode is on, so a silent IDLE cannot strand a reply; `0` disables |
