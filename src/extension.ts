@@ -348,6 +348,13 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				}
 			}
 		}
+		// Clearing first: arming twice leaves the previous handle live and untracked, so both
+		// fire and the next re-arm adds a third. (Unreachable from the two current callers, which
+		// always run with no handle - this keeps it that way if a third appears.)
+		if (pollHandle !== undefined) {
+			timers.clearTimeout(pollHandle)
+			pollHandle = undefined
+		}
 		pollHandle = timers.setTimeout(() => {
 			pollHandle = undefined
 			trackTick(tick())
@@ -1118,6 +1125,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					let nothingToStop = false
 					let survivor = false
 					let rejected = false
+					let refusedBase: string | undefined
 					if (stopping) {
 						const result = await stopping.shutdown().catch(() => undefined)
 						nothingToStop = Boolean(result && !result.ok && result.status === 0 && result.code === "network")
@@ -1125,6 +1133,12 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						// advice below has to say so. Only 401: the daemon has no 403 (service.ts
 						// answers 401 for a bad bearer), so a 403 would be something else on the port.
 						rejected = Boolean(result && !result.ok && result.status === 401)
+						if (rejected) {
+							// It answered on the client's base, which may not be the configured one
+							// after a `daemon.port` edit: remember that separately, then check
+							// whether it was still there once the stop had its chance.
+							refusedBase = clientBase ?? currentBaseUrl()
+						}
 						client = undefined
 						runner = undefined
 						// Whether something still answers here is the only evidence that a restart did
@@ -1133,6 +1147,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						// the daemon this command starts will be on the configured one.
 						survivor = await waitForPortToClose(currentBaseUrl())
 					}
+					// A 401 proves only that something answered *then*. If it exited inside the
+					// stop window, the restart worked and must not be reported as a failure.
+					const rejectionSurvived = rejected
+						? await probe({ baseUrl: refusedBase ?? currentBaseUrl() })
+						: false
 					const ensured = await ensureDaemonDetailed()
 					if (ensured.healthy) {
 						// Cleared before the rebuild: the rebuild is what reads the key again, so a
@@ -1171,10 +1190,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						message = ensured.incompatible
 							? `daemon is still on another protocol (${ensured.apiVersion ?? "0"} → ${API_VERSION}) — close pi and start it again`
 							: `daemon did not come back${ensured.error ? ` (${ensured.error})` : ""} — run /mailbridge restart again`
-					} else if (rejected) {
-						// Proof something answered on the base this session asked to stop - not on
-						// the port the survivor probe watches, which is the configured one and can
-						// differ after a `daemon.port` edit.
+					} else if (rejected && rejectionSurvived) {
+						// It answered 401 on the base this session asked to stop, and it is still
+						// answering: not a wedged daemon, so retrying cannot help.
 						level = "error"
 						message =
 							"the daemon rejected this session's key, so it could not be stopped — stop it (or let it idle out) and start pi again"

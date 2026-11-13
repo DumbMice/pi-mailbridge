@@ -2108,6 +2108,49 @@ test("/mailbridge restart says when it had no key to stop anything with", async 
 	assert.equal(levels.at(-1), "warning", "unverifiable is a warning, not a success")
 })
 
+test("a 401 from a daemon that exits during the stop is not a failure", async () => {
+	// The 401 only proves something answered when it was asked. If that daemon exits inside the
+	// stop window, the restart worked - and reporting "the daemon rejected this session's key"
+	// would send the user to fix a daemon that is already gone.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const daemon = fakeDaemon({ mode: "on" })
+	let up = true
+	daemon.client.shutdown = async () => {
+		// It refuses the bearer and then finishes exiting on its own.
+		queueMicrotask(() => {
+			up = false
+		})
+		return { ok: false as const, status: 401 }
+	}
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		probeHealth: async () => up,
+		stopWaitMs: 0,
+		joinTickMs: 0,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	await captured.get("mailbridge")!("restart", ctx(notes))
+	for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
+
+	const said = notes.join("\n")
+	assert.ok(!/rejected this session's key/.test(said), `the daemon is gone, so nothing rejected us: ${said}`)
+	assert.match(said, /restarted with the current code/)
+})
+
 test("every restart outcome carries the right level", async () => {
 	// `notify` takes a level and no test pinned it, so a failure reported at info (or the
 	// reverse) was invisible.
