@@ -383,7 +383,7 @@ proof the channel is open.
 | `attachment-only-dropped` | the reply's only content was an attachment that was dropped (over the 1 MB total, a refused type); a note naming the drop is delivered | send the text, or a smaller file |
 | `empty-body` | no prose, no attachment at all | — |
 | `attachment-*` | an attachment was dropped (type, size, count) | see the suffix |
-| `pending-full` | 1 000 undelivered replies are queued | start a session so they drain |
+| `pending-full` | the queue is at its limit: 1 000 undelivered replies, or 8 MB of queued bodies and attachments (about six 1 MB-attachment replies) | start a session so they drain; nothing is discarded, the cursor waits |
 | `send_budget` | more than ten notifications in a minute were requested | a loop is mailing; the budget refuses rather than spending the account's quota |
 | `too-large` | over 8 MiB, refused before the body was downloaded | send a smaller one; inbound attachments are capped at 4 files and 1 MB *in total* |
 

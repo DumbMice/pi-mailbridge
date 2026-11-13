@@ -15,6 +15,9 @@ import {
 	listPendingForSession,
 	pendingSize,
 } from "../src/store/pending-store.ts"
+import { PENDING_MAX_BYTES, recordBytes } from "../src/store/pending-store.ts"
+import { MAX_BODY_CHARS } from "../src/daemon/process.ts"
+import { MAX_ATTACHMENTS, MAX_TOTAL_BYTES } from "../src/core/attachments.ts"
 import { advanceCursor, readCursor, resetCursor } from "../src/store/uid-cursor.ts"
 import { statePath } from "../src/store/paths.ts"
 import { isJournaled, journal, journalSize } from "../src/store/journal.ts"
@@ -352,4 +355,40 @@ test("a corrupt queue is preserved, not replaced by the next write", () => {
 	)
 	addPending(e, { uid: 1, sessionId: "s", from: "y@e.com", subject: "a", body: "b", receivedAt: 1 })
 	assert.equal(pendingSize(e), 1)
+})
+
+test("the default ceiling is exercised, and it is above the largest record we accept", () => {
+	// Two invariants that only make sense together:
+	//   1. a record bigger than the ceiling would be refused forever, with nothing to expire;
+	//   2. so the ceiling must exceed the largest record the scanner can produce.
+	// Nothing else ties PENDING_MAX_BYTES to MAX_BODY_CHARS or the attachment total, so a later
+	// raise of either would reopen (1) silently.
+	const biggest = {
+		uid: 1,
+		sessionId: "s1",
+		from: "you@example.com",
+		subject: "s".repeat(200),
+		body: "a".repeat(MAX_BODY_CHARS),
+		attachments: Array.from({ length: MAX_ATTACHMENTS }, (_, i) => ({
+			name: `a${i}.png`,
+			mimeType: "image/png",
+			size: Math.floor(MAX_TOTAL_BYTES / MAX_ATTACHMENTS),
+			data: "x".repeat(Math.ceil((MAX_TOTAL_BYTES * 4) / 3 / MAX_ATTACHMENTS)),
+		})),
+		receivedAt: 1,
+	}
+	const bytes = recordBytes(biggest)
+	assert.ok(bytes < PENDING_MAX_BYTES, `a maximum record (${bytes} B) must fit under ${PENDING_MAX_BYTES} B`)
+
+	// And the default rejects something bigger than itself, with no options passed.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-pending-default-")) }
+	assert.equal(addPending(env, { ...biggest, body: "a".repeat(PENDING_MAX_BYTES + 1) }).ok, false)
+	assert.equal(listPending(env).length, 0)
+})
+
+test("a body of CJK characters is counted in UTF-8 bytes, not code units", () => {
+	// save() writes UTF-8; a string index counts one per character. Three bytes per ideograph
+	// means a body that looks like 100k "characters" is 300k on disk.
+	const cjk = { uid: 1, sessionId: "s1", from: "y@e.com", subject: "x", body: "汉".repeat(300_000), receivedAt: 1 }
+	assert.ok(recordBytes(cjk) > 800_000, `counted ${recordBytes(cjk)} bytes for 300k ideographs`)
 })

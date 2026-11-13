@@ -710,6 +710,9 @@ test("a full queue expires records nothing can deliver rather than stalling for 
 	const r = await scanAndProcess(config(), { source: source([msg(PENDING_CAP + 1)]), secret: SECRET, env: e })
 	assert.equal(r.reasons["expired"], 1, "old records were expired")
 	assert.equal(r.persisted, 1, "and the new reply was accepted")
+	// The expiry is not a rejection of this message. Counting it as one printed "examined 1,
+	// rejected 2" for a scan that accepted its only message.
+	assert.equal(r.rejected, 0, "the accepted reply is not also counted as rejected")
 	assert.equal(pendingSize(e), 1, "the queue is clear of the undeliverable backlog")
 })
 

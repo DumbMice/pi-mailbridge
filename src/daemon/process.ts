@@ -316,7 +316,9 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			// place age-based expiry runs, because it is the only place the loss buys progress.
 			const expired = expirePending(env)
 			if (expired.length > 0) {
-				result.rejected++
+				// Not a rejection of *this* message: the reason says what was dropped, and the
+				// counts stay usable ("examined 1, rejected 1"), which they did not when the
+				// expiry was counted here and the refusal below counted it again.
 				bump(result.reasons, "expired")
 				// The same rule as the UID-space drop: free a slot only when nothing else is
 				// queued for that session, or a live record would lose its reservation.

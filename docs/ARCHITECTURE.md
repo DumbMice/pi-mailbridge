@@ -61,6 +61,12 @@ Invariants:
   journal (UID already acked), not by timing.
 - **The claim is short-lived.** It prevents two sessions with the same id (an
   old and new runtime during `/reload`) from injecting twice.
+- **Persistence is bounded, and refusal is a stall, not a drop.** The pending store holds at most
+  1 000 records or 8 MB of serialised records (`PENDING_CAP`, `PENDING_MAX_BYTES`). A refused
+  record leaves the cursor and the mail unread and stops the batch, which is retried once space
+  appears - that is why the byte ceiling must stay above the largest single record the scanner
+  accepts. The only deliberate loss is age: records older than seven days are expired *under that
+  pressure only*, never on connect.
 
 ## 3. Daemon HTTP surface
 

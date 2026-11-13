@@ -121,6 +121,23 @@ test("a live route is reused without taking the lock", () => {
 	}
 })
 
+test("a device rename is persisted even while the route is fresh", () => {
+	// The fast path skips the write when the route has plenty of TTL left - but a rename changes
+	// what /pending and /claim filter on, so that one field still needs persisting. Without this
+	// test, deleting the device guard from the fast path passes the whole suite: the other device
+	// test also crosses the refresh threshold, so expiry alone forces the lock there.
+	const e = env()
+	const now = 1_000_000_000_000
+	const ttlHours = 720
+	const id = ensureRouteForSession({ sessionId: SESSION, subject: "pi: x", device: "dev-a", env: e, now, ttlHours })
+
+	// One minute later: TTL/2 (15 days) has not passed, so only the device can force the write.
+	const renamed = ensureRouteForSession({ sessionId: SESSION, subject: "pi: x", device: "dev-b", env: e, now: now + 60_000, ttlHours })
+	assert.equal(renamed, id, "same route id")
+	assert.equal(resolveRoute(id, { device: "dev-a", env: e, now: now + 60_000 }), undefined, "the old device is refused")
+	assert.equal(resolveRoute(id, { device: "dev-b", env: e, now: now + 60_000 })?.sessionId, SESSION, "the new one resolves")
+})
+
 test("a route that needs refreshing still takes the lock, and a device change updates it", () => {
 	const e = env()
 	const now = 1_000_000_000_000

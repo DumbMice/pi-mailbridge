@@ -69,7 +69,11 @@ export function formatScan(summary: ScanSummary | null | undefined): string[] {
 		`rejections: ${refused || "none"}`,
 		...(handled ? [`handled: ${handled}`] : []),
 		...(dropped ? [`attachments dropped: ${dropped}`] : []),
-		// Conditional, and it says what the reader should do about it.
-		...(deferred ? ["queue full: replies are deferred, not dropped — start a session so they drain"] : []),
+		// Conditional, and it says what the reader should do about it. Both bounds are named: a
+		// byte-full queue can hold six replies, so "1 000" alone read as a contradiction with the
+		// "pending replies: 6" line right above it.
+		...(deferred
+			? ["queue full: 1 000 replies or 8 MB queued — deferred, not dropped; start a session so they drain"]
+			: []),
 	]
 }

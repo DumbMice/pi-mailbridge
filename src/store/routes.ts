@@ -212,6 +212,12 @@ function registerLocked(options: RegisterRouteOptions, env: NodeJS.ProcessEnv, n
  * id stable per session means the subject is byte-identical across notifications, so
  * Outlook's conversation topic and Gmail's subject grouping both keep one thread, and
  * the RFC 5322 headers we also set have something stable to point at.
+ *
+ * Lifetime guarantee: the id is refreshed once less than half its TTL remains, so a session that
+ * notifies at least once per TTL/2 keeps the same id indefinitely (15 days either side at the
+ * default 720 h). That is half of what the always-refresh version promised, which the reply-chain
+ * fallback covers: `recordOutbound` stamps the chain at send time with the full
+ * `security.tokenTtlHours`, so a reply to a mail older than TTL/2 still routes.
  */
 export function ensureRouteForSession(options: RegisterRouteOptions): string {
 	const env = options.env ?? process.env
@@ -234,21 +240,21 @@ export function ensureRouteForSession(options: RegisterRouteOptions): string {
 	}
 
 	return withLock(env, () => {
-	const items = load(env)
-	const existing = items.find((r) => r.sessionId === options.sessionId && r.expiresAt > now)
-	if (existing) {
-		// Refresh so a long-lived session keeps its id, and keep the subject current.
-		existing.expiresAt = now + ttlHours * 3600_000
-		if (existing.device !== options.device) {
-			if (options.device) existing.device = options.device
-			else delete existing.device
+		const items = load(env)
+		const existing = items.find((r) => r.sessionId === options.sessionId && r.expiresAt > now)
+		if (existing) {
+			// Refresh so a long-lived session keeps its id, and keep the subject current.
+			existing.expiresAt = now + ttlHours * 3600_000
+			if (existing.device !== options.device) {
+				if (options.device) existing.device = options.device
+				else delete existing.device
+			}
+			existing.subject = options.subject
+			save(env, items)
+			return existing.id
 		}
-		existing.subject = options.subject
-		save(env, items)
-		return existing.id
-	}
-	// registerLocked, not registerRoute: the lock is not re-entrant.
-	return registerLocked(options, env, now, ttlHours)
+		// registerLocked, not registerRoute: the lock is not re-entrant.
+		return registerLocked(options, env, now, ttlHours)
 	})
 }
 

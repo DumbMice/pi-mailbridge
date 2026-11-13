@@ -19,10 +19,15 @@ export const PENDING_CAP = 1_000
 /**
  * Byte ceiling for the whole store, because the record cap alone was not a bound.
  *
- * `save()` rewrites the entire array on every claim and every ack, so 1000 records at the 100k-char
- * body cap is a ~100 MB file rewritten several times a minute - and the queue is already
- * misbehaving when it is that full. Measured in stored characters (body plus base64 attachment
- * data), which is what actually lands on disk.
+ * `save()` rewrites the entire array on every claim and every ack, so 1000 records at the
+ * `MAX_BODY_CHARS` body cap is a ~100 MB file rewritten several times a minute - and the queue is
+ * already misbehaving when it is that full.
+ *
+ * It must stay comfortably above the largest single record the scanner can accept, or the queue
+ * would refuse that record forever with nothing to expire (the stall described in process.ts).
+ * That record is `MAX_BODY_CHARS` (100 000) plus a 1 MB attachment total base64'd (~1.33 MB), so
+ * ~1.5 MB; 8 MB leaves room for several. `test/pending-store.test.ts` asserts the relationship
+ * rather than trusting this comment.
  */
 export const PENDING_MAX_BYTES = 8 * 1024 * 1024
 /** A claim older than this is considered abandoned and may be re-taken. */
@@ -139,17 +144,29 @@ export function getPending(env: NodeJS.ProcessEnv, uid: number): PendingRecord |
 
 export type AddResult = { ok: true; record: PendingRecord } | { ok: false; reason: "full" }
 
-/** What a record costs on disk: the body, plus the already-base64 attachment payloads. */
+/**
+ * What a record costs on disk: its serialised UTF-8 bytes.
+ *
+ * Serialised, because that is what `save()` writes and what a count of body + attachment data
+ * misses: the subject, the sender, attachment names and mime types, and JSON's escaping (one
+ * control character becomes six ASCII characters). Bytes rather than characters, because a CJK
+ * body costs up to three bytes per character in the file and one per character in a string index.
+ */
 export function recordBytes(record: PendingRecord): number {
-	return record.body.length + (record.attachments ?? []).reduce((total, a) => total + a.data.length, 0)
+	return Buffer.byteLength(JSON.stringify(record), "utf8")
 }
 
 /**
  * Add or replace the record for `uid`. Idempotent on replay.
  *
- * Refuses a NEW record once the store is full rather than making room by discarding an
- * older one: every record here was already accepted, and the caller's cursor is about to
- * move past it. Replacing an existing uid (replay) is always allowed.
+ * Refuses rather than making room by discarding an older record: every record here was already
+ * accepted, and the caller's cursor is about to move past it. Two bounds, both checked here so
+ * the refusal happens before the cursor moves:
+ *
+ *   - `PENDING_CAP` records. Replacing an existing uid is allowed regardless (a replay cannot
+ *     grow the count).
+ *   - `PENDING_MAX_BYTES` of serialised records. A replacement is re-measured rather than trusted:
+ *     an over-size replay would otherwise be the one way past the ceiling.
  */
 export function addPending(
 	env: NodeJS.ProcessEnv,
