@@ -23,7 +23,10 @@ Break one of these and the package loses mail or becomes a hole:
 4. **The routing id routes; it does not authorize.** Sender allowlist and DMARC come first
    (pinning the `authserv-id` is optional, and wrong for consumer accounts). DMARC is off in
    the single-mailbox layout, where the provider stamps no header on self-addressed mail.
-5. **One daemon per machine.** The port is the lock; `EADDRINUSE` means exit 0.
+5. **One daemon per state directory.** `daemon.lock` decides: `wx` create with the pid
+   inside, a live holder means exit 0, a dead one is stolen by renaming the file aside (never
+   unlinking it - two stealers must not both win), and SIGTERM releases it. The port is a second
+   guard, not the lock, because two processes can disagree about `daemon.port`.
 6. **`agent_settled`, not `agent_end`.** `agent_end` precedes retries,
    compaction and queued follow-ups.
 7. **Injection is `deliverAs: "followUp"`.** Never inject as `steer` by default.

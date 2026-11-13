@@ -215,7 +215,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 	// throws. A JSON `null` is not a record, and the env merge runs after the file merge - so a
 	// null section can come back as a *partial* record (e.g. `{"daemon": null}` plus
 	// PI_MAILBRIDGE_EXIT_WHEN_IDLE leaves a daemon with no host and no port, which would bind an
-	// ephemeral port and drop the "port is the lock" invariant). Repair by filling the defaults
+	// ephemeral port and drop the single-instance guard). Repair by filling the defaults
 	// underneath whatever survived, rather than replacing it.
 	const sections = resolved as unknown as Record<string, unknown>
 	for (const key of Object.keys(DEFAULTS) as (keyof typeof DEFAULTS)[]) {

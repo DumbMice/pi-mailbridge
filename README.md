@@ -26,8 +26,8 @@ screenshots inline, and any local file the agent linked, attached with its real 
 
 ## Install
 
-Requires **Node.js ≥ 22.6** (the package ships TypeScript and runs it with
-`--experimental-strip-types`). `pi`'s own Node is fine.
+Requires **Node.js ≥ 22.6**. `pi`'s own Node is fine. The daemon ships compiled (Node refuses to
+strip TypeScript inside `node_modules`); the pi extension itself is loaded by pi's jiti loader.
 
 ```bash
 pi install npm:pi-mailbridge
@@ -95,6 +95,7 @@ Done: the failing test passes now.
 --
 device: dev-box-7
 session: fix-login
+session id: 01a1c453-f2fc-7169-8c89-69c93fa1a152
 project: /home/ybc/Work/proj
 turns: 3
 
@@ -220,13 +221,12 @@ For a systemd unit, a container, or a first run on a remote box:
 | `--print-token` | print the bearer secret to stdout — never paste it anywhere |
 
 ```bash
-node --experimental-strip-types \
-  "${PI_MAILBRIDGE_DIR:-$HOME/.pi/agent/npm/node_modules/pi-mailbridge}/src/daemon/main.ts"
+node "${PI_MAILBRIDGE_DIR:-$HOME/.pi/agent/npm/node_modules/pi-mailbridge}/dist/daemon/main.js"
 ```
 
-On a system whose `env` lacks `-S` (busybox/Alpine), the `bin` shim fails with
-`env: invalid option -- 'S'`; the explicit `node --experimental-strip-types …` form above is the
-same program.
+The package ships a compiled `dist/` because Node refuses to strip TypeScript inside
+`node_modules`; a checkout without a build can run `npm run build`, or use
+`node --experimental-strip-types src/daemon/main.ts`.
 
 ### What gets attached
 
@@ -343,6 +343,9 @@ Where to look:
 | --- | --- |
 | `$XDG_STATE_HOME/pi-mailbridge/daemon.log` (default `~/.local/state/…`); under systemd, `journalctl --user -u pi-mailbridge` | scan summaries, connect errors, refusal reasons |
 | `…/uid-cursor.json` | last seen UID + the mailbox UIDVALIDITY |
+| `…/daemon.lock` | the running daemon's pid — the file to look at when a start says another daemon is already running |
+| `…/routes.lock` | held for the instant a routing id is minted |
+| `…/daemon.log` | the daemon's own log (0600, rotates once at 5 MB) |
 | `…/mode.json` | the global on/off state `/mailbridge on` and `off` write |
 | `…/pending.json` | accepted replies waiting for a session |
 | `…/routes.json` | short routing ids (`security.tokenTtlHours`) |
@@ -397,7 +400,7 @@ environment variables. A working example: [`config.example.json`](./config.examp
 | `security.allowHeaderThreading` | `true` | accept a reply whose subject id was lost, by matching `In-Reply-To`/`References` |
 | `security.allowSelfReplies` | `false` | one address for both roles: accept a self-addressed message, but only a real reply |
 | `security.tokenTtlHours` | `720` | lifetime of a route id, signed token and reply-chain entry |
-| `daemon.host` / `.port` | `127.0.0.1` / `4177` | loopback HTTP; the port is the instance lock |
+| `daemon.host` / `.port` | `127.0.0.1` / `4177` | loopback HTTP; a lock file in the state directory is the instance lock, and the port is a second guard |
 | `daemon.exitWhenIdle` | `true` | exit once no pi session pings; `false` for a supervised daemon |
 | `daemon.idleTimeoutSecs` | `120` | grace period after the last ping |
 | `daemon.scanIntervalSecs` | `60` | catch-up scan while mode is on, so a silent IDLE cannot strand a reply; `0` disables |

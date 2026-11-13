@@ -964,3 +964,17 @@ test("the docs do not claim a mail reply can reopen the mode", () => {
 		}
 	}
 })
+
+test("the single-instance mechanism is described as the lock file, not the port", () => {
+	// AGENTS #5 said "the port is the lock" for ten rounds after the code stopped relying on it.
+	// Four files repeated it; none was pinned.
+	for (const file of ["AGENTS.md", "README.md", "docs/ARCHITECTURE.md"]) {
+		const text = flat(doc(file))
+		assert.match(text, /daemon\.lock/, `${file} must name the lock file`)
+		assert.doesNotMatch(
+			text,
+			/port is the (?:instance )?lock|listening port is the lock/i,
+			`${file} still calls the port the lock`,
+		)
+	}
+})

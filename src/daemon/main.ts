@@ -20,7 +20,7 @@
 //   --smoke         send one real mail, then open the folder and count
 //   --print-token   print the shared secret (for scripts and tests)
 
-import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs"
 import { statePath } from "../store/paths.ts"
 import { dirname } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -236,11 +236,40 @@ function acquireDaemonLock(env: NodeJS.ProcessEnv): { ok: true; release: () => v
 	})()
 	if (alive) return { ok: false, pid: holder }
 
-	// Stale: the holder is gone (a crash, or a reboot with a leftover file). Steal it.
+	// Stale: the holder is gone (a crash, or a reboot with a leftover file). Steal it by
+	// RENAMING it aside, not unlinking it: an unlink plus a retake lets two stealers both win -
+	// B unlinks the corpse, creates its own lock, then C unlinks *B's live lock* and creates
+	// its own. A rename is atomic, so exactly one stealer gets the file; the winner verifies it
+	// took the corpse it judged dead, and puts back anything that is not.
+	const aside = `${path}.${process.pid}.stale`
 	try {
-		unlinkSync(path)
+		renameSync(path, aside)
 	} catch {
-		/* someone else may have removed it first */
+		// Someone else moved it first; try again from the top once.
+		const retry = take()
+		return retry ?? { ok: false, pid: holder }
+	}
+	let moved = Number.NaN
+	try {
+		moved = Number(readFileSync(aside, "utf8").trim())
+	} catch {
+		/* unreadable */
+	}
+	if (moved !== holder) {
+		// The file changed between the liveness check and our rename: restore it untouched and
+		// report the current holder rather than stealing a live lock.
+		try {
+			renameSync(aside, path)
+		} catch {
+			/* if we cannot put it back, leave it aside; the next start will judge it */
+		}
+		const retry = take()
+		return retry ?? { ok: false, pid: Number.isFinite(moved) ? moved : holder }
+	}
+	try {
+		unlinkSync(aside)
+	} catch {
+		/* already gone */
 	}
 	const second = take()
 	return second ?? { ok: false, pid: holder }

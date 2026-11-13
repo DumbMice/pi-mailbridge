@@ -66,7 +66,8 @@ const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(r
 /**
  * Make sure a daemon is running.
  *
- * Reuses an existing daemon rather than racing it: the port is the lock, and a
+ * Reuses an existing daemon rather than racing it: `daemon.lock` in the state directory is the
+ * lock (the port is a second guard), and a
  * second daemon exits 0 on EADDRINUSE, so the worst case is a wasted spawn rather
  * than two watchers on one mailbox.
  */
@@ -87,8 +88,10 @@ export async function ensureDaemon(options: EnsureDaemonOptions): Promise<Ensure
 			return ""
 		}
 	})()
+	// `--experimental-strip-types` only for the TypeScript entry: the published build runs
+	// `dist/daemon/main.js`, and Node refuses type stripping under `node_modules` anyway.
 	const args = [
-		"--experimental-strip-types",
+		...(options.scriptPath.endsWith(".ts") ? ["--experimental-strip-types"] : []),
 		options.scriptPath,
 		...(probedPort ? ["--port", probedPort] : []),
 		...(options.args ?? []),

@@ -27,6 +27,7 @@
     "pi-mailbridge": "./bin/pi-mailbridge.mjs"
   },
   "files": [
+    "dist",
     "src",
     "bin",
     "docs",
@@ -44,7 +45,9 @@
     "daemon": "node --experimental-strip-types src/daemon/main.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test test/*.test.ts",
-    "prepublishOnly": "npm run typecheck && npm test"
+    "prepublishOnly": "npm run build && npm run typecheck && npm test",
+    "build": "tsc -p tsconfig.build.json",
+    "pretest": "npm run build"
   },
   "dependencies": {
     "imapflow": "^2.11.0",

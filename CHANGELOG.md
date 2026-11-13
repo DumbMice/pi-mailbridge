@@ -2,8 +2,10 @@
 
 ## 0.1.0 — unreleased
 
-Feature-complete for the single-user, one-mailbox case. Exercised by hand against a live
-Outlook.com and QQ mailbox; no automated live-mailbox test exists.
+Feature-complete for the single-user, one-mailbox case. Exercised end to end against a live QQ
+mailbox in both layouts (two addresses, and one address for both roles); personal Outlook was
+tried and rejected IMAP/SMTP OAuth2 server-side, as docs/OAUTH.md describes. No automated
+live-mailbox test exists.
 
 ### Core
 
@@ -121,6 +123,20 @@ shadowed silently by another extension — pi resolves commands by first match a
 nothing — and neither name appeared in `/mailbridge help`. They are subcommands now, named for the mode they set, and the usage text lists them. Both still
 work as a mail reply, except `/mailbridge on`: with the mode off nothing is scanned or drained, so
 it can only be re-opened from the terminal. Nothing was published, so there is no alias to carry.
+
+### The package ships a build, because Node cannot strip types inside node_modules
+
+`pi install npm:pi-mailbridge` was broken in a way no local test could see: the extension loads
+through jiti (so TypeScript works), but the daemon it spawns ran `node --experimental-strip-types`
+on `src/daemon/main.ts` from inside `node_modules`, and Node refuses that with
+`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`. The user saw "daemon not reachable; replies will
+not arrive" and a stack trace in `daemon.log`. Every live test until now ran from a checkout,
+where the path has no `node_modules` segment.
+
+`npm run build` now emits `dist/` (tsc with `rewriteRelativeImportExtensions`, so the `.ts` import
+specifiers become `.js`), `prepublishOnly` builds first, the tarball ships `dist`, and `bin`, the
+spawned daemon and the systemd unit run plain `node` against the compiled entry. A packaging test
+copies the built package into a temporary `node_modules` and starts it, so this cannot regress.
 
 ### One daemon per state directory, whatever port it thinks it owns
 

@@ -28,6 +28,7 @@ import { createOpenidClient } from "./core/oauth-openid.ts"
 import { createDeviceCodeProvider } from "./core/oauth-device.ts"
 import { fileTokenStore } from "./store/oauth-store.ts"
 import { ensureRouteForSession, registerRoute } from "./store/routes.ts"
+import { existsSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 const POLL_MS = 10_000
@@ -234,6 +235,15 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 	// ---- lifecycle ---------------------------------------------------------
 
+	// This module is `extension.ts` in a checkout and `extension.js` in the published build. The
+	// daemon beside it follows the same shape: `main.ts` needs `--experimental-strip-types`, and
+	// Node refuses that inside `node_modules`, so the build ships `main.js`.
+	const daemonScript = (): string => {
+		const compiled = fileURLToPath(new URL("./daemon/main.js", import.meta.url))
+		const source = fileURLToPath(new URL("./daemon/main.ts", import.meta.url))
+		return fileURLToPath(import.meta.url).endsWith(".js") && existsSync(compiled) ? compiled : source
+	}
+
 	/**
 	 * Build the client, notifier and delivery runner. Called on session_start and again
 	 * if the poll tick finds the daemon gone, so a session recovers without a reload.
@@ -384,7 +394,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 	async function ensureDaemonSafe(): Promise<boolean> {
 		const ensure = deps.ensureDaemon ?? ((base: string, script: string) => ensureDaemon({ baseUrl: base, scriptPath: script, env }).then((r) => r.healthy))
-		return ensure(currentBaseUrl(), fileURLToPath(new URL("./daemon/main.ts", import.meta.url)))
+		return ensure(currentBaseUrl(), daemonScript())
 	}
 
 	pi.on("session_start", async (_event, c) => {
@@ -759,7 +769,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						// Give the process a moment to release the port before respawning.
 						await new Promise((resolve) => setTimeout(resolve, 400))
 					}
-					const healthy = await ensure(currentBaseUrl(), fileURLToPath(new URL("./daemon/main.ts", import.meta.url)))
+					const healthy = await ensure(currentBaseUrl(), daemonScript())
 					if (healthy && !client) {
 						// This session never had a runtime (started before the config existed).
 						await ensureRuntime(c.ui)

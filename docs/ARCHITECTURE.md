@@ -223,9 +223,10 @@ based, so an edit that preserves the mtime (`cp -p`, a restore) is not noticed u
 `smoke`/`restart`; and only the daemon re-reads — the session's own copy of the config
 refreshes on the next `/mailbridge` command or pi restart.
 
-**Singleton.** The listening port is the lock. A second daemon fails to bind, logs the
-fact, and exits 0 - so N pi sessions share one watcher with no lock file or PID file to
-go stale. `ensureDaemon()` then probes `/health` and reuses the winner.
+**Singleton.** `daemon.lock` in the state directory is the lock, with the owner's pid inside: a
+live holder makes the newcomer exit 0, and a file left by a crash is stolen by an atomic rename
+(not an unlink-then-retake, which lets two starters both win). The listening port is a second
+guard, for a foreign listener - a bind failure also exits 0. `ensureDaemon()` then probes `/health` and reuses the winner.
 
 **It stops when the last session does.** Every session pings `/ping` on its poll tick
 (10s) and sends `/bye` on `session_shutdown`. Once no ping has arrived for

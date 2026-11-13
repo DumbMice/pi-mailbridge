@@ -30,8 +30,8 @@ Environment=PI_MAILBRIDGE_DIR=%h/.pi/agent/npm/node_modules/pi-mailbridge
 Environment=PI_MAILBRIDGE_EXIT_WHEN_IDLE=false
 # ---------------------------------------------------------------------------
 
-ExecStartPre=/usr/bin/env node --experimental-strip-types ${PI_MAILBRIDGE_DIR}/src/daemon/main.ts --check
-ExecStart=/usr/bin/env node --experimental-strip-types ${PI_MAILBRIDGE_DIR}/src/daemon/main.ts
+ExecStartPre=/usr/bin/env node ${PI_MAILBRIDGE_DIR}/dist/daemon/main.js --check
+ExecStart=/usr/bin/env node ${PI_MAILBRIDGE_DIR}/dist/daemon/main.js
 
 # The port is the single-instance lock: when pi's ensureDaemon() already owns it, this
 # unit's start exits 0. Restart=always would then restart it every RestartSec forever, so

@@ -5,7 +5,10 @@
 
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { readFileSync, existsSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const root = fileURLToPath(new URL("..", import.meta.url))
@@ -125,7 +128,10 @@ test("the example never contains a live-looking secret", () => {
 
 test("the systemd unit runs the same entry point and self-checks first", () => {
 	const unit = read("../docs/systemd/pi-mailbridge.service")
-	assert.match(unit, /src\/daemon\/main\.ts/)
+	// The compiled entry, run by plain node: an installed package cannot strip types inside
+	// node_modules, so a unit pointing at src/daemon/main.ts would never start.
+	assert.match(unit, /dist\/daemon\/main\.js/)
+	assert.doesNotMatch(unit, /--experimental-strip-types/, "the unit runs the build, not the sources")
 	assert.match(unit, /--check/)
 	assert.match(unit, /ReadWritePaths/, "unit should be hardened")
 })
@@ -268,9 +274,13 @@ test("the documented CLI actually exists and ships", () => {
 	assert.match(String(email), /@/, "SECURITY.md's disclosure channel needs a reachable address")
 	assert.ok(pkg.files.includes("bin"), "the bin shim must ship in the tarball")
 
+	// The shim is plain `node`: an installed package runs the compiled `dist/`, because Node
+	// refuses to strip types inside node_modules (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING).
 	const shim = read("../bin/pi-mailbridge.mjs")
-	assert.match(shim, /^#!\/usr\/bin\/env -S node --experimental-strip-types/, "the shim supplies the TS flag")
-	assert.match(shim, /from "\.\.\/src\/daemon\/main\.ts"/)
+	assert.match(shim, /^#!\/usr\/bin\/env node\n/, "the shim must run plain node")
+	assert.match(shim, /dist\/daemon\/main\.js/, "and prefer the compiled daemon")
+	assert.ok(pkg.files.includes("dist"), "which must ship in the tarball")
+	assert.match(shim, /src\/daemon\/main\.ts/, "with a source fallback for a checkout")
 	assert.match(shim, /main\(\)/, "and actually invokes the CLI")
 })
 
@@ -281,4 +291,38 @@ test("the daemon entry guard does not compare a URL to a path", () => {
 	const main = readFileSync(fileURLToPath(new URL("../src/daemon/main.ts", import.meta.url)), "utf8")
 	assert.doesNotMatch(main, /`file:\/\/\$\{process\.argv\[1\]\}`/, "compare paths, not a URL and a path")
 	assert.match(main, /realpathSync\(fileURLToPath\(import\.meta\.url\)\)/, "and resolve both sides")
+})
+
+test("the daemon starts from an installed package, not just a checkout", () => {
+	// Node refuses type stripping inside node_modules
+	// (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING), so a package that ships only .ts can be
+	// installed, loaded by pi (jiti) and still be unable to start its daemon. Every live test
+	// before this ran from a checkout, where the failure cannot happen.
+	const box = mkdtempSync(join(tmpdir(), "pmb-install-"))
+	const installed = join(box, "node_modules", "pi-mailbridge")
+	mkdirSync(join(box, "node_modules"), { recursive: true })
+	// The runtime dependencies, without copying them: a real install has them beside the package.
+	for (const dep of readdirSync(join(root, "node_modules"))) {
+		if (dep === "pi-mailbridge" || dep.startsWith(".")) continue
+		try {
+			symlinkSync(join(root, "node_modules", dep), join(box, "node_modules", dep))
+		} catch {
+			/* a scoped entry needs its parent first; skip what cannot be linked */
+		}
+	}
+	mkdirSync(installed, { recursive: true })
+	for (const part of ["dist", "bin", "package.json"]) {
+		cpSync(join(root, part), join(installed, part), { recursive: true })
+	}
+
+	const out = execFileSync(process.execPath, [join(installed, "bin", "pi-mailbridge.mjs"), "--print-token"], {
+		encoding: "utf8",
+		env: { ...process.env, XDG_STATE_HOME: join(box, "state"), XDG_CONFIG_HOME: join(box, "config") },
+		timeout: 20_000,
+	})
+	assert.match(out.trim(), /^[A-Za-z0-9_-]{20,}$/, "the daemon entry ran and printed the secret")
+
+	// And the thing it would have done: resolve a script inside node_modules with no TS flag.
+	const spawned = readFileSync(join(installed, "dist", "daemon", "main.js"), "utf8")
+	assert.doesNotMatch(spawned, /^import .*\.ts"/m, "the build must not import .ts")
 })
