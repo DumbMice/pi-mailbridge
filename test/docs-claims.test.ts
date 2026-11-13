@@ -1082,3 +1082,25 @@ test("the README's flow diagram exists, is referenced, and matches the gate orde
 	assert.ok(printed >= 8, "the gate strip is a chain, not a list")
 	assert.doesNotMatch(svg, /<image\b/, "it is vector, so it stays sharp and diffable")
 })
+
+test("every image the README embeds actually exists", () => {
+	// Two images are load-bearing (the teaser and the schematic); a stale path renders as a broken
+	// box on GitHub and silently disappears in a local viewer. Code spans are excluded: an agent's
+	// example Markdown (`![shot](./shot.png)`) is a mail body, not a file this repo should have.
+	const readme = doc("README.md")
+	const withoutFences = readme.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "")
+	const referenced = [...withoutFences.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)].map((m) => m[1]!.trim())
+	assert.ok(referenced.length >= 2, `expected the README images, found ${referenced.length}`)
+	for (const target of referenced) {
+		if (/^https?:\/\//.test(target)) continue
+		assert.ok(existsSync(join(root, target)), `README embeds ${target}, which is not in the package`)
+	}
+})
+
+test("the diagrams are in the published package", () => {
+	const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { files: string[] }
+	assert.ok(pkg.files.includes("docs"), "docs/ ships, so docs/images/ does too")
+	for (const image of ["docs/images/notification.png", "docs/images/flow.svg"]) {
+		assert.ok(existsSync(join(root, image)), `${image} is missing`)
+	}
+})
