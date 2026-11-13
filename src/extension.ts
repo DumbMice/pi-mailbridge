@@ -105,7 +105,7 @@ export interface MailbridgeDeps {
 	respawnBackoffMs?: number
 	/** How long to wait for a stopped daemon's port to close. Defaults to five seconds. */
 	stopWaitMs?: number
-	/** How long a command waits for a tick it interrupted. Defaults to five seconds. */
+	/** How long a command waits for a tick it interrupted. Defaults to eight seconds. */
 	joinTickMs?: number
 	timers?: SettleTimers
 	/** Poll interval for pending replies. */
@@ -242,9 +242,15 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 */
 	function trackTick(running: Promise<void>): void {
 		tickInFlight = running
-		void running.finally(() => {
-			if (tickInFlight === running) tickInFlight = undefined
-		})
+		// `.then(clear, clear)`: a rejecting tick must not surface as an unhandled rejection.
+		void running.then(
+			() => {
+				if (tickInFlight === running) tickInFlight = undefined
+			},
+			() => {
+				if (tickInFlight === running) tickInFlight = undefined
+			},
+		)
 	}
 
 	/**
@@ -1098,9 +1104,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					stopPolling()
 					let joinExpired = false
 					try {
-						// A tick already past every pause check may be inside a spawn. Wait for it,
-						// so the daemon it started is on the port before this command looks.
-						joinExpired = await settleTick()
+					// A tick already past every pause check may be inside a spawn. Wait for it, so
+					// the daemon it started is on the port before this command looks.
+					joinExpired = await settleTick()
 					// To stop it we need a client even when this session has no runtime yet - the
 					// same rule the protocol replacement follows, and the remedy its own warning
 					// names.
@@ -1165,6 +1171,13 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						message = ensured.incompatible
 							? `daemon is still on another protocol (${ensured.apiVersion ?? "0"} → ${API_VERSION}) — close pi and start it again`
 							: `daemon did not come back${ensured.error ? ` (${ensured.error})` : ""} — run /mailbridge restart again`
+					} else if (rejected) {
+						// Proof something answered on the base this session asked to stop - not on
+						// the port the survivor probe watches, which is the configured one and can
+						// differ after a `daemon.port` edit.
+						level = "error"
+						message =
+							"the daemon rejected this session's key, so it could not be stopped — stop it (or let it idle out) and start pi again"
 					} else if (survivor && joinExpired) {
 						// The poll was still starting a daemon when the budget ran out, so the thing
 						// on the port may be its spawn rather than something that survived the stop.
@@ -1177,11 +1190,6 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						level = "warning"
 						message =
 							"the old daemon was already gone, but something is still serving its port — try again, or close pi if it keeps answering"
-					} else if (survivor && rejected) {
-						// Retrying cannot work: the survivor rejects this session's key, and it keeps
-						// the port until it exits on its own.
-						level = "error"
-						message = "the daemon rejected this session's key, so it could not be stopped — stop it (or let it idle out) and start pi again"
 					} else if (survivor) {
 						// `ok:true` is not proof of exit: a shutdown that is still logging out of IMAP
 						// keeps answering, and so does a timeout. Only the port can say.
