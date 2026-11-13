@@ -41,26 +41,28 @@ pi install npm:pi-mailbridge
 | first pi session after a usable config exists | the extension probes `/health` and, if nothing answers, spawns the daemon detached — this is why a daemon can appear without you running `setup` in that session |
 | `/mailbridge setup` | writes the config, then starts (or reloads) the daemon and wires this session to it |
 | `/mailbridge smoke` / `restart` | reuse, reload or replace the running daemon |
-| `pi-mailbridge --setup` (headless) | writes the config and exits — **no daemon**; start it yourself, or use the unit |
+| `pi-mailbridge --setup` (headless) | writes the config and exits — **no daemon**; start it yourself, or let a session start it |
 | last pi session closes | the daemon exits after `daemon.idleTimeoutSecs` (120 s), unless `daemon.exitWhenIdle: false` |
-| `systemctl --user start pi-mailbridge` | the unit runs the daemon directly and keeps it resident (`exitWhenIdle: false`) |
+| your own supervisor (docker restart policy, launchd, runit…) | runs the daemon directly; set `exitWhenIdle: false` so it stays resident instead of exiting with the last pi session |
 
-**systemd is optional, and it is not a way to watch mail while you are away.** The designed
-deployment is a daemon *owned by pi*: it starts with the first session, exits when the last one has
-been gone for `daemon.idleTimeoutSecs`, and reads nothing when nobody is there to receive it. Use the
-unit only when the daemon's lifetime must not be tied to a single pi process:
+**Running the daemon under your own supervisor is optional, and it is not a way to watch mail while
+you are away.** The designed deployment is a daemon *owned by pi*: it starts with the first session,
+exits when the last one has been gone for `daemon.idleTimeoutSecs`, and reads nothing when nobody is
+there to receive it. Supervise it yourself only when the daemon's lifetime must not be tied to a
+single pi process:
 
 - pi cannot own a child process (a sandbox, or a container whose process tree is replaced), or
 - pi runs as a short-lived CLI many times, and reconnecting IMAP on every run is the cost you are
   avoiding — one resident watcher serves them all.
 
-A session attaches to whatever already answers on the port — a daemon started by the unit, by hand,
-or by an earlier session is reused, never duplicated. With zero sessions a resident daemon still
-holds the connection and scans, but it cannot deliver anything: notifications are sent by a session
-and only a session can claim a reply. What changes
-under a supervisor is *who restarts it* — a supervised daemon is never shut down by a session (that
-would exit 0, `Restart=on-failure` would not bring it back, and the replacement would not belong to
-the unit), so a protocol mismatch there says `systemctl --user restart pi-mailbridge`.
+A session attaches to whatever already answers on the port — a daemon started by your supervisor, by
+hand, or by an earlier session is reused, never duplicated. With zero sessions a resident daemon
+still holds the connection and scans, but it cannot deliver anything: notifications are sent by a
+session and only a session can claim a reply.
+
+What changes under a supervisor is *who restarts it*: a supervised daemon (`exitWhenIdle: false`) is
+never shut down by a session, because the session cannot bring it back — so a protocol mismatch there
+asks you to restart it where it is managed.
 
 After `pi update` the session notices a daemon on a different **protocol** — `/health` carries
 `apiVersion` — and replaces it (once a minute at most). A different package *version* on the same
@@ -254,7 +256,7 @@ about what runs automatically, not about what the model may then do.
 
 ### The headless entry point
 
-For a systemd unit, a container, or a first run on a remote box:
+For a container, a supervisor you run yourself, or a first run on a remote box:
 
 | Flag | Effect |
 | --- | --- |
@@ -267,7 +269,7 @@ For a systemd unit, a container, or a first run on a remote box:
 | `--print-token` | print the bearer secret to stdout — never paste it anywhere |
 
 ```bash
-node "${PI_MAILBRIDGE_DIR:-$HOME/.pi/agent/npm/node_modules/pi-mailbridge}/dist/daemon/main.js"
+node "$HOME/.pi/agent/npm/node_modules/pi-mailbridge/dist/daemon/main.js"
 ```
 
 The package ships a compiled `dist/` because Node refuses to strip TypeScript inside
@@ -398,7 +400,7 @@ Where to look:
 
 | Path | What it holds |
 | --- | --- |
-| `$XDG_STATE_HOME/pi-mailbridge/daemon.log` (default `~/.local/state/…`); under systemd, `journalctl --user -u pi-mailbridge` | scan summaries, connect errors, refusal reasons |
+| `$XDG_STATE_HOME/pi-mailbridge/daemon.log` (default `~/.local/state/…`) | scan summaries, connect errors, refusal reasons |
 | `…/uid-cursor.json` | last seen UID + the mailbox UIDVALIDITY |
 | `…/daemon.lock` | the running daemon's pid — the file to look at when a start says another daemon is already running |
 | `…/routes.lock` | held for the instant a routing id is minted |
@@ -532,8 +534,8 @@ on every scan; a single transient failure is retried.
 
 ## Environment overrides
 
-Config values can be overridden per-process — this is how the shipped systemd unit stays resident
-without editing your config file:
+Config values can be overridden per-process — this is how a supervisor you run keeps the daemon
+resident without editing your config file:
 
 | Variable | Sets |
 | --- | --- |
@@ -544,21 +546,6 @@ without editing your config file:
 | `PI_MAILBRIDGE_DEVICE` | `device.name` |
 | `PI_MAILBRIDGE_EXIT_WHEN_IDLE` | `daemon.exitWhenIdle` (`false` for a supervised daemon) |
 | `PI_MAILBRIDGE_IMAP_TOKEN_CMD`, `PI_MAILBRIDGE_SMTP_TOKEN_CMD` | `mail.imap.tokenCommand`, `mail.smtp.tokenCommand` (argv list; JSON or comma-separated) |
-
-### Running it under systemd
-
-A unit ships in [`docs/systemd/pi-mailbridge.service`](./docs/systemd/pi-mailbridge.service).
-Three things the unit cannot guess:
-
-```bash
-mkdir -p ~/.local/state/pi-mailbridge      # the unit cannot create it (ProtectHome)
-systemctl --user daemon-reload
-systemctl --user enable --now pi-mailbridge
-```
-
-The unit sets `PI_MAILBRIDGE_EXIT_WHEN_IDLE=false`, because a supervised daemon must not exit on
-its own, and `Restart=on-failure`, so the clean "another daemon owns the port" exit does not
-loop.
 
 ## Agent tools
 
@@ -574,10 +561,8 @@ Both refuse cleanly when email mode is off or the daemon is unreachable.
 `/mailbridge off` closes the channel but leaves everything installed. To remove it:
 
 ```bash
-# 1. the daemon (skip if you never installed the unit)
-systemctl --user disable --now pi-mailbridge
-rm -f ~/.config/systemd/user/pi-mailbridge.service
-systemctl --user daemon-reload
+# 1. the daemon — stop it however you started it (pi exits it when the last session closes)
+#    If you supervise it yourself, stop that job first.
 
 # 2. the package — the reverse of however you installed it, e.g.
 #    pi remove npm:pi-mailbridge

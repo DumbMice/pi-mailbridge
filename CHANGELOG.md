@@ -2,6 +2,16 @@
 
 ## 0.1.0 — unreleased
 
+### The systemd unit is gone
+
+It was never required, and framing it as a way to keep watching mail when nobody was at pi
+contradicted the design: no session means no consumer, so a sessionless daemon scans for nobody.
+Removed with it: the unit, its documentation, the `PI_MAILBRIDGE_DIR` variable it introduced, and
+every "three things the unit cannot guess" instruction. If you want the daemon's lifetime to
+outlive a pi process (an environment where pi cannot own a child, or short-lived CLI runs), run it
+under whatever supervisor you already have and set `daemon.exitWhenIdle: false`; a session will then
+leave it alone instead of replacing it.
+
 Feature-complete for the single-user, one-mailbox case. Exercised end to end against a live QQ
 mailbox in both layouts (two addresses, and one address for both roles); personal Outlook was
 tried and rejected IMAP/SMTP OAuth2 server-side, as docs/OAUTH.md describes. No automated
@@ -48,7 +58,7 @@ now explicit and tested:
 **Upgrading a single-mailbox config:** if `security.allowSelfReplies` is already `true` and
 every reply reports `dmarc-missing`, set `security.requireDmarcPass: false`. Setup writes that
 for new configs; it never rewrites an existing one. `/mailbridge check` and
-`pi-mailbridge --check` both report it — and because the shipped systemd unit runs `--check`
+`pi-mailbridge --check` both report it — and because a supervisor typically preflights with `--check`
 as `ExecStartPre`, that combination stops the unit from starting rather than starting a
 daemon that rejects every reply.
 
@@ -126,11 +136,11 @@ it can only be re-opened from the terminal. Nothing was published, so there is n
 
 ### A supervised daemon is restarted by its supervisor, not by a session
 
-Replacing a systemd-owned daemon was a trap: `/shutdown` exits 0, `Restart=on-failure` does not
+Replacing a supervised daemon was a trap: `/shutdown` exits 0, `Restart=on-failure` does not
 bring it back, and the daemon a session spawns instead inherits that session's environment, where
 `exitWhenIdle` is true - so the mailbox stopped being watched as soon as pi closed, while the unit
 read `inactive`. A session now leaves a supervised daemon (`idleExitEnabled: false` on `/health`)
-alone and says to run `systemctl --user restart pi-mailbridge`, once. systemd remains optional:
+alone and says to restart it where it is managed, once. A supervisor remains optional:
 the daemon can also be run by hand, by a container entrypoint, or by pi.
 
 ### The extension spawns the build, and a replacement checks what it got
@@ -191,7 +201,7 @@ where the path has no `node_modules` segment.
 
 `npm run build` now emits `dist/` (tsc with `rewriteRelativeImportExtensions`, so the `.ts` import
 specifiers become `.js`), `prepublishOnly` builds first, the tarball ships `dist`, and `bin`, the
-spawned daemon and the systemd unit run plain `node` against the compiled entry. A packaging test
+spawned daemon run plain `node` against the compiled entry. A packaging test
 copies the built package into a temporary `node_modules` and starts it, so this cannot regress.
 
 ### One daemon per state directory, whatever port it thinks it owns
@@ -318,7 +328,7 @@ fallback means editing the subject no longer loses a reply;
 `/mailbridge` now takes subcommands, so the whole user-facing flow is inside pi:
 `setup`, `check`, `auth`, `smoke`, `prime`, `restart`, plus the existing status. Only the
 daemon itself stays a process (it must outlive pi); its CLI entry is documented as
-the headless/systemd path, sharing `core/setup.ts`, `core/smoke.ts` and
+the headless path, sharing `core/setup.ts`, `core/smoke.ts` and
 `core/token-source.ts` with the commands so behaviour cannot drift.
 
 - daemon: `POST /reload` re-reads config and restarts the watcher, so `setup` and
@@ -341,19 +351,8 @@ means no watcher - nothing fetches and parses every incoming message for a sessi
 cannot claim it. Mail that arrives meanwhile is covered by the catch-up scan.
 
 `daemon.exitWhenIdle: false` keeps it resident for a supervisor; the idle rule is
-disabled until the first client has ever pinged, so a systemd-started daemon never
+disabled until the first client has ever pinged, so an externally started daemon never
 exits merely because pi is closed.
-
-### systemd unit: paths that actually exist
-
-Two things would have stopped the unit from starting on a real machine, both caught by
-`systemd-analyze verify`:
-
-- `/usr/bin/node` does not exist where pi ships its own Node. The unit now carries the
-  pi-managed bin directory first in `PATH` and runs `/usr/bin/env node`, because systemd
-  cannot expand a variable in the *executable* position - only in arguments.
-- the package path assumed `pi install npm:...`, which is wrong for a local checkout.
-  It is `Environment=PI_MAILBRIDGE_DIR`, with the local-path variant shown as a comment.
 
 ### Fixed: the catch-up scan never ran, and the daemon logged nothing
 

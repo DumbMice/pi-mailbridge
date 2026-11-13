@@ -32,7 +32,7 @@ test("a non-numeric debounceMs falls back and warns", () => {
 })
 
 test("PI_MAILBRIDGE_EXIT_WHEN_IDLE=false keeps a supervised daemon resident", () => {
-	// The shipped systemd unit uses Restart=always, so a daemon that exits for idleness
+	// A supervisor may use Restart=always, so a daemon that exits for idleness
 	// would restart forever. The override is what makes that unit correct.
 	assert.equal(loadConfig({ PI_MAILBRIDGE_EXIT_WHEN_IDLE: "false" }).daemon.exitWhenIdle, false)
 	assert.equal(loadConfig({ PI_MAILBRIDGE_EXIT_WHEN_IDLE: "0" }).daemon.exitWhenIdle, false)

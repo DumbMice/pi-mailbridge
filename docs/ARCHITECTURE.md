@@ -214,7 +214,7 @@ process topology (an RPC supervisor owning `pi --mode rpc` children).
 
 **Who starts it.** Whichever comes first: the extension on `session_start`; `/mailbridge
 setup` or `/mailbridge restart` when the session has no runtime yet; a supervisor (the
-systemd unit); or the poll tick, which respawns a daemon that exited while the session was
+supervisor); or the poll tick, which respawns a daemon that exited while the session was
 still alive. It is spawned *detached* so it outlives the process that started it and can
 serve other sessions. When a session finds one already running, it compares `/health`'s
 `configLoadedAt` with `config.json`'s mtime and issues `/reload` if the file is newer, so a
@@ -263,10 +263,10 @@ start, from the stored UID cursor.
 
 Set `daemon.exitWhenIdle: false` only when the daemon's lifetime must outlive a pi process: pi
 cannot own a child (sandbox, replaced container tree), or pi is invoked as a short-lived CLI and
-you want one steady watcher instead of an IMAP reconnect per run. The unit in `docs/systemd/` is
-that escape hatch, not an always-on agent - with no sessions it scans but cannot deliver, which is
-why the idle rule exists in the first place. The rule is also disabled until the first client has
-ever pinged, so a supervised daemon never exits just because pi is closed at boot.
+you want one steady watcher instead of an IMAP reconnect per run. That is an escape hatch, not an
+always-on agent - with no sessions it scans but cannot deliver, which is why the idle rule exists in
+the first place. The rule is also disabled until the first client has ever pinged, so a supervised
+daemon never exits just because pi is closed at boot.
 
 ## 7. Failure modes
 

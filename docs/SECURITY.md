@@ -124,7 +124,7 @@ daemon down. Treat `secret.key` as equivalent to the mailbox password.
   wins, so rotation means **deleting** it while nothing is running:
 
   ```bash
-  systemctl --user stop pi-mailbridge          # or let the daemon idle-exit
+  # stop the daemon (or let it idle-exit)
   rm ~/.local/state/pi-mailbridge/secret.key   # this is the rotation
   # then restart pi (sessions cache the key in memory) and the daemon
   ```
@@ -158,10 +158,9 @@ daemon down. Treat `secret.key` as equivalent to the mailbox password.
   does not scan and the extension does not claim or inject, so the mailbox is not a
   listening control channel in either direction. Replies that arrive meanwhile stay in the
   mailbox and are processed when you `/mailbridge on` again — which also means turning it back on can
-  deliver a burst. To stop entirely, close pi and then stop the daemon (`systemctl --user stop
-  pi-mailbridge` — with a session still open, the poll tick respawns a daemon it finds missing,
-  throttled to once a minute, and the respawned one is not owned by the unit
-  or let it exit: it quits ~120 s after the last pi session stops pinging).
+  deliver a burst. To stop entirely, close pi and let the daemon exit (~120 s after the last ping),
+  or stop it however you started it - with a session still open, the poll tick respawns a daemon it
+  finds missing, throttled to once a minute.
 - **One mailbox for both roles** (`security.allowSelfReplies`). The loop guard is relaxed
   for self-addressed mail, so the sender allowlist alone no longer separates "me" from "not
   me" — it is the same address. Three guards do the work, in this order: the

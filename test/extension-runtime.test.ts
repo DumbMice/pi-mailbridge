@@ -1128,9 +1128,9 @@ test("the replacement waits for the old listener to close before spawning", asyn
 })
 
 test("a supervised daemon is asked to restart, not shut down", async () => {
-	// systemd owns it: /shutdown exits 0, Restart=on-failure does not bring it back, and the
-	// daemon we would spawn inherits pi's env where exitWhenIdle is true - so the mailbox would
-	// stop being watched whenever pi closes. Ask the supervisor instead, once.
+	// A supervisor owns it: /shutdown would exit 0, the supervisor's restart policy would not
+	// necessarily bring it back, and the daemon we would spawn inherits pi's env where
+	// exitWhenIdle is true. Ask the operator to restart it there, once.
 	const t = fakeTimers()
 	const notes: string[] = []
 	const daemon = fakeDaemon({ mode: "on", apiVersion: 0, idleExitEnabled: false })
@@ -1156,7 +1156,7 @@ test("a supervised daemon is asked to restart, not shut down", async () => {
 
 	assert.equal(daemon.shutdowns, 0, "never shut down a supervised daemon")
 	assert.ok(
-		notes.some((n) => /systemctl --user restart pi-mailbridge/.test(n)),
+		notes.some((n) => /restart it the way you started it/.test(n)),
 		`notes: ${JSON.stringify(notes)}`,
 	)
 	assert.equal(

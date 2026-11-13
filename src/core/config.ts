@@ -68,7 +68,7 @@ export interface ResolvedConfig {
 	daemon: {
 		host: string
 		port: number
-		/** Exit once no pi session is pinging. Default true; set false for systemd. */
+		/** Exit once no pi session is pinging. Default true; set false for an external supervisor. */
 		exitWhenIdle?: boolean
 		/** Grace period after the last ping before exiting. Default 120. */
 		idleTimeoutSecs?: number
@@ -191,7 +191,7 @@ function envOverrides(env: NodeJS.ProcessEnv): Record<string, unknown> {
 	set(["mail", "smtp", "password"], env.PI_MAILBRIDGE_SMTP_PASS)
 	set(["mail", "to"], env.PI_MAILBRIDGE_TO)
 	set(["daemon", "port"], env.PI_MAILBRIDGE_PORT)
-	// For a supervisor-owned daemon: the shipped systemd unit sets this to false, because
+	// For a supervisor-owned daemon: the unit you run sets this to false, because
 	// a supervised daemon must not exit on its own: the shipped unit uses Restart=on-failure
 	// but a clean exit would still end the service.
 	if (env.PI_MAILBRIDGE_EXIT_WHEN_IDLE !== undefined) {

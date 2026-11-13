@@ -272,7 +272,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		const health = await client?.health()
 		if (!health?.ok || apiCompatible(API_VERSION, health.data.apiVersion)) return false
 
-		// A supervised daemon (exitWhenIdle: false, i.e. systemd) must not be shut down from
+		// A supervised daemon (exitWhenIdle: false: something else owns it) must not be shut down from
 		// here: it exits 0, `Restart=on-failure` does not bring it back, and the daemon we spawn
 		// instead inherits this process's env - where exitWhenIdle is true, so the mailbox stops
 		// being watched as soon as pi closes. Ask the supervisor to do it.
@@ -280,8 +280,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			supervisedMismatch = true
 			ctx?.ui.notify(
 				`mailbridge: the daemon is supervised and speaks protocol ${health.data.apiVersion ?? "0"} ` +
-					`(this session: ${API_VERSION}) — restart it where it is managed, e.g. ` +
-					`systemctl --user restart pi-mailbridge`,
+					`(this session: ${API_VERSION}) — restart it the way you started it, where it is managed`,
 				"warning",
 			)
 			return true

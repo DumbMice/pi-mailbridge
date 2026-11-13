@@ -450,7 +450,7 @@ test("a daemon that no session has ever pinged keeps running", async () => {
 	const { port } = await service.listen(0, "127.0.0.1")
 	try {
 		await new Promise((r) => setTimeout(r, 900))
-		assert.equal(state.stops, 0, "a systemd-started daemon must not exit just because pi is absent")
+		assert.equal(state.stops, 0, "an externally started daemon must not exit just because pi is absent")
 	} finally {
 		await service.close()
 	}
@@ -500,7 +500,7 @@ test("exitWhenIdle false keeps a resident daemon resident", async () => {
 			body: JSON.stringify({ instanceId: "pi-1" }),
 		})
 		await new Promise((r) => setTimeout(r, 900))
-		assert.equal(state.stops, 0, "systemd mode ignores idleness")
+		assert.equal(state.stops, 0, "supervised mode ignores idleness")
 	} finally {
 		await service.close()
 	}

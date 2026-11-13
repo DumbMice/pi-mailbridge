@@ -82,7 +82,7 @@ export interface DaemonDeps {
 	shutdown?: () => void
 	/**
 	 * Exit once every client has stopped pinging. Only enforced after at least one
-	 * client has pinged, so a daemon started by systemd (no pi sessions) never exits.
+	 * client has pinged, so an externally supervised daemon never exits at boot.
 	 */
 	exitWhenIdle?: () => boolean
 	/**

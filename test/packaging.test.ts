@@ -124,32 +124,6 @@ test("the example never contains a live-looking secret", () => {
 	}
 })
 
-// --- systemd unit ----------------------------------------------------------
-
-test("the systemd unit runs the same entry point and self-checks first", () => {
-	const unit = read("../docs/systemd/pi-mailbridge.service")
-	// The compiled entry, run by plain node: an installed package cannot strip types inside
-	// node_modules, so a unit pointing at src/daemon/main.ts would never start.
-	assert.match(unit, /dist\/daemon\/main\.js/)
-	assert.doesNotMatch(unit, /--experimental-strip-types/, "the unit runs the build, not the sources")
-	assert.match(unit, /--check/)
-	assert.match(unit, /ReadWritePaths/, "unit should be hardened")
-})
-
-test("the systemd unit does not hardcode paths that may not exist", () => {
-	const unit = read("../docs/systemd/pi-mailbridge.service")
-	// /usr/bin/node is absent on a machine where pi shipped its own Node, and the
-	// npm package path is wrong for a local checkout. Both must be configurable.
-	assert.doesNotMatch(unit, /^ExecStart=\/usr\/bin\/node/m, "node path must not be hardcoded")
-	assert.match(unit, /Environment=PATH=/, "PATH must carry the pi-managed node first")
-	assert.match(unit, /Environment=PI_MAILBRIDGE_DIR=/)
-	// systemd cannot expand a variable in the executable position, so the binary must
-	// be a literal path and the variables may only appear as arguments.
-	assert.match(unit, /^ExecStart=\/usr\/bin\/env node .*\$\{PI_MAILBRIDGE_DIR\}/m)
-	assert.match(unit, /local checkout|Work\/pi-mailbridge/, "a local-path variant should be shown")
-})
-
-// --- README integrity ------------------------------------------------------
 
 test("README links to the three design docs", () => {
 	for (const doc of ["docs/ARCHITECTURE.md", "docs/MAPPING.md", "docs/SECURITY.md"]) {
@@ -223,8 +197,8 @@ test("the in-pi flow is documented first, CLI only as headless", () => {
 	for (const sub of ["setup", "auth", "smoke"]) {
 		assert.match(readme, new RegExp(`/mailbridge ${sub}`), `README must document /mailbridge ${sub}`)
 	}
-	// The CLI must be framed as the daemon/systemd entry point, not the normal path.
-	assert.match(readme, /headless/i, "README should label the CLI as headless/systemd only")
+	// The CLI must be framed as the headless entry point, not the normal path.
+	assert.match(readme, /headless/i, "README should label the CLI as headless")
 	assert.match(readme, /--check/, "README should keep the ExecStartPre check documented")
 })
 

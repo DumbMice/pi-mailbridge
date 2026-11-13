@@ -233,18 +233,9 @@ test("every environment override is documented", () => {
 	assert.ok(names.size >= 8, `expected the override list, got ${names.size}`)
 	const readme = doc("README.md")
 	for (const name of names) {
-		if (name === "PI_MAILBRIDGE_DIR") continue // unit-local, documented in the unit
+
 		assert.ok(readme.includes(name), `${name} is read by src/ but not documented`)
 	}
-})
-
-test("the systemd unit cannot restart-loop and keeps its state dir", () => {
-	const unit = readFileSync(join(root, "docs/systemd/pi-mailbridge.service"), "utf8")
-	// Restart=always would restart the clean "pi already owns the port" exit forever.
-	assert.ok(/^Restart=on-failure$/m.test(unit), "the unit must not use Restart=always")
-	assert.ok(/PI_MAILBRIDGE_EXIT_WHEN_IDLE=false/.test(unit), "a supervised daemon must not exit when idle")
-	// A ReadWritePaths that may not exist yet fails namespace setup unless '-'-prefixed.
-	assert.ok(/^ReadWritePaths=-/m.test(unit), "ReadWritePaths must tolerate a missing directory")
 })
 
 test("the documented /mailbridge subcommands are exactly the implemented ones", () => {
@@ -435,7 +426,7 @@ test("the README says how to remove the package and its state", () => {
 	const readme = doc("README.md")
 	const section = /## Turning it off for good[\s\S]*?(?=\n## )/.exec(readme)?.[0]
 	assert.ok(section, "README should have an uninstall section")
-	assert.match(section, /systemctl --user disable/, "stops the unit")
+	assert.match(section, /pi remove npm:pi-mailbridge|however you installed it/, "says how to remove it")
 	assert.match(section, /state\/pi-mailbridge/, "and says where the state lives")
 	assert.match(section, /config\/pi-mailbridge/, "including the credentials")
 })
@@ -521,15 +512,6 @@ test("no doc claims every notification names the device", () => {
 			)
 		}
 	}
-})
-
-test("the systemd checklist includes the state directory", () => {
-	// ProtectHome=read-only + ReadWritePaths=- mean the unit cannot create it, and
-	// ExecStartPre --check fails without it.
-	const readme = doc("README.md")
-	const block = /Three things the unit cannot guess[\s\S]{0,900}/.exec(readme)?.[0]
-	assert.ok(block, "README should list what the unit needs")
-	assert.match(block, /mkdir -p ~\/\.local\/state\/pi-mailbridge/, "and create the state directory")
 })
 
 test("prime is advised before the first /mailbridge on, not before the daemon", () => {
@@ -1047,17 +1029,17 @@ test("the two version axes are documented and kept distinct", () => {
 	assert.match(schema, /export const STATE_VERSION = 1/)
 })
 
-test("the docs do not require systemd, and say who restarts a supervised daemon", () => {
-	// The package works without it (pi spawns, or you run it), and a supervised daemon must not
+test("the docs do not require a supervisor, and say who restarts a supervised daemon", () => {
+	// The package works without one (pi spawns, or you run it), and a supervised daemon must not
 	// be shut down by a session - that is what this documents and the code now does.
 	const readme = flat(doc("README.md"))
-	assert.match(readme, /systemd is optional/i, "states that it is optional")
+	assert.match(readme, /optional/i, "states that it is optional")
 	// And not as an always-on watcher: the architecture says no session means no consumer, so a
 	// resident daemon is an escape hatch for process ownership, not a way to watch an empty house.
 	assert.match(readme, /not a way to watch mail while you are away/i, "does not sell it as always-on")
 	assert.match(readme, /cannot deliver/i, "says what a sessionless daemon cannot do")
 	assert.match(readme, /attaches to whatever already answers/i, "and that a session adopts an existing daemon")
-	assert.match(readme, /systemctl --user restart pi-mailbridge/, "and how to restart a supervised one")
+	assert.match(readme, /restart it where it is managed/, "and who restarts a supervised one")
 
 	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
 	assert.match(extension, /idleExitEnabled === false/, "the code checks for a supervisor")

@@ -331,7 +331,7 @@ export function checkProblems(config: ResolvedConfig): string[] {
 
 	// Same check as /mailbridge check: one address plus DMARC means every reply is rejected
 	// on providers that stamp no Authentication-Results on self-addressed mail. This is the
-	// headless path the systemd unit runs, so it must not stay silent.
+	// headless path a supervisor runs, so it must not stay silent.
 	if (config.security.allowSelfReplies && config.security.requireDmarcPass) {
 		add(
 			"security.allowSelfReplies is on but security.requireDmarcPass is too — providers that do not " +
@@ -654,7 +654,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 			void shutdown("shutdown requested")
 		},
 		// Stop when the last pi session goes away. `daemon.exitWhenIdle: false` keeps it
-		// resident instead, which is what a systemd unit wants.
+		// resident instead, which is what an external supervisor wants.
 		exitWhenIdle: () => currentConfig.daemon.exitWhenIdle !== false,
 		// Always carry the freshness stamp: on a quiet mailbox `lastScan` is absent, and the
 		// panel then said "(none yet)" while the daemon was happily polling.

@@ -334,7 +334,7 @@ test("a send outlives the generic ceiling, so a slow relay is not cut off", asyn
 })
 
 test("--check warns when DMARC is required for a single mailbox", async () => {
-	// The systemd unit runs this as ExecStartPre; the in-pi command warned, this did not.
+	// A supervisor typically preflights with `--check`; the in-pi command warned, this did not.
 	const { checkProblems } = await import("../src/daemon/main.ts")
 	const cfg: ResolvedConfig = {
 		mail: {
