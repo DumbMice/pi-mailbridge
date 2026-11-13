@@ -45,12 +45,22 @@ pi install npm:pi-mailbridge
 | last pi session closes | the daemon exits after `daemon.idleTimeoutSecs` (120 s), unless `daemon.exitWhenIdle: false` |
 | `systemctl --user start pi-mailbridge` | the unit runs the daemon directly and keeps it resident (`exitWhenIdle: false`) |
 
-**systemd is optional.** Nothing in the package requires it, and the daemon does not depend on being
-spawned by pi: the unit, a container entrypoint, or `node …/dist/daemon/main.js` all work, and a
-session reuses whatever already answers on the port. What changes under a supervisor is *who
-restarts it*: a supervised daemon is never shut down by a session — that would exit 0,
-`Restart=on-failure` would not bring it back, and the replacement would not belong to the unit — so
-a protocol mismatch there says `systemctl --user restart pi-mailbridge` instead.
+**systemd is optional, and it is not a way to watch mail while you are away.** The designed
+deployment is a daemon *owned by pi*: it starts with the first session, exits when the last one has
+been gone for `daemon.idleTimeoutSecs`, and reads nothing when nobody is there to receive it. Use the
+unit only when the daemon's lifetime must not be tied to a single pi process:
+
+- pi cannot own a child process (a sandbox, or a container whose process tree is replaced), or
+- pi runs as a short-lived CLI many times, and reconnecting IMAP on every run is the cost you are
+  avoiding — one resident watcher serves them all.
+
+A session attaches to whatever already answers on the port — a daemon started by the unit, by hand,
+or by an earlier session is reused, never duplicated. With zero sessions a resident daemon still
+holds the connection and scans, but it cannot deliver anything: notifications are sent by a session
+and only a session can claim a reply. What changes
+under a supervisor is *who restarts it* — a supervised daemon is never shut down by a session (that
+would exit 0, `Restart=on-failure` would not bring it back, and the replacement would not belong to
+the unit), so a protocol mismatch there says `systemctl --user restart pi-mailbridge`.
 
 After `pi update` the session notices a daemon on a different **protocol** — `/health` carries
 `apiVersion` — and replaces it (once a minute at most). A different package *version* on the same

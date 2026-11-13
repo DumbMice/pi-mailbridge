@@ -1052,7 +1052,11 @@ test("the docs do not require systemd, and say who restarts a supervised daemon"
 	// be shut down by a session - that is what this documents and the code now does.
 	const readme = flat(doc("README.md"))
 	assert.match(readme, /systemd is optional/i, "states that it is optional")
-	assert.match(readme, /reuses? whatever already answers/i, "and that a session adopts an existing daemon")
+	// And not as an always-on watcher: the architecture says no session means no consumer, so a
+	// resident daemon is an escape hatch for process ownership, not a way to watch an empty house.
+	assert.match(readme, /not a way to watch mail while you are away/i, "does not sell it as always-on")
+	assert.match(readme, /cannot deliver/i, "says what a sessionless daemon cannot do")
+	assert.match(readme, /attaches to whatever already answers/i, "and that a session adopts an existing daemon")
 	assert.match(readme, /systemctl --user restart pi-mailbridge/, "and how to restart a supervised one")
 
 	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")

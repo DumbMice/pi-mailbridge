@@ -261,10 +261,12 @@ belong to the unit. It asks the operator to restart it where it is managed.
 Mail that arrives while it is down is not lost: the **catch-up scan** runs on the next
 start, from the stored UID cursor.
 
-Set `daemon.exitWhenIdle: false` when a supervisor owns the process instead - a systemd
-unit wants a resident daemon, and the unit in `docs/systemd/` does exactly that. The
-idle rule is also disabled until the first client has ever pinged, so a
-systemd-started daemon never exits just because pi happens to be closed.
+Set `daemon.exitWhenIdle: false` only when the daemon's lifetime must outlive a pi process: pi
+cannot own a child (sandbox, replaced container tree), or pi is invoked as a short-lived CLI and
+you want one steady watcher instead of an IMAP reconnect per run. The unit in `docs/systemd/` is
+that escape hatch, not an always-on agent - with no sessions it scans but cannot deliver, which is
+why the idle rule exists in the first place. The rule is also disabled until the first client has
+ever pinged, so a supervised daemon never exits just because pi is closed at boot.
 
 ## 7. Failure modes
 

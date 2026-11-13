@@ -25,7 +25,9 @@ Environment=PI_MAILBRIDGE_DIR=%h/.pi/agent/npm/node_modules/pi-mailbridge
 # (running pi once also creates it, since the extension mints the secret).
 
 # systemd owns this process, so it must not exit when the last pi session stops
-# pinging - Restart=always would turn that into a restart loop. Setting this beats
+# pinging - Restart=always would turn that into a restart loop. Use this unit only when the
+# daemon must outlive an individual pi process (a sandbox that cannot spawn children, or short
+# lived CLI runs); with no sessions it scans but cannot deliver. Setting this beats
 # editing the config file; the config key still works if you prefer it.
 Environment=PI_MAILBRIDGE_EXIT_WHEN_IDLE=false
 # ---------------------------------------------------------------------------
