@@ -90,6 +90,11 @@ test("Tab offers the subcommands, filtered by what has been typed", () => {
 	assert.deepEqual(completeSubcommand("of")?.map((i) => i.value), ["off"])
 	assert.deepEqual(completeSubcommand("REST")?.map((i) => i.value), ["restart"], "case-insensitive")
 
+	// A leading space is still the first word (an accidental extra space must not kill completion);
+	// pi passes the whole argument text after the first space, so it can start with one.
+	assert.deepEqual(completeSubcommand("  of")?.map((i) => i.value), ["off"])
+	assert.deepEqual(completeSubcommand("\tof")?.map((i) => i.value), ["off"])
+
 	// After a space the user is typing an argument, not a subcommand: no suggestions.
 	assert.equal(completeSubcommand("off "), null)
 	assert.equal(completeSubcommand("setup me@example.com"), null)
@@ -106,3 +111,23 @@ test("the usage text, the whitelist and the completion are one list", () => {
 	}
 })
 
+test("the usage text aligns every description in one column", () => {
+	// The alignment was off by one for `status` alone after the text started being generated from
+	// the table; the column is part of what makes the list readable, so it gets an assertion.
+	const lines = USAGE.split("\n")
+	const column = "/mailbridge".length + 23
+	const status = lines.find((l) => l.includes("status (the default)"))
+	assert.equal(status?.indexOf("status (the default)"), column, `status line: ${status}`)
+
+	for (const command of SUBCOMMAND_INFO) {
+		if (command.name === "status") continue
+		const line = lines.find((l) => l.startsWith(`/mailbridge ${command.name} `))
+		assert.ok(line, `a line for ${command.name}`)
+		// `setup` carries a signature longer than the column, so its description follows with a
+		// two-space gap rather than padding - the same rule `usageLine` applies.
+		const args = (command as { args?: string }).args
+		const head = `/mailbridge ${command.name}${args ? ` ${args}` : ""}`
+		const expected = Math.max(column, head.length + 2)
+		assert.equal(line.indexOf(command.hint), expected, `${command.name} aligns: ${line}`)
+	}
+})

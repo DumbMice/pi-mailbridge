@@ -296,8 +296,8 @@ a content filter — an agent told to `cp ~/.ssh/id_rsa notes.txt` or `tar` a di
 the result, and a hardlink defeats the path check as it defeats any other copy. See
 [docs/SECURITY.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/SECURITY.md) §6b for the full boundary.
 
-`Tab` after `/mailbridge ` lists the subcommands (filtered by what you have typed), each with the
-line of help that describes it — the same list `help` prints.
+`Tab` after `/mailbridge ` lists the subcommands (filtered by what you have typed), each with a
+one-line description; `/mailbridge help` prints the same list with its usage text.
 
 ### Replying with a file
 

@@ -39,7 +39,7 @@ export interface SubcommandInfo {
 	args?: string
 }
 
-export const SUBCOMMAND_INFO: readonly SubcommandInfo[] = [
+export const SUBCOMMAND_INFO = [
 	{ name: "status", hint: "what the daemon sees: mailbox, queue, last scan, this session" },
 	{ name: "on", hint: "email mode on: decisions mail you" },
 	{ name: "off", hint: "email mode off: decisions ask in this terminal" },
@@ -50,16 +50,27 @@ export const SUBCOMMAND_INFO: readonly SubcommandInfo[] = [
 	{ name: "prime", hint: "start watching from now, ignoring existing mail" },
 	{ name: "restart", hint: "replace the daemon process (picks up new code, not just config)" },
 	{ name: "help", hint: "this list" },
-]
+] as const satisfies readonly SubcommandInfo[]
+
+
+/**
+ * Fails the build if the union and the table disagree in the *other* direction: the `satisfies`
+ * above proves table ⊆ union, this proves union ⊆ table. Without it, adding a name to
+ * `MailbridgeSubcommand` alone leaves a subcommand that cannot parse, lists or complete.
+ */
+type MissingFromTable = Exclude<MailbridgeSubcommand, (typeof SUBCOMMAND_INFO)[number]["name"]>
+const _everySubcommandIsListed: MissingFromTable extends never ? true : never = true
+void _everySubcommandIsListed
 
 /** One line per subcommand, aligned; a long signature (setup) gets two spaces instead. */
 function usageLine(command: SubcommandInfo): string {
-	const head = `/mailbridge ${command.name}${command.args ? ` ${command.args}` : ""}`
+	const args = (command as { args?: string }).args
+	const head = `/mailbridge ${command.name}${args ? ` ${args}` : ""}`
 	return `${head.padEnd(34)}${head.length >= 34 ? "  " : ""}${command.hint}`
 }
 
 export const USAGE = [
-	`/mailbridge${" ".repeat(22)}status (the default)`,
+	`/mailbridge${" ".repeat(23)}status (the default)`,
 	...SUBCOMMAND_INFO.filter((c) => c.name !== "status").map(usageLine),
 ].join("\n")
 
@@ -84,11 +95,10 @@ export function completeSubcommand(prefix: string): ArgCompletion[] | null {
 	const needle = typed.toLowerCase()
 	const matches = SUBCOMMAND_INFO.filter((c) => c.name.startsWith(needle))
 	if (matches.length === 0) return null
-	return matches.map((c) => ({
-		value: c.name,
-		label: c.name,
-		description: c.args ? `${c.hint} ${c.args}` : c.hint,
-	}))
+	return matches.map((c) => {
+		const args = (c as { args?: string }).args
+		return { value: c.name, label: c.name, description: args ? `${c.hint} ${args}` : c.hint }
+	})
 }
 
 export function isSubcommand(value: string): value is MailbridgeSubcommand {

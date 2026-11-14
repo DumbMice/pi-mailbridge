@@ -23,7 +23,7 @@ import { API_VERSION, apiCompatible } from "./daemon/api.ts"
 import { probeHealth, probeHealthDetail } from "./daemon/spawn.ts"
 import { resolveDaemonScript } from "./daemon/script.ts"
 import { daemonBaseUrl, ensureDaemon, createDaemonClient, type DaemonClient } from "./daemon/spawn.ts"
-import { completeSubcommand, parseMailbridgeCommand, USAGE } from "./core/commands.ts"
+import { completeSubcommand, parseMailbridgeCommand, SUBCOMMAND_INFO, USAGE, type ArgCompletion } from "./core/commands.ts"
 import { runSetup } from "./core/setup.ts"
 import { runSmoke } from "./core/smoke.ts"
 import { buildTokenProvider } from "./core/token-source.ts"
@@ -48,7 +48,7 @@ export interface ExtensionLike {
 		spec: {
 			description: string
 			/** Tab completion for the argument; `null` means "nothing to suggest". */
-			getArgumentCompletions?: (argumentPrefix: string) => { value: string; label: string; description?: string }[] | null
+			getArgumentCompletions?: (argumentPrefix: string) => ArgCompletion[] | null
 			handler: (args: string, ctx: ExtensionCtxLike) => Promise<void>
 		},
 	): void
@@ -891,14 +891,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		name: string,
 		description: string,
 		handler: (args: string, c: ExtensionCtxLike) => Promise<void>,
-		completions?: (prefix: string) => { value: string; label: string; description?: string }[] | null,
+		completions?: (prefix: string) => ArgCompletion[] | null,
 	): void => {
 		commandHandlers.set(name, handler)
 		pi.registerCommand(name, { description, ...(completions ? { getArgumentCompletions: completions } : {}), handler })
 	}
 
 	registerCommand("mailbridge",
-		"Status, on/off, setup, check, auth, smoke, restart",
+		`/mailbridge — ${SUBCOMMAND_INFO.map((c) => c.name).join(", ")}`,
 		async (args, c) => {
 			// Re-read config on every command. It can change underneath us: `--setup`
 			// run from a shell, or an edit to config.json, would otherwise leave the
