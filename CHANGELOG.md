@@ -5,7 +5,8 @@
 The wire gains one capability, `attachments`: the mail rendering and the attachment boundary
 changed in this release and both run inside the **daemon** process, so a session that reuses a
 daemon from before it silently keeps the old behaviour. Such a session now says so once and names
-`/mailbridge restart`. (Additive work does not bump the protocol, so nothing else would replace it -
+`/mailbridge restart`; one older still - before capability reporting existed at all - gets its own
+wording, since it lacks `files` as well. (Additive work does not bump the protocol, so nothing else would replace it -
 that is what the capability marker is for.)
 
 ### Attachments from a home-rooted session, and links the agent made up

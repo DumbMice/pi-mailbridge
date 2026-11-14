@@ -139,7 +139,11 @@ function fakeDaemon(
 		daemonVersion?: string
 		/** Defaults to this build's protocol, so a test opts into a mismatch. */
 		apiVersion?: number
-		/** Defaults to this build's real capability list; a test opts out to model an older daemon. */
+		/**
+		 * Defaults to this build's real capability list. A daemon that reports *no* capabilities
+		 * cannot be modelled here (the default fills it in): override `client.health` instead, as
+		 * the pre-capability test does.
+		 */
 		capabilities?: string[]
 
 	} = {},
@@ -2573,8 +2577,8 @@ test("a daemon from before capability reporting is told to restart, not trusted"
 	// it and no per-capability check can fire. It lacks every daemon-side behaviour this build needs.
 	const t = fakeTimers()
 	const notes: string[] = []
-	const daemon = fakeDaemon({ mode: "on", capabilities: undefined })
-	// Model an older daemon: no capabilities array at all.
+	const daemon = fakeDaemon({ mode: "on" })
+	// Model an older daemon: no capabilities array at all in the health payload.
 	daemon.client.health = async () => ({ ok: true as const, data: { ok: true, mode: "on", pending: 0, apiVersion: API_VERSION } })
 	const pi = boot(daemon, t.timers, ctx(notes))
 	await pi.fire("session_start")

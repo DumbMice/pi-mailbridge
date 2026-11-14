@@ -734,22 +734,19 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		try {
 			const health = await client.health()
 			if (!health.ok) return
-			// A daemon from before document replies is on the same protocol (`files` is an additive
-			// change, so it does not bump it), which means nothing else would replace it - and every
-			// attachment would be dropped as mime-not-allowed with no explanation.
+			// Each capability names a behaviour that lives in the daemon process. Additive work does
+			// not bump the protocol, so nothing else would replace an older daemon, and the session
+			// would silently keep its old behaviour.
 			const capabilities = (health.data as { capabilities?: unknown }).capabilities
 			if (!capabilityWarned && capabilities === undefined) {
-				// A daemon older than capability reporting: it cannot say what it supports, which
-				// means it supports none of what this list needs.
+				// Older than capability reporting: it cannot say what it supports, which means it
+				// supports none of what this list needs.
 				capabilityWarned = true
 				ctx?.ui.notify(
 					"mailbridge: this daemon predates capability reporting — run /mailbridge restart to replace it",
 					"warning",
 				)
 			} else if (Array.isArray(capabilities) && !capabilityWarned) {
-				// Each entry names a behaviour that lives in the daemon process, so a session that
-				// reuses an older one silently lacks it - and the protocol number does not change
-				// for additive work, so nothing else would replace it.
 				const missing = REQUIRED_CAPABILITIES.find((needed) => !capabilities.includes(needed.id))
 				if (missing) {
 					capabilityWarned = true
