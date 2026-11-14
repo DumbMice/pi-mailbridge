@@ -22,10 +22,12 @@ import type { RawAttachment } from "../core/attachments.ts"
 export const DEFAULT_IDLE_RENEW_MS = 25 * 60 * 1000
 
 /**
- * Hard ceiling on a message we will parse. The attachment caps (4 x 1 MB) live well inside
- * it; anything larger is refused before the body is downloaded.
+ * Hard ceiling on a message we will parse.
+ *
+ * Above the document cap (20 MB) by enough for base64 plus headers: a 20 MB presentation arrives
+ * as a ~27 MB message. Nothing larger is refused before the body is downloaded.
  */
-export const MAX_MESSAGE_BYTES = 8 * 1024 * 1024
+export const MAX_MESSAGE_BYTES = 32 * 1024 * 1024
 
 const DEFAULT_BACKOFF_INITIAL_MS = 1_000
 export const DEFAULT_BACKOFF_MAX_MS = 60_000

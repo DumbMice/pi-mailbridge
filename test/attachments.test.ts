@@ -6,6 +6,8 @@ import { join } from "node:path"
 
 import {
 	MAX_ATTACHMENTS,
+	MAX_FILES,
+	MAX_FILE_BYTES,
 	MAX_NAME_CHARS,
 	MAX_TOTAL_BYTES,
 	normalizeMime,
@@ -43,24 +45,78 @@ test("a disallowed mime is dropped with a reason, not silently", () => {
 
 test("mime check happens before the count cap", () => {
 	const items = Array.from({ length: MAX_ATTACHMENTS + 2 }, (_, i) =>
-		raw({ filename: `f${i}.png`, contentType: i === 0 ? "application/zip" : "image/png" }),
+		raw({ filename: `f${i}.${i === 0 ? "exe" : "png"}`, contentType: i === 0 ? "application/x-msdownload" : "image/png" }),
 	)
-	const { accepted, dropped } = selectAttachments(items)
+	const { accepted, files, dropped } = selectAttachments(items)
 	assert.equal(accepted.length, MAX_ATTACHMENTS)
+	assert.equal(files.length, 0)
 	assert.equal(dropped[0]!.reason, "mime-not-allowed", "first rejection is the bad mime")
 	assert.ok(dropped.some((d) => d.reason === "too-many"))
 })
 
-test("total size over the cap is refused", () => {
+test("an image over the inline cap becomes a file instead of being dropped", () => {
+	// A 5 MB phone photo cannot be an image part, but it is still a legitimate document - the
+	// agent's own read tool can open it. Discarding the human's only attachment was the old
+	// behaviour and it lost the reply.
 	const big = Buffer.alloc(MAX_TOTAL_BYTES - 10, 1)
-	const extra = Buffer.alloc(100, 2)
-	const { accepted, dropped } = selectAttachments([
+	const extra = Buffer.alloc(MAX_TOTAL_BYTES, 2)
+	const { accepted, files, dropped } = selectAttachments([
 		raw({ filename: "big.png", content: big }),
 		raw({ filename: "extra.png", content: extra }),
 	])
-	assert.equal(accepted.length, 1, "the first fits")
-	assert.deepEqual(dropped.map((d) => d.name), ["extra.png"])
-	assert.equal(dropped[0]!.reason, "too-large")
+	assert.equal(accepted.length, 1, "the first is inlined")
+	assert.deepEqual(files.map((f) => f.name), ["extra.png"], "the second is handed over as a file")
+	assert.deepEqual(dropped, [])
+})
+
+test("a PDF is a file, and a presentation too", () => {
+	// The reason this feature exists: a reply carrying a deck has to reach the agent.
+	const { accepted, files, dropped } = selectAttachments([
+		raw({ filename: "report.pdf", contentType: "application/pdf", content: Buffer.from("%PDF-1.7\n") }),
+		raw({
+			filename: "deck.pptx",
+			contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+			content: Buffer.alloc(5_000_000, 2),
+		}),
+	])
+	assert.deepEqual(dropped, [])
+	assert.equal(accepted.length, 0, "neither can be a message part")
+	assert.deepEqual(files.map((f) => `${f.name}:${f.mimeType}`), [
+		"report.pdf:application/pdf",
+		"deck.pptx:application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	])
+	assert.equal(files[1]!.content.length, 5_000_000, "the bytes are handed on, not truncated")
+})
+
+test("an iPhone HEIC photo is a file: no model reads it, a shell can convert it", () => {
+	const { files, dropped } = selectAttachments([
+		raw({ filename: "IMG_4021.HEIC", contentType: "image/heic", content: Buffer.alloc(3_000_000, 7) }),
+	])
+	assert.deepEqual(dropped, [])
+	assert.equal(files.length, 1, "delivered as a file rather than dropped")
+	assert.equal(files[0]!.mimeType, "image/heic")
+})
+
+test("a document over the file cap is refused, and an unknown type stays refused", () => {
+	const { files, dropped } = selectAttachments([
+		raw({ filename: "huge.pdf", contentType: "application/pdf", content: Buffer.alloc(MAX_FILE_BYTES + 1) }),
+		raw({ filename: "setup.exe", contentType: "application/x-msdownload", content: Buffer.from("MZ") }),
+	])
+	assert.equal(files.length, 0)
+	assert.deepEqual(
+		dropped.map((d) => `${d.name}:${d.reason}`),
+		["huge.pdf:too-large", "setup.exe:mime-not-allowed"],
+	)
+})
+
+test("the file count and total are capped", () => {
+	const one = Buffer.alloc(3 * 1024 * 1024, 1)
+	const many = Array.from({ length: MAX_FILES + 1 }, (_, i) => raw({ filename: `f${i}.pdf`, content: one }))
+	const { files, dropped } = selectAttachments(many)
+	assert.ok(files.length >= 1)
+	assert.ok(files.length <= MAX_FILES, `${files.length} files`)
+	assert.ok(dropped.length > 0)
+	assert.ok(dropped.every((d) => d.reason === "too-large" || d.reason === "too-many"))
 })
 
 test("an empty attachment is dropped", () => {

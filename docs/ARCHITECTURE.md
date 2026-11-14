@@ -37,6 +37,8 @@ to move the cursor without reading anything).
 
 ```
 new UID ──► fetch ──► self-echo marker ──► authorize ──► route (id / token / chain) ──► persist pending (durable)
+                                                          │
+                                                          └─ documents: written to the state dir, path in the record
                                                         │
                                                         ▼
                                      waiting for the next poll tick
@@ -341,6 +343,7 @@ src/
     spawn.ts            ensureDaemon, single-instance
     watcher.ts          imapflow IDLE, renew, backoff
   store/
+    attachment-files.ts   inbound documents on disk (paths only in the queue)
     journal.ts          acked UIDs — durable replay protection
     mode-store.ts       on/off
     oauth-store.ts      refresh tokens, 0600

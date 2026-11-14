@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **A reply can carry a PDF, a presentation or a spreadsheet.** These cannot be message parts, so
+  the daemon writes them under `~/.local/state/pi-mailbridge/attachments/` (0700/0600, 7-day
+  retention, 200 MB cap) and the message names the absolute path; the agent opens it with its own
+  tools. 20 MB per file, 10 files and 25 MB per reply, and the mail itself may now be 32 MB instead
+  of 8. An image too big to inline (a 5 MB phone photo) takes the same route instead of being
+  dropped. The document list is by extension: pdf, ppt/pptx, doc/docx, xls/xlsx, odt/odp, csv, zip,
+  gz, tar, md, txt, log, json and the four image types.
+
 ## 0.1.4 — 2026-11-13
 
 - **`/mailbridge` no longer freezes the agent process on a lock.** `ensureRouteForSession` ran under

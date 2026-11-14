@@ -292,6 +292,25 @@ agent told to `cp ~/.ssh/id_rsa notes.txt` or `tar` a directory can still mail t
 pi in a project rather than in `$HOME`, and see
 [docs/SECURITY.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/SECURITY.md) §6b for the full boundary.
 
+### Replying with a file
+
+A reply can carry:
+
+| You attach | What the agent gets |
+| --- | --- |
+| PNG / JPEG / GIF / WebP, up to 4 and 1 MB in total per reply | the images themselves, as message parts it can see |
+| `text/plain`, `text/markdown`, `application/json`, same 1 MB in total | the text, inline |
+| PDF, PPT/PPTX, DOC/DOCX, XLS/XLSX, ODT/ODP, CSV, ZIP, GZ, TAR, MD, TXT, LOG, JSON — or an image too big to inline — up to 20 MB each | the file, written to `~/.local/state/pi-mailbridge/attachments/`, with its absolute path in the message. The agent opens it with its own tools |
+| anything else (video, executables, an unknown extension) | not delivered; the drop is named in `agent`'s message and in `/mailbridge status` |
+
+Up to 10 files and 25 MB per reply; the mail itself may be up to 32 MB (base64 inflates, so a 20 MB
+deck arrives as a ~27 MB message). Documents are kept for 7 days and the directory is capped at
+200 MB, oldest first - enough to be read, not an archive.
+
+A PDF or a deck is delivered as a **path**, because a model cannot be handed one as a message part.
+If the agent needs the contents, it has to open it: `read` for text-ish files, or its own tooling
+(`pdftotext`, `unzip`) through a shell.
+
 ## When it helps
 
 - Long runs where the agent stops to ask something and you are not at the desk.
@@ -380,12 +399,12 @@ proof the channel is open.
 | `no-reply-evidence` | a self-addressed mail with no threading headers | reply to the notification instead |
 | `empty-body` from a `From:`/`>`-leading reply | the first line starts with a quote marker, so the whole body is treated as quoted | write your text above the quote, or paste logs after a sentence |
 | `auto-generated` | a robot, mailing list or bounce | nothing |
-| `attachment-only-dropped` | the reply's only content was an attachment that was dropped (over the 1 MB total, a refused type); a note naming the drop is delivered | send the text, or a smaller file |
+| `attachment-only-dropped` | the reply's only content was an attachment nothing could deliver (a refused type, or past 20 MB); a note naming the drop is delivered | send the text, or a type on the list below |
 | `empty-body` | no prose, no attachment at all | — |
 | `attachment-*` | an attachment was dropped (type, size, count) | see the suffix |
 | `pending-full` | the queue is at its limit: 1 000 undelivered replies, or 8 MB of queued bodies and attachments - a few attachment-heavy replies can fill it | start a session so they drain; nothing is discarded, the cursor waits |
 | `send_budget` | more than ten notifications in a minute were requested | a loop is mailing; the budget refuses rather than spending the account's quota |
-| `too-large` | over 8 MB, refused before the body was downloaded | send a smaller one; inbound attachments are capped at 4 files and 1 MB *in total* |
+| `too-large` | over 32 MB, refused before the body was downloaded | send a smaller one; a document is capped at 20 MB and 25 MB per reply, images are inlined below 1 MB |
 
 Where to look:
 

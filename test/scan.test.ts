@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -781,9 +781,10 @@ test("queue-pressure expiry frees the decision slot of a dead session", async ()
 	assert.ok(!released.includes("live"), "a session with queued records keeps its slot")
 })
 
-test("a reply whose only content was an over-cap attachment is persisted with a note", () => {
-	// The phone case: an image over the 1 MB total, no text. Rejecting it lost the human's
-	// entire reply - nothing persisted, cursor moved past it, and no way to ask again.
+test("a reply whose only content is an over-cap image is delivered as a file", () => {
+	// The phone case: an image over the 1 MB inline cap, no text. It cannot be an image part, but
+	// discarding it lost the human's entire reply - so it is written to disk and the agent is told
+	// where. The old "persisted with a note" stub now only covers attachments nothing can deliver.
 	const e = env()
 	const big = { filename: "shot.png", contentType: "image/png", content: Buffer.alloc(1_500_000) }
 	return scanAndProcess(config(), {
@@ -791,12 +792,56 @@ test("a reply whose only content was an over-cap attachment is persisted with a 
 		secret: SECRET,
 		env: e,
 	}).then((r) => {
-		assert.equal(r.persisted, 1, "the reply is delivered as a note")
+		assert.equal(r.persisted, 1, "the reply is delivered")
+		assert.equal(r.reasons["attachment-only-dropped"], undefined, "nothing was lost")
+		const [record] = listPending(e)
+		assert.equal(record!.body, "", "no prose to carry")
+		assert.equal(record!.files?.length, 1, "the image is a file on disk")
+		assert.equal(record!.files![0]!.size, 1_500_000)
+		assert.ok(existsSync(record!.files![0]!.path), "and the path is real")
+		assert.equal(readCursor(e), 11, "the cursor moved with the record")
+	})
+})
+
+test("a reply with a PDF delivers the file and tells the agent where", async () => {
+	// The feature this exists for: a deck or a document cannot be a message part, so it lands on
+	// disk and the pending record carries only the path.
+	const e = env()
+	const pdf = Buffer.from("%PDF-1.7\nquarterly numbers\n")
+	const r = await scanAndProcess(config(), {
+		source: source([
+			msg(14, { text: "see attached", attachments: [{ filename: "q3.pdf", contentType: "application/pdf", content: pdf }] }),
+		]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.persisted, 1)
+	const [record] = listPending(e)
+	assert.equal(record!.body, "see attached")
+	assert.equal(record!.attachments, undefined, "not inlined into the queue")
+	assert.equal(record!.files?.length, 1)
+	const file = record!.files![0]!
+	assert.equal(file.name, "q3.pdf")
+	assert.equal(file.mimeType, "application/pdf")
+	assert.deepEqual(readFileSync(file.path), pdf, "the bytes on disk are the bytes in the mail")
+	assert.equal(statSync(file.path).mode & 0o777, 0o600)
+})
+
+test("a reply whose only content cannot be delivered at all is still a note", () => {
+	// A video is past the file allowlist, so nothing can carry it: the stub keeps the mail from
+	// vanishing silently behind the cursor.
+	const e = env()
+	const clip = { filename: "clip.mp4", contentType: "video/mp4", content: Buffer.alloc(2_000_000) }
+	return scanAndProcess(config(), {
+		source: source([msg(13, { text: "", attachments: [clip] })]),
+		secret: SECRET,
+		env: e,
+	}).then((r) => {
+		assert.equal(r.persisted, 1)
 		assert.equal(r.reasons["attachment-only-dropped"], 1)
 		const [record] = listPending(e)
-		assert.match(record!.body, /attachment\(s\) dropped \(too-large\)/)
-		assert.match(record!.body, /no text/)
-		assert.equal(readCursor(e), 11, "and the cursor moved with the record")
+		assert.match(record!.body, /attachment\(s\) dropped \(mime-not-allowed\)/)
+		assert.equal(readCursor(e), 13)
 	})
 })
 
@@ -830,7 +875,7 @@ test("an attachment-only stub can also make room by expiring, not just stall", (
 test("an attachment-only stub is delivered, not counted as rejected", () => {
 	// rejected++ here read as "mail lost" in the panel while the agent did receive the note.
 	const e = env()
-	const big = { filename: "shot.png", contentType: "image/png", content: Buffer.alloc(1_500_000) }
+	const big = { filename: "clip.mp4", contentType: "video/mp4", content: Buffer.alloc(1_500_000) }
 	return scanAndProcess(config(), {
 		source: source([msg(12, { text: "", attachments: [big] })]),
 		secret: SECRET,

@@ -613,7 +613,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					}
 				}
 
-				const content = toUserContent(body, record.attachments ?? [])
+				const content = toUserContent(body, record.attachments ?? [], record.files ?? [])
 				// A reply is text from a human, never a command. With template expansion on, pi
 				// dispatches a message starting with "/" as an extension command and never gives
 				// it to the model - so a reply of "/mailbridge off" would run a command, return without a

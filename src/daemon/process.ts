@@ -22,6 +22,7 @@ import { authorize } from "../core/authz.ts"
 import { stripQuoted, type HeaderLike } from "../core/reply-parse.ts"
 import { tokenFromSubject } from "../core/token.ts"
 import { selectAttachments, type RawAttachment } from "../core/attachments.ts"
+import { saveInboundFiles } from "../store/attachment-files.ts"
 import { findOutbound, parseMessageIds, lookupChain } from "../store/threads.ts"
 import { routeIdFromSubject, resolveRoute } from "../store/routes.ts"
 import { addPending, expirePending, listPending, type PendingRecord } from "../store/pending-store.ts"
@@ -287,7 +288,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 
 		// Attachments are filtered BEFORE persisting; a dropped one is recorded with
 		// a reason so `/mailbridge` can explain why the agent did not see it.
-		const { accepted, dropped } = selectAttachments(message.attachments ?? [])
+		const { accepted, files, dropped } = selectAttachments(message.attachments ?? [])
 		for (const item of dropped) bump(result.reasons, `attachment-${item.reason}`)
 
 		// A reply is empty only if it has neither prose nor a surviving attachment. Judging
@@ -298,7 +299,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		// image over the 1 MB total, say). Rejecting it loses the human's whole reply with
 		// no trace, so it is persisted with a note naming the drop and delivered: the agent can
 		// ask for the text, and the mail is no longer sitting past the cursor unread.
-		if (!body && accepted.length === 0) {
+		if (!body && accepted.length === 0 && files.length === 0) {
 			const reasons = [...new Set(dropped.map((d) => d.reason))].join(", ")
 			if (reasons.length > 0) {
 				const note = `[pi-mailbridge: ${dropped.length} attachment(s) dropped (${reasons}); this reply had no text]`
@@ -330,6 +331,19 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			continue
 		}
 
+		// Written before the record, so the path in `pending.json` always points at a real file.
+		// A write that fails does not lose the reply: the body still arrives with its note.
+		let saved: ReturnType<typeof saveInboundFiles> = []
+		if (files.length > 0) {
+			try {
+				saved = saveInboundFiles(env, { uid, ...(uidValidity === undefined ? {} : { uidValidity }) }, files)
+			} catch {
+				// The record is still persisted, so the reply arrives with its prose and a note;
+				// the reason is named so the panel can say the document did not land.
+				bump(result.reasons, "attachment-write-failed")
+			}
+		}
+
 		const record: PendingRecord = {
 			uid,
 			sessionId,
@@ -337,6 +351,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			subject: persistedSubject(message.subject),
 			body,
 			...(accepted.length ? { attachments: accepted } : {}),
+			...(saved.length > 0 ? { files: saved } : {}),
 			receivedAt: message.receivedAt,
 			// Re-read per record: a renumber can land mid-scan, and stamping the scan's opening
 			// space would leave the tail of the batch unclaimable until the next connect.

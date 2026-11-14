@@ -41,6 +41,11 @@ export interface PendingRecord {
 	body: string
 	/** Already allowlisted and capped by core/attachments before persisting. */
 	attachments?: { name: string; mimeType: string; size: number; data: string }[]
+	/**
+	 * Documents written to disk (PDF, PPTX, an oversized image). Only the path is stored, so a
+	 * 20 MB presentation does not enlarge this file; the message tells the agent where it is.
+	 */
+	files?: { name: string; mimeType: string; size: number; path: string }[]
 	receivedAt: number
 	/** The UIDVALIDITY this UID belongs to, when known. */
 	uidValidity?: number

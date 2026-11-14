@@ -782,6 +782,42 @@ test("the extension forwards the record's UID space to claim and ack", async () 
 	assert.deepEqual(daemon.acked, [9])
 })
 
+test("a reply with a PDF is injected as a path the agent can open", async () => {
+	// The model cannot be handed a presentation, so the message names where it landed. Without
+	// this block the file would be written to disk and never mentioned to anyone.
+	const t = fakeTimers()
+	const daemon = fakeDaemon({
+		mode: "on",
+		pending: [
+			{
+				uid: 92,
+				sessionId: SESSION,
+				from: "you@example.com",
+				subject: "re",
+				body: "the deck",
+				receivedAt: 1,
+				files: [
+					{
+						name: "deck.pptx",
+						mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+						size: 2_048_000,
+						path: "/home/me/.local/state/pi-mailbridge/attachments/7-92/deck.pptx",
+					},
+				],
+			},
+		],
+	})
+	const pi = boot(daemon, t.timers)
+	await pi.fire("session_start")
+	for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
+
+	const sent = pi.sent.join("\n")
+	assert.match(sent, /the draft|the deck/)
+	assert.match(sent, /\/attachments\/7-92\/deck\.pptx/, "the path is named")
+	assert.match(sent, /deck\.pptx/, "and the filename with it")
+	assert.match(sent, /2000 KB|1953 KB/, `the size is named: ${sent}`)
+})
+
 test("a reply with an image is injected as an image part, not as text", async () => {
 	// The whole point of replying with a screenshot: the model has to receive an image part. The
 	// store keeps base64, `toUserContent` turns it into {type:"image"}, and the fake's

@@ -293,6 +293,27 @@ decision is already bounded at one outstanding per session by the registry. That
 sustained loop: ten a minute is 600 an hour and the budget resets when the daemon restarts, so tool
 scoping remains the defence.
 
+## 6c. Documents arriving by mail
+
+A reply can carry a PDF, a deck or a spreadsheet. That cannot travel as a message part, so the
+daemon writes it to disk and the message carries the path:
+
+- **Where**: `~/.local/state/pi-mailbridge/attachments/<uidValidity>-<uid>/`, directory `0700`, file
+  `0600`. One directory per message, reused if the scan replays, so a crash does not accumulate
+  copies.
+- **Names are generated here**, not taken from the mail: separators and control characters are
+  stripped, leading dots removed, length capped, and a duplicate gets `-2` rather than overwriting.
+  `../../etc/passwd` lands as `passwd` in that message's directory.
+- **Bounded**: 20 MB per file, 10 files and 25 MB per reply, kept 7 days, directory capped at
+  200 MB oldest-first. A reply's *body* still goes through the pending store, which is bounded
+  separately - the file never does, so a big deck cannot enlarge `pending.json`.
+- **The content is untrusted.** Opening a PDF or a deck with a vulnerable renderer is the agent's
+  risk, exactly as reading an attachment in any mail client would be. This package only guarantees
+  it did not execute it.
+- **The size check happens before authorization** (`MAX_MESSAGE_BYTES`, 32 MB), because the size is
+  read from the envelope while `Authentication-Results` needs the headers. A stranger can therefore
+  cost the daemon one download of up to that size; nothing is parsed, stored or delivered for them.
+
 ## 7. Reporting
 
 Email the maintainer at the address in `package.json`'s `author`
