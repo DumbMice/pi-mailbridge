@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.5 — 2026-11-13
 
 - **A reply can carry a PDF, a presentation or a spreadsheet.** These cannot be message parts, so
   the daemon writes them under `~/.local/state/pi-mailbridge/attachments/` (0700/0600, 7-day
