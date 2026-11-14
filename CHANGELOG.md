@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.1.6 — 2026-11-14
 
 The wire gains one capability, `attachments`: the mail rendering and the attachment boundary
