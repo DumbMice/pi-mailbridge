@@ -249,6 +249,30 @@ test("registers agent_settled and never agent_end", () => {
 	assert.ok(!pi.events.includes("agent_end"), "agent_end is not a finished signal and must not be wired")
 })
 
+test("the command registers a Tab-completion hook", () => {
+	// pi's RegisteredCommand supports `getArgumentCompletions`; returning null there means "nothing
+	// to suggest", and an extension that omits it leaves `/mailbridge <Tab>` silent.
+	const t = fakeTimers()
+	const daemon = fakeDaemon({ mode: "on" })
+	const specs = new Map<string, { getArgumentCompletions?: (prefix: string) => { value: string }[] | null }>()
+	const pi = fakePi(ctx())
+	pi.registerCommand = (name, spec) => {
+		specs.set(name, spec)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	const hook = specs.get("mailbridge")?.getArgumentCompletions
+	assert.ok(hook, "the hook is registered")
+	assert.deepEqual(hook("of")?.map((i) => i.value), ["off"])
+})
+
 test("registers one command and the two tools", () => {
 	// `/afk` and `/back` were top-level names in a global namespace; they are subcommands now.
 	const pi = boot(fakeDaemon(), fakeTimers().timers)

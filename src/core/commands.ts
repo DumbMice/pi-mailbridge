@@ -26,31 +26,70 @@ export interface ParsedCommand {
 	force: boolean
 }
 
+/**
+ * One table for the command surface: the usage text, the parse whitelist, and the Tab completion
+ * all read from it. They were three separate lists, which is how a subcommand ends up documented
+ * but unparseable (or the reverse).
+ */
+export interface SubcommandInfo {
+	name: MailbridgeSubcommand
+	/** What it does, shown in the help text and next to the completion. */
+	hint: string
+	/** Extra words after the name in the usage line, when it takes any. */
+	args?: string
+}
+
+export const SUBCOMMAND_INFO: readonly SubcommandInfo[] = [
+	{ name: "status", hint: "what the daemon sees: mailbox, queue, last scan, this session" },
+	{ name: "on", hint: "email mode on: decisions mail you" },
+	{ name: "off", hint: "email mode off: decisions ask in this terminal" },
+	{ name: "setup", hint: "write the config and start the daemon", args: "<pi-address> [to <your-address>] [force]" },
+	{ name: "check", hint: "validate config, and that credentials are present" },
+	{ name: "auth", hint: "approve OAuth2 device login" },
+	{ name: "smoke", hint: "send one real mail, then read the folder back" },
+	{ name: "prime", hint: "start watching from now, ignoring existing mail" },
+	{ name: "restart", hint: "replace the daemon process (picks up new code, not just config)" },
+	{ name: "help", hint: "this list" },
+]
+
+/** One line per subcommand, aligned; a long signature (setup) gets two spaces instead. */
+function usageLine(command: SubcommandInfo): string {
+	const head = `/mailbridge ${command.name}${command.args ? ` ${command.args}` : ""}`
+	return `${head.padEnd(34)}${head.length >= 34 ? "  " : ""}${command.hint}`
+}
+
 export const USAGE = [
-	"/mailbridge                 status",
-	"/mailbridge on              email mode on: decisions mail you",
-	"/mailbridge off             email mode off: decisions ask in this terminal",
-	"/mailbridge setup <pi-address> [to <your-address>] [force]",
-	"/mailbridge check           validate config, and that credentials are present",
-	"/mailbridge auth            approve OAuth2 device login",
-	"/mailbridge smoke           send one real mail, then read the folder back",
-	"/mailbridge prime           start watching from now, ignoring existing mail",
-	"/mailbridge restart         replace the daemon process (picks up new code, not just config)",
-	"/mailbridge help            this list",
+	`/mailbridge${" ".repeat(22)}status (the default)`,
+	...SUBCOMMAND_INFO.filter((c) => c.name !== "status").map(usageLine),
 ].join("\n")
 
-const SUBCOMMANDS: readonly MailbridgeSubcommand[] = [
-	"on",
-	"off",
-	"status",
-	"setup",
-	"check",
-	"auth",
-	"smoke",
-	"prime",
-	"restart",
-	"help",
-]
+const SUBCOMMANDS: readonly MailbridgeSubcommand[] = SUBCOMMAND_INFO.map((c) => c.name)
+
+export interface ArgCompletion {
+	value: string
+	label: string
+	description?: string
+}
+
+/**
+ * Tab completion for `/mailbridge <arg>`.
+ *
+ * Only the first word is completed: after a space the user is typing an argument (an address, a
+ * flag), and offering subcommands there would insert `off` after `setup`. `null` means "no
+ * suggestions", which is what pi expects when nothing matches.
+ */
+export function completeSubcommand(prefix: string): ArgCompletion[] | null {
+	const typed = prefix.trimStart()
+	if (/\s/.test(typed)) return null
+	const needle = typed.toLowerCase()
+	const matches = SUBCOMMAND_INFO.filter((c) => c.name.startsWith(needle))
+	if (matches.length === 0) return null
+	return matches.map((c) => ({
+		value: c.name,
+		label: c.name,
+		description: c.args ? `${c.hint} ${c.args}` : c.hint,
+	}))
+}
 
 export function isSubcommand(value: string): value is MailbridgeSubcommand {
 	return (SUBCOMMANDS as readonly string[]).includes(value)

@@ -244,10 +244,12 @@ test("every environment override is documented", () => {
 test("the documented /mailbridge subcommands are exactly the implemented ones", () => {
 	// The first version of this file only grepped for `!approve`; an invented
 	// `/mailbridge doctor` would have shipped.
+	// The single source is `SUBCOMMAND_INFO` (usage text, parse whitelist and Tab completion all
+	// read it), so that is what a stray `/mailbridge doctor` would have to appear in.
 	const commands = readFileSync(join(root, "src/core/commands.ts"), "utf8")
-	const block = /const SUBCOMMANDS[^=]*=\s*\[([\s\S]*?)\]/.exec(commands)?.[1]
-	assert.ok(block, "SUBCOMMANDS should be a literal array")
-	const implemented = new Set([...block.matchAll(/"([a-z]+)"/g)].map((m) => m[1]!))
+	const block = /export const SUBCOMMAND_INFO[^=]*=\s*\[([\s\S]*?)\n\]/.exec(commands)?.[1]
+	assert.ok(block, "SUBCOMMAND_INFO should be a literal array")
+	const implemented = new Set([...block.matchAll(/name:\s*"([a-z]+)"/g)].map((m) => m[1]!))
 	assert.ok(implemented.size >= 6, `expected the subcommand list, got ${implemented.size}`)
 
 	const documented = new Set(

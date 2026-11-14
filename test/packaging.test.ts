@@ -163,11 +163,11 @@ test("every command in the README is registered in the extension", () => {
 		.filter((name) => name === "mailbridge")
 	const unique = [...new Set(documented)]
 	assert.ok(unique.length >= 1, `expected /mailbridge in README, found ${unique.length}`)
+	// Parsed, not string-matched: a reformat that moves the name onto the next line is not a
+	// missing command.
+	const registered = new Set([...extensionSource.matchAll(/registerCommand\(\s*"([a-z]+)"/g)].map((m) => m[1]!))
 	for (const name of unique) {
-		assert.ok(
-			extensionSource.includes(`registerCommand("${name}"`),
-			`README documents /${name} but extension.ts does not register it`,
-		)
+		assert.ok(registered.has(name), `README documents /${name} but extension.ts does not register it`)
 	}
 })
 

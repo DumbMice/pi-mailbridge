@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { isSubcommand, parseMailbridgeCommand, USAGE } from "../src/core/commands.ts"
+import { completeSubcommand, isSubcommand, parseMailbridgeCommand, SUBCOMMAND_INFO, USAGE } from "../src/core/commands.ts"
 
 test("bare /mailbridge is a status request", () => {
 	assert.deepEqual(parseMailbridgeCommand(""), { sub: "status", force: false })
@@ -73,3 +73,36 @@ test("prime is a first-class subcommand", () => {
 	assert.equal(isSubcommand("prime"), true)
 	assert.match(USAGE, /prime/)
 })
+
+test("Tab offers the subcommands, filtered by what has been typed", () => {
+	// pi calls this hook when the user presses Tab after `/mailbridge `; without it the argument
+	// position is silent, which is what this test exists to keep from coming back.
+	const all = completeSubcommand("")
+	assert.ok(all, "an empty prefix lists everything")
+	assert.deepEqual(
+		all.map((i) => i.value),
+		SUBCOMMAND_INFO.map((c) => c.name),
+		"every subcommand, in usage order",
+	)
+	assert.ok(all.every((i) => i.label === i.value && (i.description ?? "").length > 0), "each carries its hint")
+
+	assert.deepEqual(completeSubcommand("s")?.map((i) => i.value), ["status", "setup", "smoke"])
+	assert.deepEqual(completeSubcommand("of")?.map((i) => i.value), ["off"])
+	assert.deepEqual(completeSubcommand("REST")?.map((i) => i.value), ["restart"], "case-insensitive")
+
+	// After a space the user is typing an argument, not a subcommand: no suggestions.
+	assert.equal(completeSubcommand("off "), null)
+	assert.equal(completeSubcommand("setup me@example.com"), null)
+	assert.equal(completeSubcommand("frobnicate"), null, "nothing matches")
+})
+
+test("the usage text, the whitelist and the completion are one list", () => {
+	// They were three hand-written lists; this is the guard that keeps a new subcommand from being
+	// documented but unparseable, or completable but unknown.
+	for (const command of SUBCOMMAND_INFO) {
+		assert.ok(isSubcommand(command.name), `${command.name} parses`)
+		assert.ok(USAGE.includes(command.name), `${command.name} appears in the usage text`)
+		assert.ok(completeSubcommand(command.name)?.some((i) => i.value === command.name), `${command.name} completes`)
+	}
+})
+

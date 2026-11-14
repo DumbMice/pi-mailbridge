@@ -29,6 +29,15 @@
   context whose getters throw sends nothing - it could not be routed without a session id - and
   says so with a warning instead of failing silently.
 
+### Command completion, and one list behind it
+
+- **`/mailbridge` offered nothing on `Tab`.** The subcommands were three hand-written lists — the
+  usage text, the parse whitelist and (missing entirely) completion. pi's command API has
+  `getArgumentCompletions`, so the argument position now lists `on`, `off`, `status`, `setup`,
+  `check`, `auth`, `smoke`, `prime`, `restart` and `help` with their one-line descriptions, filtered
+  by what has been typed. All three now read one table, so a subcommand cannot be documented but
+  unparseable, or parseable but unmentionable.
+
 ### A mail that could be widened by one long line
 
 - **A rule-like line inside a code block stretched the whole message.** The fence carried

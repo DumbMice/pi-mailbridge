@@ -23,7 +23,7 @@ import { API_VERSION, apiCompatible } from "./daemon/api.ts"
 import { probeHealth, probeHealthDetail } from "./daemon/spawn.ts"
 import { resolveDaemonScript } from "./daemon/script.ts"
 import { daemonBaseUrl, ensureDaemon, createDaemonClient, type DaemonClient } from "./daemon/spawn.ts"
-import { parseMailbridgeCommand, USAGE } from "./core/commands.ts"
+import { completeSubcommand, parseMailbridgeCommand, USAGE } from "./core/commands.ts"
 import { runSetup } from "./core/setup.ts"
 import { runSmoke } from "./core/smoke.ts"
 import { buildTokenProvider } from "./core/token-source.ts"
@@ -43,7 +43,15 @@ const VERSION_CHECK_MS = 60_000
 /** The slice of the pi runtime this extension uses. */
 export interface ExtensionLike {
 	on(event: string, handler: (event: Record<string, unknown>, ctx: ExtensionCtxLike) => unknown): void
-	registerCommand(name: string, spec: { description: string; handler: (args: string, ctx: ExtensionCtxLike) => Promise<void> }): void
+	registerCommand(
+		name: string,
+		spec: {
+			description: string
+			/** Tab completion for the argument; `null` means "nothing to suggest". */
+			getArgumentCompletions?: (argumentPrefix: string) => { value: string; label: string; description?: string }[] | null
+			handler: (args: string, ctx: ExtensionCtxLike) => Promise<void>
+		},
+	): void
 	registerTool(spec: {
 		name: string
 		label: string
@@ -883,9 +891,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		name: string,
 		description: string,
 		handler: (args: string, c: ExtensionCtxLike) => Promise<void>,
+		completions?: (prefix: string) => { value: string; label: string; description?: string }[] | null,
 	): void => {
 		commandHandlers.set(name, handler)
-		pi.registerCommand(name, { description, handler })
+		pi.registerCommand(name, { description, ...(completions ? { getArgumentCompletions: completions } : {}), handler })
 	}
 
 	registerCommand("mailbridge",
@@ -1321,6 +1330,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				}
 			}
 		},
+		completeSubcommand,
 	)
 
 	// ---- agent-facing tools ------------------------------------------------
