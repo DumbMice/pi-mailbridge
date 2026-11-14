@@ -26,8 +26,8 @@
   is (pi builds a fresh context per event, and the getters read the live runtime). A reload during
   the debounce used to make the send re-read a context whose getters then throw; the send now uses
   the captured context, so the mail still goes out under the session its subject refers to. A
-  context too stale even to yield a session id sends nothing - it could not be routed - and says so
-  with a warning instead of failing silently.
+  context whose getters throw sends nothing - it could not be routed without a session id - and
+  says so with a warning instead of failing silently.
 
 ### A mail that could be widened by one long line
 
