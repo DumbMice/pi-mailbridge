@@ -306,7 +306,7 @@ then exits - it is not exempt.
 src/
   extension.ts          pi entry: tools, commands, polling client, session lifecycle
   core/
-    attachments.ts      image/markdown attachment rendering
+    attachments.ts        inbound classification: inline parts vs a file on disk vs a drop      image/markdown attachment rendering
     authz.ts            loop/bounce → robot → allowlist → DMARC (off for one mailbox)
     commands.ts         /mailbridge parsing + usage text
     config.ts           layered config, env overrides, type validation

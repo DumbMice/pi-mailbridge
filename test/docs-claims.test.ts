@@ -1,5 +1,7 @@
 import { test } from "node:test"
 import { PENDING_CAP as pendingCap, PENDING_MAX_BYTES as pendingMaxBytes } from "../src/store/pending-store.ts"
+import { MAX_FILE_BYTES, MAX_FILES_TOTAL_BYTES, MAX_TOTAL_BYTES } from "../src/core/attachments.ts"
+import { MAX_MESSAGE_BYTES } from "../src/daemon/watcher.ts"
 import assert from "node:assert/strict"
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
@@ -1122,3 +1124,24 @@ test("the documented queue bounds match the constants they describe", () => {
 		"ARCHITECTURE's pipeline invariant must state both bounds",
 	)
 })
+
+test("the inbound document caps agree with the constants and with the wire ceiling", () => {
+	const fileCap = MAX_FILE_BYTES
+	const filesTotal = MAX_FILES_TOTAL_BYTES
+	const inlineTotal = MAX_TOTAL_BYTES
+	const wireCeiling = MAX_MESSAGE_BYTES
+	// Four numbers that only make sense together: a reply's files, the mail that carries them after
+	// base64, the per-file cap, and the retention. They were documented before they were reachable.
+	const prose = [doc("README.md"), doc("docs/SECURITY.md"), doc("CHANGELOG.md")]
+		.join("\n")
+		.replace(/\s+/g, " ")
+	const mb = (n: number): string => `${Math.round(n / 1024 / 1024)} MB`
+	assert.ok(prose.includes(`${mb(fileCap)} per file`), "per-file cap is stated")
+	assert.ok(prose.includes(mb(filesTotal)), "per-reply total is stated")
+	const encoded = (bytes: number): number => Math.ceil(bytes / 3) * 4
+	assert.ok(
+		encoded(filesTotal) + encoded(inlineTotal) < wireCeiling,
+		`a maximum reply (${Math.round((encoded(filesTotal) + encoded(inlineTotal)) / 1024 / 1024)} MB) must fit the ${mb(wireCeiling)} ceiling`,
+	)
+})
+

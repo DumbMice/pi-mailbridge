@@ -92,7 +92,7 @@ export interface InboundAttachment {
 
 export interface DroppedAttachment {
 	name: string
-	reason: "mime-not-allowed" | "too-many" | "too-large" | "empty"
+	reason: "mime-not-allowed" | "too-many" | "too-large" | "empty" | "write-failed"
 }
 
 /** A document too big to inline: written to disk, delivered as a path. */
@@ -253,8 +253,13 @@ export function toUserContent(
 	}
 	if (files.length > 0) {
 		// A path, not the bytes: the agent opens it with its own tools, which is the only way a
-		// PDF or a presentation can be delivered at all.
-		const lines = files.map((f) => `- ${f.path} (${f.name}, ${f.mimeType}, ${Math.round(f.size / 1024)} KB)`)
+		// PDF or a presentation can be delivered at all. The block is prefixed as ours, so nothing
+		// from the mail may look like a new line or a new instruction in it.
+		const oneLine = (value: string): string => value.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ")
+		const lines = files.map(
+			(f) =>
+				`- ${oneLine(f.path)} (${oneLine(f.name)}, ${oneLine(f.mimeType)}, ${Math.round(f.size / 1024)} KB)`,
+		)
 		content.push({
 			type: "text",
 			text: `[pi-mailbridge] the human attached ${files.length} file(s):\n${lines.join("\n")}`,

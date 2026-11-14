@@ -4,6 +4,8 @@ import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { MAX_FILES_TOTAL_BYTES } from "../src/core/attachments.ts"
+import { MAX_MESSAGE_BYTES } from "../src/daemon/watcher.ts"
 import {
 	MAX_ATTACHMENTS,
 	MAX_FILES,
@@ -86,6 +88,17 @@ test("a PDF is a file, and a presentation too", () => {
 		"deck.pptx:application/vnd.openxmlformats-officedocument.presentationml.presentation",
 	])
 	assert.equal(files[1]!.content.length, 5_000_000, "the bytes are handed on, not truncated")
+})
+
+test("a reply that obeys every cap still fits under the mail ceiling", () => {
+	// The wire carries base64, so the mail ceiling has to be derived from the caps rather than
+	// picked: at 32 MB a 25 MB reply was refused before the body downloaded, losing the prose too.
+	const encoded = (bytes: number): number => Math.ceil(bytes / 3) * 4
+	const worstCase = encoded(MAX_FILES_TOTAL_BYTES) + encoded(MAX_TOTAL_BYTES) + 200 * 1024
+	assert.ok(
+		worstCase < MAX_MESSAGE_BYTES,
+		`a maximum reply is ${Math.round(worstCase / 1024 / 1024)} MB on the wire; the ceiling is ${MAX_MESSAGE_BYTES / 1024 / 1024}`,
+	)
 })
 
 test("an iPhone HEIC photo is a file: no model reads it, a shell can convert it", () => {

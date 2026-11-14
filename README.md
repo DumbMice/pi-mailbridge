@@ -303,9 +303,11 @@ A reply can carry:
 | PDF, PPT/PPTX, DOC/DOCX, XLS/XLSX, ODT/ODP, CSV, ZIP, GZ, TAR, MD, TXT, LOG, JSON — or an image too big to inline — up to 20 MB each | the file, written to `~/.local/state/pi-mailbridge/attachments/`, with its absolute path in the message. The agent opens it with its own tools |
 | anything else (video, executables, an unknown extension) | not delivered; the drop is named in `agent`'s message and in `/mailbridge status` |
 
-Up to 10 files and 25 MB per reply; the mail itself may be up to 32 MB (base64 inflates, so a 20 MB
-deck arrives as a ~27 MB message). Documents are kept for 7 days and the directory is capped at
-200 MB, oldest first - enough to be read, not an archive.
+Up to 10 files and 25 MB per reply; the mail itself may be up to 40 MB, because base64 inflates by
+a third and a 25 MB reply is ~33 MB on the wire. Documents are kept for 7 days and the directory is
+capped at 200 MB, oldest first - enough to be read, not an archive. If a file cannot be written
+(disk full, permissions), the reply still arrives with a note naming it and `write-failed` in the
+scan reasons.
 
 A PDF or a deck is delivered as a **path**, because a model cannot be handed one as a message part.
 If the agent needs the contents, it has to open it: `read` for text-ish files, or its own tooling
@@ -401,10 +403,10 @@ proof the channel is open.
 | `auto-generated` | a robot, mailing list or bounce | nothing |
 | `attachment-only-dropped` | the reply's only content was an attachment nothing could deliver (a refused type, or past 20 MB); a note naming the drop is delivered | send the text, or a type on the list below |
 | `empty-body` | no prose, no attachment at all | — |
-| `attachment-*` | an attachment was dropped (type, size, count) | see the suffix |
+| `attachment-*` | an attachment was dropped (type, size, count, or `write-failed` for a document that could not be saved) | see the suffix |
 | `pending-full` | the queue is at its limit: 1 000 undelivered replies, or 8 MB of queued bodies and attachments - a few attachment-heavy replies can fill it | start a session so they drain; nothing is discarded, the cursor waits |
 | `send_budget` | more than ten notifications in a minute were requested | a loop is mailing; the budget refuses rather than spending the account's quota |
-| `too-large` | over 32 MB, refused before the body was downloaded | send a smaller one; a document is capped at 20 MB and 25 MB per reply, images are inlined below 1 MB |
+| `too-large` | over 40 MB, refused before the body was downloaded | send a smaller one; a document is capped at 20 MB and 25 MB per reply, images are inlined below 1 MB |
 
 Where to look:
 

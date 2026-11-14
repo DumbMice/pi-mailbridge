@@ -24,10 +24,12 @@ export const DEFAULT_IDLE_RENEW_MS = 25 * 60 * 1000
 /**
  * Hard ceiling on a message we will parse.
  *
- * Above the document cap (20 MB) by enough for base64 plus headers: a 20 MB presentation arrives
- * as a ~27 MB message. Nothing larger is refused before the body is downloaded.
+ * Derived from what a reply may carry, not guessed: 25 MB of documents base64 to ~33.4 MB, the
+ * inline budget adds ~1.4 MB, and a body and headers sit on top - so 40 MB leaves real headroom.
+ * At 32 MB a reply that obeyed every documented cap was refused here, before the body was
+ * downloaded, which loses the prose too. `test/attachments.test.ts` asserts the relationship.
  */
-export const MAX_MESSAGE_BYTES = 32 * 1024 * 1024
+export const MAX_MESSAGE_BYTES = 40 * 1024 * 1024
 
 const DEFAULT_BACKOFF_INITIAL_MS = 1_000
 export const DEFAULT_BACKOFF_MAX_MS = 60_000

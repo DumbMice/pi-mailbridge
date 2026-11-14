@@ -22,7 +22,7 @@ import { authorize } from "../core/authz.ts"
 import { stripQuoted, type HeaderLike } from "../core/reply-parse.ts"
 import { tokenFromSubject } from "../core/token.ts"
 import { selectAttachments, type RawAttachment } from "../core/attachments.ts"
-import { saveInboundFiles } from "../store/attachment-files.ts"
+import { pruneInboundFiles as pruneAttachments, saveInboundFiles } from "../store/attachment-files.ts"
 import { findOutbound, parseMessageIds, lookupChain } from "../store/threads.ts"
 import { routeIdFromSubject, resolveRoute } from "../store/routes.ts"
 import { addPending, expirePending, listPending, type PendingRecord } from "../store/pending-store.ts"
@@ -40,6 +40,13 @@ export const MAX_BODY_CHARS = 100_000
  * permanent stall of all inbound mail. `test/pending-store.test.ts` pins the relationship.
  */
 export const MAX_SUBJECT_CHARS = 300
+
+/** What the agent reads when attachments were accepted but could not be written. */
+export function writeFailedNote(files: { name: string }[]): string {
+	return `[pi-mailbridge: ${files.length} attachment(s) could not be saved (write-failed: ${files
+		.map((f) => f.name)
+		.join(", ")}); ask for them again or check the disk]`
+}
 
 export function persistedSubject(subject: string | undefined): string {
 	const value = subject ?? ""
@@ -86,6 +93,8 @@ export interface ScanDeps {
 	now?: () => number
 	/** Release a decision slot whose record was dropped, when nothing else holds it. */
 	onDropped?: (sessionId: string) => void
+	/** Injected by tests: the document writer, so a failed write can be exercised. */
+	saveFiles?: typeof saveInboundFiles
 }
 
 export interface ScanResult {
@@ -118,6 +127,7 @@ function bump(reasons: Record<string, number>, key: string): void {
 export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Promise<ScanResult> {
 	const env = deps.env ?? process.env
 	const now = deps.now ?? (() => Date.now())
+	const saveFiles = deps.saveFiles ?? saveInboundFiles
 
 	const startCursor = readCursor(env)
 	const uidValidity = deps.source.uidValidity?.()
@@ -281,7 +291,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		const stripped = stripQuoted(message.text)
 		// Marked, not silently cut: the agent must be able to tell that its instruction is
 		// incomplete (the outbound truncation note does the same).
-		const body =
+		let body =
 			stripped.length > MAX_BODY_CHARS
 				? `${stripped.slice(0, MAX_BODY_CHARS)}\n\n[truncated: ${stripped.length - MAX_BODY_CHARS} more characters]`
 				: stripped
@@ -332,15 +342,27 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		}
 
 		// Written before the record, so the path in `pending.json` always points at a real file.
-		// A write that fails does not lose the reply: the body still arrives with its note.
 		let saved: ReturnType<typeof saveInboundFiles> = []
 		if (files.length > 0) {
 			try {
-				saved = saveInboundFiles(env, { uid, ...(uidValidity === undefined ? {} : { uidValidity }) }, files)
+				saved = saveFiles(env, { uid, ...(uidValidity === undefined ? {} : { uidValidity }) }, files)
 			} catch {
-				// The record is still persisted, so the reply arrives with its prose and a note;
-				// the reason is named so the panel can say the document did not land.
+				// A failed write must not deliver a reply that silently lost its document - and a
+				// document-only reply would otherwise become an empty message. Name the loss in the
+				// body, which is the one channel the agent is guaranteed to read.
 				bump(result.reasons, "attachment-write-failed")
+				for (const file of files) dropped.push({ name: file.name, reason: "write-failed" })
+				body = body
+					? `${body}\n\n${writeFailedNote(files)}`
+					: writeFailedNote(files)
+			} finally {
+				// Free space before the next attempt: the disk-full case is exactly when the
+				// retention that would have freed it never gets a chance to run.
+				try {
+					pruneAttachments(env)
+				} catch {
+					/* best effort */
+				}
 			}
 		}
 

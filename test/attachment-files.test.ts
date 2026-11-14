@@ -1,6 +1,16 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync, mkdirSync } from "node:fs"
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+	symlinkSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -44,6 +54,37 @@ test("a hostile filename cannot leave the directory or overwrite a sibling", () 
 	)
 	assert.equal(readFileSync(saved[1]!.path, "utf8"), "b", "the first report survived")
 	assert.equal(readFileSync(saved[2]!.path, "utf8"), "c", "and the second is beside it")
+})
+
+test("a name is capped by bytes, so a CJK filename cannot throw ENAMETOOLONG", () => {
+	// NAME_MAX is 255 bytes. 120 CJK characters is 360 bytes, and the write would fail on the one
+	// path that exists to make hostile names safe.
+	const name = safeName("汉".repeat(200) + ".pdf", "x")
+	assert.ok(Buffer.byteLength(name, "utf8") <= 120, `${Buffer.byteLength(name, "utf8")} bytes`)
+	assert.ok(name.endsWith(".pdf"), "and the extension survives")
+})
+
+test("a planted symlink is not followed", () => {
+	// Only same-user code can plant one; the write still must not be redirected out of the
+	// directory, which is what O_NOFOLLOW buys.
+	const e = env()
+	const dir = join(attachmentRoot(e), "0-3")
+	mkdirSync(dir, { recursive: true })
+	const victim = join(e.XDG_STATE_HOME!, "victim.txt")
+	writeFileSync(victim, "original")
+	symlinkSync(victim, join(dir, "a.pdf"))
+	assert.throws(
+		() => saveInboundFiles(e, { uid: 3 }, [{ name: "a.pdf", mimeType: "application/pdf", size: 1, content: Buffer.from("x") }]),
+		/ELOOP|EEXIST/,
+	)
+	assert.equal(readFileSync(victim, "utf8"), "original", "the target is untouched")
+})
+
+test("an empty directory from a failed write is pruned", () => {
+	const e = env()
+	mkdirSync(join(attachmentRoot(e), "0-77"), { recursive: true })
+	assert.equal(pruneInboundFiles(e, { now: Date.now() }), 1)
+	assert.ok(!existsSync(join(attachmentRoot(e), "0-77")))
 })
 
 test("safeName keeps the extension and drops control characters", () => {

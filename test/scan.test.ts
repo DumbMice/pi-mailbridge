@@ -803,6 +803,41 @@ test("a reply whose only content is an over-cap image is delivered as a file", (
 	})
 })
 
+test("a document that cannot be written is reported, not silently lost", () => {
+	// ENOSPC / EACCES / ENAMETOOLONG. A document-only reply would otherwise become an empty
+	// message: the gate that rejects empty replies ran before the write.
+	const e = env()
+	const failing = () => {
+		throw new Error("ENOSPC")
+	}
+	return scanAndProcess(
+		config(),
+		{
+			source: source([
+				msg(15, {
+					text: "here it is",
+					attachments: [{ filename: "q3.pdf", contentType: "application/pdf", content: Buffer.from("%PDF") }],
+				}),
+				msg(16, {
+					text: "",
+					attachments: [{ filename: "deck.pptx", contentType: "application/vnd.ms-powerpoint", content: Buffer.from("PK") }],
+				}),
+			]),
+			secret: SECRET,
+			env: e,
+			saveFiles: failing,
+		} as Parameters<typeof scanAndProcess>[1],
+	).then((r) => {
+		assert.equal(r.reasons["attachment-write-failed"], 2, "both writes failed and said so")
+		assert.equal(r.persisted, 2, "and both replies still arrived")
+		const [withProse, documentOnly] = listPending(e)
+		assert.match(withProse!.body, /here it is/)
+		assert.match(withProse!.body, /could not be saved \(write-failed: q3\.pdf\)/, "the prose keeps a note")
+		assert.match(documentOnly!.body, /could not be saved/, "and a document-only reply is not empty")
+		assert.equal(documentOnly!.body.trim().length > 0, true)
+	})
+})
+
 test("a reply with a PDF delivers the file and tells the agent where", async () => {
 	// The feature this exists for: a deck or a document cannot be a message part, so it lands on
 	// disk and the pending record carries only the path.

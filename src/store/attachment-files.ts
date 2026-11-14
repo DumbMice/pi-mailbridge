@@ -11,7 +11,7 @@
 //     so a hostile filename cannot escape the directory or overwrite a sibling
 //   - the directory is pruned by age and total size, so a full mailbox cannot fill the disk
 
-import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { closeSync, constants, mkdirSync, openSync, readdirSync, rmSync, statSync, writeSync } from "node:fs"
 import { basename, join } from "node:path"
 
 import type { SelectedFile } from "../core/attachments.ts"
@@ -50,8 +50,24 @@ export function safeName(name: string, fallback: string): string {
 		.replace(/[\u0000-\u001f\u007f/\\:*?"<>|]+/g, "-")
 		.replace(/^[.\s]+/, "")
 		.trim()
-		.slice(0, 120)
-	return cleaned || fallback
+	// By BYTES, not characters: NAME_MAX is 255 bytes, so 120 CJK characters is 360 bytes and the
+	// write throws ENAMETOOLONG - on a path that is supposed to be the fallback, not a failure.
+	// The extension is kept: it is how the agent picks a reader.
+	const dot = cleaned.lastIndexOf(".")
+	const extension = dot > 0 ? cleaned.slice(dot) : ""
+	const stem = dot > 0 ? cleaned.slice(0, dot) : cleaned
+	const room = Math.max(1, 120 - Buffer.byteLength(extension, "utf8"))
+	return `${truncateBytes(stem, room)}${extension}` || fallback
+}
+
+function truncateBytes(value: string, maxBytes: number): string {
+	if (Buffer.byteLength(value, "utf8") <= maxBytes) return value
+	let out = ""
+	for (const char of value) {
+		if (Buffer.byteLength(out + char, "utf8") > maxBytes) break
+		out += char
+	}
+	return out
 }
 
 /**
@@ -81,10 +97,16 @@ export function saveInboundFiles(
 		}
 		taken.add(unique)
 		const path = join(dir, unique)
-		writeFileSync(path, file.content, { mode: 0o600 })
+		// O_NOFOLLOW: a symlink planted in the directory (same user, so not an escalation, but the
+		// same discipline the outbound path applies) must not redirect the write elsewhere.
+		const fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o600)
+		try {
+			writeSync(fd, file.content)
+		} finally {
+			closeSync(fd)
+		}
 		saved.push({ name: unique, mimeType: file.mimeType, size: file.content.length, path })
 	}
-	pruneInboundFiles(env)
 	return saved
 }
 
@@ -132,7 +154,9 @@ export function pruneInboundFiles(
 	let total = 0
 	const keep: typeof stats = []
 	for (const entry of stats) {
-		if (entry.newest > 0 && now - entry.newest > maxAge) {
+		// `newest === 0` is a directory whose write failed before any file landed: it holds no mail
+		// and would otherwise trickle inodes for ever.
+		if (entry.newest === 0 || now - entry.newest > maxAge) {
 			try {
 				rmSync(entry.dir, { recursive: true, force: true })
 				removed++

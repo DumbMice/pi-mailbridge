@@ -310,9 +310,15 @@ daemon writes it to disk and the message carries the path:
 - **The content is untrusted.** Opening a PDF or a deck with a vulnerable renderer is the agent's
   risk, exactly as reading an attachment in any mail client would be. This package only guarantees
   it did not execute it.
-- **The size check happens before authorization** (`MAX_MESSAGE_BYTES`, 32 MB), because the size is
+- **The size check happens before authorization** (`MAX_MESSAGE_BYTES`, 40 MB), because the size is
   read from the envelope while `Authentication-Results` needs the headers. A stranger can therefore
   cost the daemon one download of up to that size; nothing is parsed, stored or delivered for them.
+  Authorization (allowlist, then DMARC) runs before routing and before anything is written to disk.
+- **This is the one place a reply's bytes leave the project boundary.** §5 describes the *outbound*
+  rule (attachments must live inside the agent's project); an inbound document is a copy under the
+  state dir, so the agent needs to be able to read outside its cwd. A shell can; a tool set that is
+  restricted to `cwd` cannot open it, and the feature then degrades to a path the agent can see but
+  not read.
 
 ## 7. Reporting
 
