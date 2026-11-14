@@ -34,6 +34,8 @@ const md = new MarkdownIt({
 // rather than the output being post-processed.
 
 const CELL_BORDER = "border:1px solid #c8ccd1"
+/** A path in a cell is one unbreakable token; without this the table widens past the pane. */
+const CELL_WRAP = "word-break:break-word;overflow-wrap:anywhere"
 
 /**
  * Merge our style with any attributes markdown-it already set (alignment, mostly).
@@ -53,8 +55,13 @@ function styledTag(name: string, rawAttrs: unknown, extra: string): string {
 md.renderer.rules.table_open = () =>
 	'<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:10px 0;font-size:13px">'
 md.renderer.rules.th_open = (tokens, idx) =>
-	styledTag("th", tokens[idx]?.attrs, `${CELL_BORDER};padding:6px 10px;background:#f2f4f7;text-align:left`)
-md.renderer.rules.td_open = (tokens, idx) => styledTag("td", tokens[idx]?.attrs, `${CELL_BORDER};padding:6px 10px`)
+	styledTag(
+		"th",
+		tokens[idx]?.attrs,
+		`${CELL_BORDER};padding:6px 10px;background:#f2f4f7;text-align:left;${CELL_WRAP}`,
+	)
+md.renderer.rules.td_open = (tokens, idx) =>
+	styledTag("td", tokens[idx]?.attrs, `${CELL_BORDER};padding:6px 10px;${CELL_WRAP}`)
 
 const MONO = "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"
 /**

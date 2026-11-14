@@ -116,6 +116,16 @@ test("a long line in a code block wraps instead of widening the mail", () => {
 	assert.ok(html.includes(rule), "and the line is still there, unbroken")
 })
 
+test("a long token in a table cell wraps, so the table cannot widen the mail", () => {
+	const wide = "─".repeat(180)
+	const { html } = renderMessage(`| a | b |\n| --- | --- |\n| ${wide} | x |`)
+	const cell = /<td style="([^"]+)"/.exec(html)?.[1] ?? ""
+	assert.match(cell, /word-break:break-word/)
+	assert.match(cell, /overflow-wrap:anywhere/)
+	const head = /<th style="([^"]+)"/.exec(html)?.[1] ?? ""
+	assert.match(head, /overflow-wrap:anywhere/, "headers wrap too")
+})
+
 test("long inline code is breakable too", () => {
 	const long = "/very/long/path/" + "segment/".repeat(30)
 	const { html } = renderMessage("see `" + long + "`")
