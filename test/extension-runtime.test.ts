@@ -927,6 +927,30 @@ test("a reply with an image is injected as an image part, not as text", async ()
 	assert.deepEqual(pi.sent, ["look\n[image image/png]"], `an image part reached the session: ${JSON.stringify(pi.sent)}`)
 })
 
+test("a context whose getters throw cannot take the notification down with it", async () => {
+	// pi's ExtensionContext exposes `model`/`thinkingLevel`/`cwd` as getters that call
+	// assertActive(): after an extension reload the runner this closure holds is stale and reading
+	// them throws. The settle must still go out, without the model line.
+	const t = fakeTimers()
+	const daemon = fakeDaemon({ mode: "on" })
+	const poisoned = ctx()
+	Object.defineProperty(poisoned, "model", {
+		get() {
+			throw new Error("extension instance reloaded; this context is stale")
+		},
+	})
+	const pi = boot(daemon, t.timers, poisoned)
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.find((q) => q.ms === 10_000)?.handler()
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.equal(daemon.sent.length, 1, `the settle still went out: ${JSON.stringify(daemon.sent.map((m) => m.subject))}`)
+	assert.doesNotMatch(daemon.sent[0]!.text, /^model:/m, "and it simply omits the line it could not read")
+})
+
 test("a delivered reply is injected as a followUp", async () => {
 	// AGENTS.md invariant 7 and the single injection point. The fake used to discard the
 	// options, so changing `deliverAs` to "steer" left the suite green.

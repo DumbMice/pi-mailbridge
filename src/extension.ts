@@ -208,27 +208,46 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 * not say. Duck-typed: an older pi exposes neither, and the line is then simply absent.
 	 */
 	function modelLabel(context: ExtensionCtxLike): string | undefined {
-		const model = context.model
+		// `model` and `thinkingLevel` are getters on pi's context that call `assertActive()`: after
+		// an extension reload the runner this closure holds is stale and reading them throws. A
+		// footer line is not worth a lost notification.
+		let model: { id?: string; name?: string; provider?: string } | undefined
+		let thinking: string | undefined
+		try {
+			model = context.model
+			thinking = context.thinkingLevel?.trim()
+		} catch {
+			return undefined
+		}
 		const id = model?.id?.trim() || model?.name?.trim()
 		if (!id) return undefined
 		const provider = model?.provider?.trim()
-		const thinking = context.thinkingLevel?.trim()
 		return `${provider ? `${provider}/` : ""}${id}${thinking ? ` • ${thinking}` : ""}`
 	}
 
 	function sessionContext(): SettleContext | undefined {
 		if (!ctx) return undefined
-		const sessionId = ctx.sessionManager.getSessionId()
+		try {
+			return buildSessionContext(ctx)
+		} catch {
+			// Every field here can be a guarded getter (see modelLabel). A stale runner must not
+			// turn into a lost settle or a thrown event handler.
+			return undefined
+		}
+	}
+
+	function buildSessionContext(context: ExtensionCtxLike): SettleContext | undefined {
+		const sessionId = context.sessionManager.getSessionId()
 		// `getSessionName()` is the documented method; `getName` never existed.
-		const name = ctx.sessionManager.getSessionName?.() ?? ctx.sessionManager.getName?.()
-		const model = modelLabel(ctx)
+		const name = context.sessionManager.getSessionName?.() ?? context.sessionManager.getName?.()
+		const model = modelLabel(context)
 		return {
 			sessionId,
 			...(name ? { sessionName: name } : {}),
 			device: config.device.name,
 			...(model ? { model } : {}),
-			cwd: ctx.cwd,
-			...readSessionSnapshot(ctx.sessionManager),
+			cwd: context.cwd,
+			...readSessionSnapshot(context.sessionManager),
 		}
 	}
 

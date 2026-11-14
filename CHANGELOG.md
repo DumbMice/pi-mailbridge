@@ -21,7 +21,10 @@
   session can be resumed on a different model, or at a different thinking level, and "why is this
   answer worse than before" is unanswerable without that. The footer now carries
   `model: provider/id • thinking` between the session id and the project, and omits the line when
-  the runtime does not expose a model (older pi).
+  the runtime does not expose a model (older pi). The label is read from pi's live `model` getter
+  at settle time, so a mid-session model or thinking-level change is reported as it is - and a
+  context whose getters have gone stale (an extension reload replaces the runner) degrades to no
+  model line rather than a lost notification.
 
 ### A mail that could be widened by one long line
 
