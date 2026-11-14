@@ -782,6 +782,38 @@ test("the extension forwards the record's UID space to claim and ack", async () 
 	assert.deepEqual(daemon.acked, [9])
 })
 
+test("a reply with an image is injected as an image part, not as text", async () => {
+	// The whole point of replying with a screenshot: the model has to receive an image part. The
+	// store keeps base64, `toUserContent` turns it into {type:"image"}, and the fake's
+	// sendUserMessage renders that as "[image image/png]" - so this fails if any link drops it.
+	const t = fakeTimers()
+	const bytes = Buffer.from("89504e470d0a1a0a", "hex")
+	const daemon = fakeDaemon({
+		mode: "on",
+		pending: [
+			{
+				// uid 91, not 9: `injectedByInstance` is keyed by the pi process, which is shared by
+				// every test in this file, so a uid that another test also uses is silently skipped
+				// as already-injected - which is exactly how this test first broke the command test.
+				uid: 91,
+				sessionId: SESSION,
+				from: "you@example.com",
+				subject: "re",
+				body: "look",
+				receivedAt: 1,
+				attachments: [{ name: "shot.png", mimeType: "image/png", size: bytes.length, data: bytes.toString("base64") }],
+			},
+		],
+	})
+	const pi = boot(daemon, t.timers)
+	await pi.fire("session_start")
+	// The drain is per-instance and shared across this file (all tests run as one pid), so this
+	// test must let it finish before the next one starts: eight rounds, not four.
+	for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.deepEqual(pi.sent, ["look\n[image image/png]"], `an image part reached the session: ${JSON.stringify(pi.sent)}`)
+})
+
 test("a delivered reply is injected as a followUp", async () => {
 	// AGENTS.md invariant 7 and the single injection point. The fake used to discard the
 	// options, so changing `deliverAs` to "steer" left the suite green.
