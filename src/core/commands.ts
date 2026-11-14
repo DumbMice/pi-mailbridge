@@ -40,15 +40,15 @@ export interface SubcommandInfo {
 }
 
 export const SUBCOMMAND_INFO = [
-	{ name: "status", hint: "what the daemon sees: mailbox, queue, last scan, this session" },
+	{ name: "status", hint: "mailbox, queue, last scan, this session" },
 	{ name: "on", hint: "email mode on: decisions mail you" },
 	{ name: "off", hint: "email mode off: decisions ask in this terminal" },
-	{ name: "setup", hint: "write the config and start the daemon", args: "<pi-address> [to <your-address>] [force]" },
+	{ name: "setup", hint: "write the config and start the daemon", args: "<pi-address> [to <your-…>] [force]" },
 	{ name: "check", hint: "validate config, and that credentials are present" },
 	{ name: "auth", hint: "approve OAuth2 device login" },
 	{ name: "smoke", hint: "send one real mail, then read the folder back" },
 	{ name: "prime", hint: "start watching from now, ignoring existing mail" },
-	{ name: "restart", hint: "replace the daemon process (picks up new code, not just config)" },
+	{ name: "restart", hint: "replace the daemon process (picks up new code)" },
 	{ name: "help", hint: "this list" },
 ] as const satisfies readonly SubcommandInfo[]
 
@@ -95,10 +95,10 @@ export function completeSubcommand(prefix: string): ArgCompletion[] | null {
 	const needle = typed.toLowerCase()
 	const matches = SUBCOMMAND_INFO.filter((c) => c.name.startsWith(needle))
 	if (matches.length === 0) return null
-	return matches.map((c) => {
-		const args = (c as { args?: string }).args
-		return { value: c.name, label: c.name, description: args ? `${c.hint} ${args}` : c.hint }
-	})
+	// The hint alone: pi renders a suggestion's description on one line and truncates it without an
+	// ellipsis, so appending the argument signature (39 more characters) cut the description off
+	// mid-sentence. The signature is in `help`, one Tab away.
+	return matches.map((c) => ({ value: c.name, label: c.name, description: c.hint }))
 }
 
 export function isSubcommand(value: string): value is MailbridgeSubcommand {

@@ -142,6 +142,15 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	let ctx: ExtensionCtxLike | undefined
 	/** One notice per session: a daemon too old for a capability we need. */
 	let capabilityWarned = false
+	/**
+	 * Daemon-side behaviours this build expects. Add one when a release changes something that runs
+	 * in the daemon process (mail rendering, the attachment guard, scanning) rather than only in the
+	 * extension - otherwise an upgrade keeps the old daemon and the change silently does nothing.
+	 */
+	const REQUIRED_CAPABILITIES = [
+		{ id: "files", what: "document replies (it cannot deliver a PDF or a deck)" },
+		{ id: "attachments", what: "the current attachment rules (mail rendering and the project boundary)" },
+	] as const
 	/** One notice per session: a context so stale the settle could not even be routed. */
 	let staleContextWarned = false
 	/** Set by stopPolling(): a tick already in flight must not touch the daemon. */
@@ -729,12 +738,18 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			// change, so it does not bump it), which means nothing else would replace it - and every
 			// attachment would be dropped as mime-not-allowed with no explanation.
 			const capabilities = (health.data as { capabilities?: unknown }).capabilities
-			if (Array.isArray(capabilities) && !capabilities.includes("files") && !capabilityWarned) {
-				capabilityWarned = true
-				ctx?.ui.notify(
-					"mailbridge: this daemon predates document replies (its build cannot deliver a PDF or a deck) — run /mailbridge restart to replace it",
-					"warning",
-				)
+			if (Array.isArray(capabilities) && !capabilityWarned) {
+				// Each entry names a behaviour that lives in the daemon process, so a session that
+				// reuses an older one silently lacks it - and the protocol number does not change
+				// for additive work, so nothing else would replace it.
+				const missing = REQUIRED_CAPABILITIES.find((needed) => !capabilities.includes(needed.id))
+				if (missing) {
+					capabilityWarned = true
+					ctx?.ui.notify(
+						`mailbridge: this daemon predates ${missing.what} — run /mailbridge restart to replace it`,
+						"warning",
+					)
+				}
 			}
 			const loadedAt = health.data.configLoadedAt
 			const mtime = statSync(configPath(env), { throwIfNoEntry: false })?.mtimeMs ?? null
@@ -898,7 +913,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	}
 
 	registerCommand("mailbridge",
-		`/mailbridge — ${SUBCOMMAND_INFO.map((c) => c.name).join(", ")}`,
+		// Short on purpose: pi draws the slash menu on one line and cuts the description without an
+		// ellipsis, so a list of every subcommand lost its tail (and the `[p:npm:…]` source tag
+		// pi prepends costs another 32 columns). The names are a Tab away.
+		"/mailbridge — mailbox control (Tab lists commands)",
 		async (args, c) => {
 			// Re-read config on every command. It can change underneath us: `--setup`
 			// run from a shell, or an edit to config.json, would otherwise leave the
@@ -1327,6 +1345,13 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					startPolling()
 				}
 				return
+				}
+				default: {
+					// Compile-time exhaustiveness: a subcommand added to the union and the table but
+					// not handled here parses, lists and completes - and then does nothing.
+					const unhandled: never = parsed.sub
+					void unhandled
+					return
 				}
 			}
 		},

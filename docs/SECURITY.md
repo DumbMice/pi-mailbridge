@@ -267,8 +267,10 @@ model output. The controls, all fail-closed:
   is refused, and so is an absolute path outside it.
 - **Home is a valid root; a hidden path is not.** An agent working in `~` must be able to mail
   `~/Downloads/report.pdf`, so `cwd = $HOME` is no longer refused wholesale. What replaces that
-  rule: **no path segment may start with a dot** (`.ssh`, `.config`, `.local`, `.aws`, `.env`), on
-  top of the config/state denial below. A `/`-rooted launch attaches nothing - there, every path
+  rule: **no path segment below the session's root may start with a dot** (`.ssh`, `.config`,
+  `.local`, `.aws`, `.env`) - for every root, not only home - on top of the config/state denial
+  below. Segments *above* the root are not examined, so a session whose root is itself hidden
+  (`~/.config/nvim`) can attach inside it. A `/`-rooted launch attaches nothing - there, every path
   on the machine is "inside the project".
 - **The daemon's own config and state directories are refused**, whatever the `cwd` - by resolved
   path, so a symlink into them does not help. A *hardlink* with an innocent name inside the root
@@ -311,8 +313,9 @@ daemon writes it to disk and the message carries the path:
 - **Names are generated here**, not taken from the mail: separators and control characters are
   stripped, leading dots removed, length capped, and a duplicate gets `-2` rather than overwriting.
   `../../etc/passwd` lands as `passwd` in that message's directory.
-- **Bounded**: 20 MB per file, 10 files and 25 MB per reply, kept 7 days, directory capped at
-  200 MB oldest-first. A reply's *body* still goes through the pending store, which is bounded
+- **Bounded**: 20 MB per file, 10 files and 25 MB per reply, directory capped at 200 MB
+  oldest-first, and anything older than 7 days is removed - on the next inbound write, which is the
+  only moment the directory grows. A reply's *body* still goes through the pending store, which is bounded
   separately - the file never does, so a big deck cannot enlarge `pending.json`.
 - **The content is untrusted.** Opening a PDF or a deck with a vulnerable renderer is the agent's
   risk, exactly as reading an attachment in any mail client would be. This package only guarantees

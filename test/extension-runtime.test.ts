@@ -249,6 +249,23 @@ test("registers agent_settled and never agent_end", () => {
 	assert.ok(!pi.events.includes("agent_end"), "agent_end is not a finished signal and must not be wired")
 })
 
+test("a daemon missing a daemon-side behaviour is named once", async () => {
+	// These fixes live in the daemon process (mail rendering, the attachment guard), and additive
+	// work does not bump the protocol - so nothing replaces an older daemon, and the session would
+	// silently keep its old behaviour. `files` covers document replies; `attachments` covers this
+	// release's rendering and boundary changes.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on", capabilities: ["health", "version", "pending", "claim", "ack", "send", "files"] })
+	const pi = boot(daemon, t.timers, ctx(notes))
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	const said = notes.find((n) => /predates/.test(n)) ?? ""
+	assert.match(said, /attachment rules/, `names the missing behaviour: ${JSON.stringify(notes)}`)
+	assert.match(said, /\/mailbridge restart/)
+})
+
 test("the command registers a Tab-completion hook", () => {
 	// pi's RegisteredCommand supports `getArgumentCompletions`; returning null there means "nothing
 	// to suggest", and an extension that omits it leaves `/mailbridge <Tab>` silent.

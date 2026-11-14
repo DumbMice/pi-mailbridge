@@ -131,3 +131,14 @@ test("the usage text aligns every description in one column", () => {
 		assert.equal(line.indexOf(command.hint), expected, `${command.name} aligns: ${line}`)
 	}
 })
+
+test("a completion description fits the line pi draws it on", () => {
+	// pi renders a suggestion's description on one line and truncates it with no ellipsis; the
+	// longest hint must survive the narrowest slash-menu layout (primary column 12, width 80).
+	const widest = Math.max(...SUBCOMMAND_INFO.map((c) => c.hint.length))
+	assert.ok(widest <= 60, `longest hint is ${widest} characters`)
+	for (const item of completeSubcommand("") ?? []) {
+		assert.ok((item.description ?? "").length <= 60, `${item.value}: ${item.description}`)
+	}
+})
+

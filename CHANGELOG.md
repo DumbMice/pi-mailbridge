@@ -2,12 +2,21 @@
 
 ## Unreleased
 
+The wire gains one capability, `attachments`: the mail rendering and the attachment boundary
+changed in this release and both run inside the **daemon** process, so a session that reuses a
+daemon from before it silently keeps the old behaviour. Such a session now says so once and names
+`/mailbridge restart`. (Additive work does not bump the protocol, so nothing else would replace it -
+that is what the capability marker is for.)
+
 ### Attachments from a home-rooted session, and links the agent made up
 
 - **An agent working in `~` could not attach anything.** The guard refused every file when the
   session's cwd was the home directory - which is where a fresh `pi` starts, and where an agent
   asked to "make a PPT" puts it. Home is a valid root now; what still refuses is a hidden path
   segment (`.ssh`, `.config`, `.local`, `.env`) and, by name, the daemon's own config and state.
+  The dot rule applies to every root, not only `~` - so a project that used to attach
+  `.github/banner.png` no longer does. That is deliberate: the same rule keeps `.env` and `.venv`
+  out, and a hidden path is the one shape a secret almost always has.
 - **A link the model invented was silently dropped.** `sandbox:/home/me/report.pptx` was treated as
   a relative path (so "file not found"), and markdown-it percent-encodes a non-ASCII name - a
   Chinese title is long enough that truncating the filename at 120 characters removed `.pptx`, and
@@ -26,8 +35,8 @@
   is (pi builds a fresh context per event, and the getters read the live runtime). A reload during
   the debounce used to make the send re-read a context whose getters then throw; the send now uses
   the captured context, so the mail still goes out under the session its subject refers to. A
-  context whose getters throw sends nothing - it could not be routed without a session id - and
-  says so with a warning instead of failing silently.
+  context whose **session id, cwd or branch** cannot be read sends nothing - it could not be routed
+  - and says so with a warning; the model label is optional and is simply omitted.
 
 ### Command completion, and one list behind it
 

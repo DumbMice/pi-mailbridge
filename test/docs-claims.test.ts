@@ -1158,3 +1158,12 @@ test("unpublished changes live under an Unreleased heading at the top", () => {
 	assert.equal(headings.filter((h) => h === "## Unreleased").length, 1)
 })
 
+test("the subcommand table is a literal, so the exhaustiveness check means something", () => {
+	// With `as const satisfies`, `(typeof SUBCOMMAND_INFO)[number]["name"]` is the table's literal
+	// union, which is what makes `Exclude<MailbridgeSubcommand, …>` a real check. Annotate the array
+	// instead (`: readonly SubcommandInfo[] =`) and the exclusion becomes `never`: a subcommand
+	// missing from the table would pass both typecheck and the suite.
+	const source = readFileSync(join(root, "src/core/commands.ts"), "utf8")
+	assert.match(source, /export const SUBCOMMAND_INFO = \[[\s\S]*?\] as const satisfies readonly SubcommandInfo\[\]/)
+})
+
