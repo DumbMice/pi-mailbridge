@@ -75,7 +75,7 @@ const MONO = "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"
  * same. `overflow:auto` stays last on purpose: it is the only escape hatch left for an engine that
  * honours none of the wrap properties.
  */
-const CODE_BLOCK_STYLE = `white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;word-wrap:break-word;overflow:auto`
+const CODE_BLOCK_STYLE = `white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere;word-break:break-word;overflow:auto`
 md.renderer.rules.fence = (tokens, idx) => {
 	const token = tokens[idx]!
 	const language = token.info.trim().split(/\s+/)[0] ?? ""
@@ -132,6 +132,6 @@ export function renderBody(text: string): string {
 	// The footer carries `project: <cwd>` and `session id:`, single long tokens: without wrapping a
 	// deep path widens the mail exactly as a long fence line did.
 	const signatureStyle =
-		"font:inherit;opacity:.75;margin:18px 0 0;padding-top:10px;border-top:1px solid #d8dee4;white-space:pre-wrap;overflow-wrap:anywhere;word-wrap:break-word"
+		"font:inherit;opacity:.75;margin:18px 0 0;padding-top:10px;border-top:1px solid #d8dee4;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere"
 	return `${renderMarkdown(head)}\n<pre class="signature" style="${signatureStyle}">${escapeHtml(tail)}</pre>`
 }

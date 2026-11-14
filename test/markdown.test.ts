@@ -114,6 +114,12 @@ test("a long line in a code block wraps instead of widening the mail", () => {
 	assert.match(pre, /word-break:break-word/)
 	assert.match(pre, /overflow-wrap:anywhere/)
 	assert.ok(html.includes(rule), "and the line is still there, unbroken")
+	// `word-wrap` is the same property under a legacy name, so the last one wins. The alias must come
+	// first, or a modern engine computes `break-word` and `anywhere` (the stronger value) is lost.
+	assert.ok(
+		pre.indexOf("word-wrap") < pre.indexOf("overflow-wrap"),
+		`the alias must precede the standard property: ${pre}`,
+	)
 })
 
 test("the wrapper wraps, so a long token outside a fence cannot widen the mail", () => {

@@ -58,7 +58,13 @@ test("the signature block is literal, not Markdown", () => {
 	const html = textToHtml("answer\n\n--\ndevice: ybc-linux\nturns: 3")
 	assert.match(html, /<pre class="signature"[^>]*border-top/)
 	// Long footer tokens (`project: <cwd>`, `session id:`) must wrap like a fence does.
-	assert.match(html, /<pre class="signature"[^>]*white-space:pre-wrap[^>]*overflow-wrap:anywhere/)
+	const signature = /<pre class="signature" style="([^"]+)"/.exec(html)?.[1] ?? ""
+	assert.match(signature, /white-space:pre-wrap/)
+	assert.match(signature, /overflow-wrap:anywhere/)
+	assert.ok(
+		signature.indexOf("word-wrap") < signature.indexOf("overflow-wrap"),
+		`the alias must precede the standard property: ${signature}`,
+	)
 	assert.match(html, /device: ybc-linux\nturns: 3/)
 	assert.doesNotMatch(html, />\s*--\s*</)
 	assert.doesNotMatch(html, /<h2>/)

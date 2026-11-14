@@ -1146,8 +1146,9 @@ test("the inbound document caps agree with the constants and with the wire ceili
 })
 
 test("unpublished changes live under an Unreleased heading at the top", () => {
-	// The exact mistake this guard exists for: entries for code that no published version contains
-	// were appended under 0.1.0, a released heading. A duplicated-heading check cannot see that.
+	// Guards the shape, not the history: `## Unreleased` exists, sits first, and appears once. It
+	// cannot see an entry appended under a *released* heading (the mistake that prompted it), so do
+	// not read this as a proof that no unpublished work sits under 0.1.5.
 	const headings = doc("CHANGELOG.md")
 		.split("\n")
 		.filter((line) => line.startsWith("## "))

@@ -156,6 +156,18 @@ test("a linked file claiming to be an image must be one", () => {
 	assert.match(result.html, /\[not attached: not an image\]/)
 })
 
+test("a refused private path says so, not \"start pi in a project\"", () => {
+	// The old advice was written for a rule that no longer exists (home refuses everything) and
+	// does not help either case that still refuses: a dot directory, or a `/` root.
+	const root = mkdtempSync(join(tmpdir(), "pmb-private-"))
+	writeFileSync(join(root, "secret.key"), "k")
+	mkdirSync(join(root, ".ssh"), { recursive: true })
+	writeFileSync(join(root, ".ssh", "id_rsa"), "k")
+	const hidden = inlineLocalImages('<p><a href=".ssh/id_rsa">x</a></p>', { root })
+	assert.match(hidden.html, /hidden path/)
+	assert.doesNotMatch(hidden.html, /start pi in a project/)
+})
+
 test("a home root does not let a link escape it", () => {
 	// f9a19d6 replaced "refuse a home-rooted session" with "refuse a dot-prefixed segment" plus the
 	// daemon's own files. The loosening had no adversarial tests, so nothing would notice a later
