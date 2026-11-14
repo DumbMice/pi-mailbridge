@@ -1147,15 +1147,23 @@ test("the inbound document caps agree with the constants and with the wire ceili
 	)
 })
 
-test("unpublished changes live under an Unreleased heading at the top", () => {
-	// Guards the shape, not the history: `## Unreleased` exists, sits first, and appears once. It
-	// cannot see an entry appended under a *released* heading (the mistake that prompted it), so do
-	// not read this as a proof that no unpublished work sits under 0.1.5.
+test("the newest changelog heading is Unreleased or the version being shipped", () => {
+	// Shape-and-sync, not history: the top heading must either be `## Unreleased` (work in
+	// progress) or the exact version in package.json with a date (a release commit). The earlier
+	// version of this test demanded `## Unreleased` unconditionally, which made the release commit
+	// itself fail - and it still could not see an entry appended under an older, released heading,
+	// so do not read this as a proof that no stale entry sits under a previous version.
 	const headings = doc("CHANGELOG.md")
 		.split("\n")
 		.filter((line) => line.startsWith("## "))
-	assert.equal(headings[0], "## Unreleased", `first release heading: ${headings[0]}`)
-	assert.equal(headings.filter((h) => h === "## Unreleased").length, 1)
+	const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version: string }
+	assert.equal(headings.filter((h) => h === "## Unreleased").length <= 1, true, "one Unreleased at most")
+	if (headings[0] === "## Unreleased") return
+	assert.match(
+		headings[0] ?? "",
+		new RegExp(`^## ${version.version.replace(/\./g, "\\.")} — \\d{4}-\\d{2}-\\d{2}$`),
+		`first heading must be Unreleased or ${version.version} with a date, got: ${headings[0]}`,
+	)
 })
 
 test("the subcommand table is a literal, so the exhaustiveness check means something", () => {

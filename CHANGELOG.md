@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.6 — 2026-11-14
 
 The wire gains one capability, `attachments`: the mail rendering and the attachment boundary
 changed in this release and both run inside the **daemon** process, so a session that reuses a
