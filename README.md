@@ -309,6 +309,10 @@ capped at 200 MB, oldest first - enough to be read, not an archive. If a file ca
 (disk full, permissions), the reply still arrives with a note naming it and `write-failed` in the
 scan reasons.
 
+A daemon from before this feature cannot deliver documents, and it is on the same protocol, so
+nothing replaces it automatically: after upgrading, run `/mailbridge restart` once. The session says
+so if it finds such a daemon.
+
 A PDF or a deck is delivered as a **path**, because a model cannot be handed one as a message part.
 If the agent needs the contents, it has to open it: `read` for text-ish files, or its own tooling
 (`pdftotext`, `unzip`) through a shell.

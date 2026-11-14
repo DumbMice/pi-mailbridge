@@ -7,7 +7,9 @@
   retention, 200 MB cap) and the message names the absolute path; the agent opens it with its own
   tools. 20 MB per file, 10 files and 25 MB per reply, and the mail itself may now be 40 MB instead
   of 8 (base64 inflates a third). A document that cannot be written is named in the reply. A JPEG or
-  a screenshot the model cannot read is still an image part; a HEIC photo is a file. An image too big to inline (a 5 MB phone photo) takes the same route instead of being
+  a screenshot the model cannot read is still an image part; a HEIC photo is a file. The wire gains a
+  `files` capability, so a session that finds a daemon from before this release says so instead of
+  silently dropping every attachment. An image too big to inline (a 5 MB phone photo) takes the same route instead of being
   dropped. The document list is by extension: pdf, ppt/pptx, doc/docx, xls/xlsx, odt/odp, csv, zip,
   gz, tar, md, txt, log, json and the four image types.
 

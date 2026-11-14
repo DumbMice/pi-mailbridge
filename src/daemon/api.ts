@@ -19,7 +19,7 @@ export const API_VERSION = 1
  * A client must check for a capability before using anything newer than the base contract, and
  * must not fake it when absent (no fallback paths: tell the user to update, or skip the feature).
  */
-export const CAPABILITIES = ["health", "version", "pending", "claim", "ack", "send"] as const
+export const CAPABILITIES = ["health", "version", "pending", "claim", "ack", "send", "files"] as const
 
 export type Capability = (typeof CAPABILITIES)[number]
 

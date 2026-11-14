@@ -128,6 +128,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	const pollMs = deps.pollMs ?? POLL_MS
 
 	let ctx: ExtensionCtxLike | undefined
+	/** One notice per session: a daemon too old for a capability we need. */
+	let capabilityWarned = false
 	/** Set by stopPolling(): a tick already in flight must not touch the daemon. */
 	let pollPaused = false
 	/** The tick that may be inside an await right now; see trackTick/settleTick. */
@@ -652,6 +654,17 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		try {
 			const health = await client.health()
 			if (!health.ok) return
+			// A daemon from before document replies is on the same protocol (`files` is an additive
+			// change, so it does not bump it), which means nothing else would replace it - and every
+			// attachment would be dropped as mime-not-allowed with no explanation.
+			const capabilities = (health.data as { capabilities?: unknown }).capabilities
+			if (Array.isArray(capabilities) && !capabilities.includes("files") && !capabilityWarned) {
+				capabilityWarned = true
+				ctx?.ui.notify(
+					"mailbridge: this daemon predates document replies (its build cannot deliver a PDF or a deck) — run /mailbridge restart to replace it",
+					"warning",
+				)
+			}
 			const loadedAt = health.data.configLoadedAt
 			const mtime = statSync(configPath(env), { throwIfNoEntry: false })?.mtimeMs ?? null
 			if (!shouldReloadConfig({ configLoadedAt: loadedAt, configMtimeMs: mtime })) return

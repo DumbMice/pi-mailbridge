@@ -138,6 +138,8 @@ function fakeDaemon(
 		daemonVersion?: string
 		/** Defaults to this build's protocol, so a test opts into a mismatch. */
 		apiVersion?: number
+		/** Defaults to this build's capabilities; a test opts out to model an older daemon. */
+		capabilities?: string[]
 
 	} = {},
 ): FakeDaemon {
@@ -163,6 +165,7 @@ function fakeDaemon(
 				pending: pendingRecords.length,
 				...(over.daemonVersion === undefined ? {} : { version: over.daemonVersion }),
 				apiVersion: over.apiVersion ?? 1,
+				capabilities: over.capabilities ?? ["health", "version", "pending", "claim", "ack", "send", "files"],
 			}),
 		pending: async () => ok({ pending: pendingRecords, withheld: 0 }),
 		mode: async () => ok({ mode: currentMode }),
@@ -816,6 +819,23 @@ test("a reply with a PDF is injected as a path the agent can open", async () => 
 	assert.match(sent, /\/attachments\/7-92\/deck\.pptx/, "the path is named")
 	assert.match(sent, /deck\.pptx/, "and the filename with it")
 	assert.match(sent, /2000 KB|1953 KB/, `the size is named: ${sent}`)
+})
+
+test("a daemon too old for document replies is named, once", async () => {
+	// `files` is an additive wire change, so an older daemon is on the same protocol and nothing
+	// replaces it - every attachment would then be dropped as mime-not-allowed in silence.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on", capabilities: ["health", "version", "pending", "claim", "ack", "send"] })
+	const pi = boot(daemon, t.timers, ctx(notes))
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	const said = notes.filter((n) => /predates document replies/.test(n))
+	assert.equal(said.length, 1, `once, not per session start: ${JSON.stringify(notes)}`)
+	assert.match(said[0]!, /\/mailbridge restart/, "and it says what to do")
 })
 
 test("a reply with an image is injected as an image part, not as text", async () => {
