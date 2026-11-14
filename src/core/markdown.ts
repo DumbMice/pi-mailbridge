@@ -57,17 +57,28 @@ md.renderer.rules.th_open = (tokens, idx) =>
 md.renderer.rules.td_open = (tokens, idx) => styledTag("td", tokens[idx]?.attrs, `${CELL_BORDER};padding:6px 10px`)
 
 const MONO = "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"
+/**
+ * Wrapping, not scrolling.
+ *
+ * `overflow:auto` is the obvious choice and the wrong one for mail: Gmail and Outlook strip or
+ * ignore it on <pre>, so a 180-character line - a rule drawn with box-drawing characters, a long
+ * shell command, a wide table row - does not scroll inside the block, it widens the whole message
+ * until the reader has to scroll sideways through every line of it. pre-wrap keeps the block inside
+ * the reading pane; break-word keeps one unbreakable token (a long path) from doing the same.
+ */
+const CODE_BLOCK_STYLE = `white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;overflow:auto`
 md.renderer.rules.fence = (tokens, idx) => {
 	const token = tokens[idx]!
 	const language = token.info.trim().split(/\s+/)[0] ?? ""
 	const cls = language ? ` class="language-${md.utils.escapeHtml(language)}"` : ""
 	return (
-		`<pre style="background:#f6f8fa;${CELL_BORDER};border-radius:4px;padding:10px;overflow:auto;${MONO};font-size:13px">` +
+		`<pre style="background:#f6f8fa;${CELL_BORDER};border-radius:4px;padding:10px;${CODE_BLOCK_STYLE};${MONO};font-size:13px">` +
 		`<code${cls}>${md.utils.escapeHtml(token.content)}</code></pre>`
 	)
 }
 md.renderer.rules.code_inline = (tokens, idx) =>
-	`<code style="background:#f2f4f7;border-radius:3px;padding:1px 4px;${MONO};font-size:13px">${md.utils.escapeHtml(tokens[idx]!.content)}</code>`
+	// Inline code carries paths and commands too; one long one would blow the line out the same way.
+	`<code style="background:#f2f4f7;border-radius:3px;padding:1px 4px;overflow-wrap:anywhere;${MONO};font-size:13px">${md.utils.escapeHtml(tokens[idx]!.content)}</code>`
 
 
 /** Inline Markdown (no block structure). */

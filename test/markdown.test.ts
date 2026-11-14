@@ -2,6 +2,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 
 import { renderBody, renderInline, renderMarkdown } from "../src/core/markdown.ts"
+import { renderMessage } from "../src/core/html.ts"
 
 test("emphasis and code render", () => {
 	assert.equal(renderInline("**bold**"), "<strong>bold</strong>")
@@ -101,3 +102,24 @@ test("table alignment from Markdown is preserved alongside our style", () => {
 	assert.match(html, /text-align:left/, "our header alignment default remains")
 	assert.match(html, /text-align:right/, "a right-aligned column keeps its alignment")
 })
+
+test("a long line in a code block wraps instead of widening the mail", () => {
+	// A rule drawn with box-drawing characters (a pasted terminal capture), a long shell command, a
+	// wide row: with `overflow:auto` alone, Gmail and Outlook ignore the scroll and stretch the
+	// whole message, which is what a divider-looking line inside a fence did in a real reply.
+	const rule = "─".repeat(180)
+	const { html } = renderMessage("```\n" + rule + "\n```")
+	const pre = /<pre style="([^"]+)"/.exec(html)?.[1] ?? ""
+	assert.match(pre, /white-space:pre-wrap/, "wrapping, not scrolling")
+	assert.match(pre, /word-break:break-word/)
+	assert.match(pre, /overflow-wrap:anywhere/)
+	assert.ok(html.includes(rule), "and the line is still there, unbroken")
+})
+
+test("long inline code is breakable too", () => {
+	const long = "/very/long/path/" + "segment/".repeat(30)
+	const { html } = renderMessage("see `" + long + "`")
+	const code = /<code style="([^"]+)"/.exec(html)?.[1] ?? ""
+	assert.match(code, /overflow-wrap:anywhere/)
+})
+
