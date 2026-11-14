@@ -927,6 +927,42 @@ test("a reply with an image is injected as an image part, not as text", async ()
 	assert.deepEqual(pi.sent, ["look\n[image image/png]"], `an image part reached the session: ${JSON.stringify(pi.sent)}`)
 })
 
+test("a context that goes stale inside the debounce cannot lose the settle", async () => {
+	// The send runs 10 s after the settle. If it re-read the live context then, a reload in that
+	// window would throw (pi's getters call assertActive) and the notification would be lost with a
+	// "could not send" toast. The notifier captured the context when it scheduled; that is what the
+	// send uses - and what the subject's routing tag already refers to.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on" })
+	const context = ctx(notes)
+	const pi = boot(daemon, t.timers, context)
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	await pi.fire("agent_settled", { aborted: false })
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	assert.equal(daemon.sent.length, 0, "inside the debounce")
+
+	// The reload: every guarded getter on the captured context now throws.
+	for (const field of ["cwd", "sessionManager", "model"] as const) {
+		Object.defineProperty(context, field, {
+			get() {
+				throw new Error("extension instance reloaded; this context is stale")
+			},
+		})
+	}
+
+	t.queue.find((q) => q.ms === 10_000)?.handler()
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.equal(daemon.sent.length, 1, `the settle still went out: ${JSON.stringify(notes)}`)
+	assert.ok(
+		!notes.some((n) => /could not send/.test(n)),
+		`and nothing reported a failed send: ${JSON.stringify(notes)}`,
+	)
+})
+
 test("a context whose getters throw cannot take the notification down with it", async () => {
 	// pi's ExtensionContext exposes `model`/`thinkingLevel`/`cwd` as getters that call
 	// assertActive(): after an extension reload the runner this closure holds is stale and reading

@@ -93,7 +93,14 @@ export interface SettleNotifierDeps {
 	mode: () => Mode
 	/** Current session context, or undefined when there is no session. */
 	context: () => SettleContext | undefined
-	send: (message: { to: string; subject: string; text: string }) => Promise<void>
+	/**
+	 * Send, with the context that was captured when this settle was scheduled.
+	 *
+	 * Not `context()` again: the send runs after the debounce (10 s by default), and by then the
+	 * live session may have been replaced or the extension runner reloaded - reading the identity
+	 * from it would thread the mail under a different session, or throw.
+	 */
+	send: (message: { to: string; subject: string; text: string }, context: SettleContext) => Promise<void>
 	secret: () => Buffer
 	config: SettleNotifyConfig
 	timers: {
@@ -125,11 +132,14 @@ export function createSettleNotifier(deps: SettleNotifierDeps): SettleNotifier {
 	async function deliver(context: SettleContext): Promise<void> {
 		const secret = deps.secret()
 		try {
-			await deps.send({
-				to: "", // the daemon fills in mail.to
-				subject: buildSettleSubject(context, secret, deps.tagFor?.(context), deps.config.tokenTtlHours),
-				text: buildSettleBody(context),
-			})
+			await deps.send(
+				{
+					to: "", // the daemon fills in mail.to
+					subject: buildSettleSubject(context, secret, deps.tagFor?.(context), deps.config.tokenTtlHours),
+					text: buildSettleBody(context),
+				},
+				context,
+			)
 		} catch (error) {
 			deps.onError?.(error instanceof Error ? error : new Error(String(error)))
 		}

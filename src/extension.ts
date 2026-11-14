@@ -134,6 +134,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	let ctx: ExtensionCtxLike | undefined
 	/** One notice per session: a daemon too old for a capability we need. */
 	let capabilityWarned = false
+	/** One notice per session: a context so stale the settle could not even be routed. */
+	let staleContextWarned = false
 	/** Set by stopPolling(): a tick already in flight must not touch the daemon. */
 	let pollPaused = false
 	/** The tick that may be inside an await right now; see trackTick/settleTick. */
@@ -231,12 +233,24 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			return buildSessionContext(ctx)
 		} catch {
 			// Every field here can be a guarded getter (see modelLabel). A stale runner must not
-			// turn into a lost settle or a thrown event handler.
+			// turn into a lost settle or a thrown event handler - but silence is not acceptable
+			// either, or the human waits for a mail that will never come.
+			if (!staleContextWarned) {
+				staleContextWarned = true
+				try {
+					ctx.ui.notify(
+						"mailbridge: the agent settled, but this session's context has gone stale (pi reloaded it) — no mail sent; restart pi to reconnect",
+						"warning",
+					)
+				} catch {
+					/* the UI is gone too */
+				}
+			}
 			return undefined
 		}
 	}
 
-	function buildSessionContext(context: ExtensionCtxLike): SettleContext | undefined {
+	function buildSessionContext(context: ExtensionCtxLike): SettleContext {
 		const sessionId = context.sessionManager.getSessionId()
 		// `getSessionName()` is the documented method; `getName` never existed.
 		const name = context.sessionManager.getSessionName?.() ?? context.sessionManager.getName?.()
@@ -573,14 +587,17 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		notifier = createSettleNotifier({
 			mode: () => emailMode,
 			context: sessionContext,
-			send: async (message) => {
+			send: async (message, settled) => {
 				const sent = await active.send({
 					subject: message.subject,
 					text: message.text,
 					// Exempt from the notification budget: a burst of `notify_user` mail must not
 					// be able to silence "your agent is waiting".
 					kind: "settle",
-					...(ctx ? { cwd: ctx.cwd, sessionId: ctx.sessionManager.getSessionId() } : {}),
+					// The *captured* identity: `ctx` may point at a newer session by now, and the
+					// subject already carries this context's routing tag.
+					cwd: settled.cwd,
+					sessionId: settled.sessionId,
 				})
 				// A non-ok result used to be discarded here, so a refused or timed-out send
 				// vanished: no toast, no log, no retry. Throwing routes it to onError.
@@ -619,7 +636,15 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				pending: () => active.pending(),
 			},
 			instanceId,
-			sessionId: () => ctx?.sessionManager.getSessionId(),
+			// A stale runner makes this getter throw; an unguarded throw rejects drain() inside a
+			// poll tick whose catch is silent, stalling reply delivery for the rest of the session.
+			sessionId: () => {
+				try {
+					return ctx?.sessionManager.getSessionId()
+				} catch {
+					return undefined
+				}
+			},
 			stillDelivering: () => emailMode === "on",
 			inject: async (body, record) => {
 				// A command by mail runs the same handler the prompt would, and then there is
@@ -1411,8 +1436,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			const sent = await client.send({
 				subject: `[pi:${tag}] ${String(params["subject"] ?? "pi: update")}`,
 				text: String(params["message"] ?? ""),
-				...((sessionContext()?.cwd ?? undefined) ? { cwd: sessionContext()!.cwd } : {}),
-				...(sessionContext()?.sessionId ? { sessionId: sessionContext()!.sessionId } : {}),
+				cwd: context.cwd,
+				sessionId: context.sessionId,
 			})
 			return {
 				content: [

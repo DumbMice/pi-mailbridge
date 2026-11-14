@@ -22,9 +22,12 @@
   answer worse than before" is unanswerable without that. The footer now carries
   `model: provider/id • thinking` between the session id and the project, and omits the line when
   the runtime does not expose a model (older pi). The label is read from pi's live `model` getter
-  at settle time, so a mid-session model or thinking-level change is reported as it is - and a
-  context whose getters have gone stale (an extension reload replaces the runner) degrades to no
-  model line rather than a lost notification.
+  when the settle is captured, so a mid-session model or thinking-level change is reported as it
+  is (pi builds a fresh context per event, and the getters read the live runtime). A reload during
+  the debounce used to make the send re-read a context whose getters then throw; the send now uses
+  the captured context, so the mail still goes out under the session its subject refers to. A
+  context too stale even to yield a session id sends nothing - it could not be routed - and says so
+  with a warning instead of failing silently.
 
 ### A mail that could be widened by one long line
 
