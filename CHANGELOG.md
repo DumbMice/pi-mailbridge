@@ -111,6 +111,19 @@ to this repository and this tag. Nothing to upgrade for, unless you want that at
 - **The frozen endpoint list missed `DELETE /register`** (the call that frees a decision slot), so
   a change to it needed no protocol bump; the snapshot regex now covers `DELETE`.
 
+### Attachments from a home-rooted session, and links the agent made up
+
+- **An agent working in `~` could not attach anything.** The guard refused every file when the
+  session's cwd was the home directory - which is where a fresh `pi` starts, and where an agent
+  asked to "make a PPT" puts it. Home is a valid root now; what still refuses is a hidden path
+  segment (`.ssh`, `.config`, `.local`, `.env`) and, by name, the daemon's own config and state.
+- **A link the model invented was silently dropped.** `sandbox:/home/me/report.pptx` was treated as
+  a relative path (so "file not found"), and markdown-it percent-encodes a non-ASCII name - a
+  Chinese title is long enough that truncating the filename at 120 characters removed `.pptx`, and
+  the allowlist then refused it as "this file type is not attached". Link targets are decoded
+  before use, an invented scheme in front of an absolute path is stripped, and truncation now
+  keeps the extension.
+
 ### The notification names the model
 
 - **The settle mail said which session and project, not which model answered it.** The same

@@ -259,12 +259,17 @@ A notification carries the local files the agent linked, so what leaves the mach
 model output. The controls, all fail-closed:
 
 - **The project directory is the boundary** on the notification path. Every path is
-  `realpath`-resolved on both sides and must land inside the agent's working directory. (An
+  `realpath`-resolved on both sides and must land inside the agent's working directory; a link
+  target that arrives percent-encoded or with an invented scheme (`sandbox:/home/me/x.pptx`) is
+  decoded first, so it is the file the reader would have clicked that is judged. (An
   authenticated caller of `POST /send` supplies `cwd`, so with `secret.key` the boundary moves to
   wherever it says — same trust level as the `to` override in §4.) A symlink out of it (`ln -s ~/.config/… config.json`)
   is refused, and so is an absolute path outside it.
-- **A home-rooted or `/`-rooted launch attaches nothing**, because with `cwd = $HOME` the config
-  file is "inside the project". Start pi in a project; that is the intended usage.
+- **Home is a valid root; a hidden path is not.** An agent working in `~` must be able to mail
+  `~/Downloads/report.pdf`, so `cwd = $HOME` is no longer refused wholesale. What replaces that
+  rule: **no path segment may start with a dot** (`.ssh`, `.config`, `.local`, `.aws`, `.env`), on
+  top of the config/state denial below. A `/`-rooted launch attaches nothing - there, every path
+  on the machine is "inside the project".
 - **The daemon's own config and state directories are never attached**, whatever the `cwd`.
 - **An extension allowlist** (`pdf txt log md csv tsv json yml yaml xml html zip gz tar docx xlsx
   pptx`, plus `png jpg jpeg gif webp svg` for links and the sniffed image types inline)

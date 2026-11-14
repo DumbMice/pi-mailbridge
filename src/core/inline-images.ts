@@ -55,6 +55,7 @@ export interface SkippedImage {
 		| "not-allowed"
 		| "outside-root"
 		| "root-refused"
+		| "hidden-path"
 }
 
 export interface InlineResult {
@@ -169,7 +170,7 @@ function safeStat(path: string): ReturnType<typeof statSync> | undefined {
 }
 
 /** Where an attachment was refused, so the note can say something true. */
-type RootVerdict = "ok" | "outside-root" | "root-refused"
+type RootVerdict = "ok" | "outside-root" | "root-refused" | "hidden-path"
 
 /**
  * Is this resolved file safe to attach?
@@ -193,16 +194,26 @@ function insideRoot(path: string, rootReal: string | undefined): RootVerdict {
 	// compared at its real location and refused.
 	const target = safeRealpath(path) ?? joinResolved(dirname(path), basename(path))
 
-	const home = safeRealpath(homedir())
-	// Exact equality: a project *inside* home is the normal case and must still attach.
-	if (rootReal === "/" || (home !== undefined && rootReal === home)) return "root-refused"
+	// The filesystem root is not a project: with cwd = / every path is "inside" it.
+	if (rootReal === "/") return "root-refused"
 
 	for (const dir of [configDir(), stateDir()]) {
 		const real = safeRealpath(dir)
 		if (real && contains(real, target)) return "root-refused"
 	}
 
-	return contains(rootReal, target) ? "ok" : "outside-root"
+	if (!contains(rootReal, target)) return "outside-root"
+
+	// Home *is* allowed as a root (an agent working in ~ produces ~/Downloads/report.pdf), so the
+	// blunt "home refuses everything" rule is gone. What replaces it: a hidden path segment is
+	// never attached. `~/.ssh`, `~/.config`, `~/.local`, `~/.aws` and every `.env` live behind a
+	// dot, and a legitimate artifact almost never does - while the config/state refusal above
+	// still covers the daemon's own files by name.
+	const rel = relative(rootReal, target)
+	const segments = rel.split(/[\\/]/).filter((part) => part && part !== ".")
+	if (segments.some((part) => part.startsWith("."))) return "hidden-path"
+
+	return "ok"
 }
 
 /** Does `parent` contain `child`? Separator-agnostic and not fooled by a shared prefix. */
@@ -224,7 +235,28 @@ function safeFilename(path: string, fallback: string): string {
 		.replace(/[\u0000-\u001f\u007f"<>|:*?]+/g, "-")
 		.replace(/^[.]+/, "")
 		.trim()
-	return (cleaned || fallback).slice(0, 120)
+	if (!cleaned) return fallback
+	// Truncate the *stem*, never the whole string: cutting at 120 characters dropped the
+	// extension of any long name (a Chinese title percent-encodes to well over that), and the
+	// allowlist then refused the file as "this type is not attached".
+	const dot = cleaned.lastIndexOf(".")
+	const ext = dot > 0 && cleaned.length - dot <= 12 ? cleaned.slice(dot) : ""
+	const stem = (ext ? cleaned.slice(0, dot) : cleaned).slice(0, Math.max(1, 120 - ext.length))
+	return `${stem}${ext}`
+}
+
+/**
+ * Percent-decode a link target.
+ *
+ * markdown-it encodes hrefs, so a Chinese filename arrives as `%E7%AC%AC…` - which is neither a
+ * readable attachment name nor a path that exists on disk. A `%` that cannot be decoded is kept.
+ */
+function decodeHref(value: string): string {
+	try {
+		return decodeURIComponent(value)
+	} catch {
+		return value
+	}
 }
 
 function escapeHtml(value: string): string {
@@ -235,13 +267,30 @@ function escapeHtml(value: string): string {
 		.replace(/"/g, "&quot;")
 }
 
+/** One sentence per refusal, so the mail says why rather than just omitting the file. */
+function refuseText(verdict: Exclude<RootVerdict, "ok">): string {
+	switch (verdict) {
+		case "root-refused":
+			return "not attached, start pi in a project directory"
+		case "hidden-path":
+			return "not attached, hidden path"
+		default:
+			return "not attached, outside the project"
+	}
+}
+
 function note(label: string, detail: string): string {
 	return `<span style="opacity:.7">[${escapeHtml(label)}${detail ? `: ${escapeHtml(detail)}` : ""}]</span>`
 }
 
 function resolvePath(src: string, root: string): string {
-	let value = src.trim()
+	let value = decodeHref(src.trim())
 	if (value.startsWith("file://")) value = value.slice("file://".length)
+	// Models emit `sandbox:/home/…` (and similar invented schemes) for links they cannot make
+	// real. The remainder is still the absolute path the reader would have clicked, so strip the
+	// scheme when what follows is one; `insideRoot` still decides whether it may be attached.
+	const unknownScheme = /^[a-z][a-z0-9+.-]*:(\/.*)$/i.exec(value)
+	if (unknownScheme?.[1]) value = unknownScheme[1]
 	if (value.startsWith("~/")) value = `${homedir()}${value.slice(1)}`
 	return isAbsolute(value) ? value : resolve(root, value)
 }
@@ -291,12 +340,7 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 		const verdict = insideRoot(path, rootReal)
 		if (verdict !== "ok") {
 			skipped.push({ src, reason: verdict })
-			return note(
-				alt || "image",
-				verdict === "root-refused"
-					? "not attached, start pi in a project directory"
-					: "not attached, outside the project",
-			)
+			return note(alt || "image", refuseText(verdict))
 		}
 		let bytes: Buffer
 		try {
@@ -366,13 +410,8 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 		}
 		if (attachments.length >= maxCount) return refuse("too-many", "too many attachments")
 		const verdict = insideRoot(path, rootReal)
-		if (verdict !== "ok") {
-			return refuse(
-				verdict,
-				verdict === "root-refused" ? "start pi in a project directory" : "outside the project",
-			)
-		}
-		const filename = safeFilename(href, "file")
+		if (verdict !== "ok") return refuse(verdict, refuseText(verdict).replace("not attached, ", ""))
+		const filename = safeFilename(decodeHref(href), "file")
 		const ext = filename.includes(".") ? filename.split(".").pop()!.toLowerCase() : ""
 		const contentType = ALLOWED_FILE_EXTENSIONS[ext]
 		if (!contentType) return refuse("not-allowed", "this file type is not attached")

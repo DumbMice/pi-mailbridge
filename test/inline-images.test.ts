@@ -133,11 +133,16 @@ test("a linked file outside the allowlist is not attached", () => {
 	writeFileSync(join(root, "id_rsa"), "-----BEGIN OPENSSH PRIVATE KEY-----\n")
 	writeFileSync(join(root, ".env"), "SECRET=1\n")
 
-	for (const name of ["id_rsa", ".env"]) {
-		const result = inlineLocalImages(`<p><a href="./${name}">config</a></p>`, { root })
-		assert.equal(result.attachments.length, 0, `${name} must not be attached`)
-		assert.deepEqual(result.skipped.map((s) => s.reason), ["not-allowed"])
-	}
+	const key = inlineLocalImages('<p><a href="./id_rsa">config</a></p>', { root })
+	assert.equal(key.attachments.length, 0, "id_rsa must not be attached")
+	assert.deepEqual(key.skipped.map((s) => s.reason), ["not-allowed"], "no allowlisted extension")
+
+	// `.env` is refused earlier now: a hidden segment is never attached, whatever its extension.
+	// That is the stronger rule, and it is why `.ssh`, `.config` and `.aws` are unreachable even
+	// from a home-rooted session.
+	const env = inlineLocalImages('<p><a href="./.env">config</a></p>', { root })
+	assert.equal(env.attachments.length, 0, ".env must not be attached")
+	assert.deepEqual(env.skipped.map((s) => s.reason), ["hidden-path"])
 })
 
 test("a linked file claiming to be an image must be one", () => {
@@ -269,18 +274,24 @@ test("the project-directory guard fails closed", () => {
 	// thing for the reader to act on.
 	assert.deepEqual(stale.skipped.map((s) => s.reason), ["root-refused"])
 
-	// 2. Project root = your home directory: `~/.config/pi-mailbridge/config.json` is then
-	//    "inside the project", is `.json`, and mailing it mails the mailbox password. Nothing is
-	//    attached from a home-rooted launch (see SECURITY §6b: start pi in a project).
+	// 2. Project root = your home directory. This used to attach nothing, which also refused the
+	//    ordinary case of an agent working in `~` and linking `~/Downloads/report.pdf`. Home is a
+	//    root now, and what keeps `~/.config/pi-mailbridge/config.json` out is the hidden-segment
+	//    rule (plus the config/state refusal by name, below).
 	const home = dir()
 	writeFileSync(join(home, "notes.md"), "fine")
+	mkdirSync(join(home, ".ssh"), { recursive: true })
+	writeFileSync(join(home, ".ssh", "id_rsa"), "PRIVATE KEY")
 	const realHome = process.env.HOME
 	process.env.HOME = home
 	try {
 		const fromHome = inlineLocalImages('<a href="notes.md">n</a>', { root: home })
-		assert.equal(fromHome.attachments.length, 0, "cwd = $HOME attaches nothing")
-		assert.deepEqual(fromHome.skipped.map((s) => s.reason), ["root-refused"], "and says why")
-		assert.match(fromHome.html, /start pi in a project directory/)
+		assert.equal(fromHome.attachments.length, 1, "an agent working in ~ can still attach its output")
+
+		const hidden = inlineLocalImages('<a href=".ssh/id_rsa">key</a>', { root: home })
+		assert.equal(hidden.attachments.length, 0, "a hidden path is never attached")
+		assert.deepEqual(hidden.skipped.map((s) => s.reason), ["hidden-path"])
+		assert.match(hidden.html, /hidden path/)
 
 		// A root of "/" is the same mistake at a larger scale. Use a file that *would* pass the
 		// allowlist, or the refusal would come from the extension check instead.
@@ -300,26 +311,29 @@ test("the project-directory guard fails closed", () => {
 	// 3. The daemon's own directories are refused even when they sit inside a normal project
 	//    root. This is the case the first version of the test could not see: it used root = home,
 	//    which the earlier rule already refused, so deleting the state-dir check stayed green.
+	// Deliberately *visible* directory names: a `.local` inside the project would now be refused
+	// by the hidden-segment rule before the by-name rule could be seen, and the test would pass
+	// for the wrong reason.
 	const project = dir()
-	const stateDir = join(project, ".local", "state", "pi-mailbridge")
+	const stateDir = join(project, "state", "pi-mailbridge")
 	mkdirSync(stateDir, { recursive: true })
 	writeFileSync(join(stateDir, "uid-cursor.json"), "{}")
-	assert.equal(inlineLocalImages('<a href=".local/state/pi-mailbridge/uid-cursor.json">c</a>', { root: project }).attachments.length, 1,
+	assert.equal(inlineLocalImages('<a href="state/pi-mailbridge/uid-cursor.json">c</a>', { root: project }).attachments.length, 1,
 		"sanity: without the override it is just a json file in the project")
 	// Both halves of the denial, and the environment is restored rather than deleted, so an
 	// ambient value is not destroyed for anything running after this file.
-	const configDirUnderRoot = join(project, ".config", "pi-mailbridge")
+	const configDirUnderRoot = join(project, "cfg", "pi-mailbridge")
 	mkdirSync(configDirUnderRoot, { recursive: true })
 	writeFileSync(join(configDirUnderRoot, "config.json"), '{"mail":{"imap":{"password":"hunter2"}}}')
 	const before = { state: process.env.XDG_STATE_HOME, config: process.env.XDG_CONFIG_HOME }
-	process.env.XDG_STATE_HOME = join(project, ".local", "state")
-	process.env.XDG_CONFIG_HOME = join(project, ".config")
+	process.env.XDG_STATE_HOME = join(project, "state")
+	process.env.XDG_CONFIG_HOME = join(project, "cfg")
 	try {
-		const secret = inlineLocalImages('<a href=".local/state/pi-mailbridge/uid-cursor.json">c</a>', { root: project })
+		const secret = inlineLocalImages('<a href="state/pi-mailbridge/uid-cursor.json">c</a>', { root: project })
 		assert.equal(secret.attachments.length, 0, "state dir is never attached")
 		assert.deepEqual(secret.skipped.map((s) => s.reason), ["root-refused"])
 
-		const configFile = inlineLocalImages('<a href=".config/pi-mailbridge/config.json">c</a>', { root: project })
+		const configFile = inlineLocalImages('<a href="cfg/pi-mailbridge/config.json">c</a>', { root: project })
 		assert.equal(configFile.attachments.length, 0, "and neither is the config with its password")
 		assert.deepEqual(configFile.skipped.map((s) => s.reason), ["root-refused"])
 	} finally {
@@ -328,6 +342,36 @@ test("the project-directory guard fails closed", () => {
 		if (before.config === undefined) delete process.env.XDG_CONFIG_HOME
 		else process.env.XDG_CONFIG_HOME = before.config
 	}
+})
+
+test("a link with an invented scheme and a percent-encoded name still attaches", () => {
+	// The live case: an agent links `sandbox:/home/me/section66_ppt/第66节_…pptx` (a scheme it
+	// cannot make real) and markdown-it percent-encodes the Chinese name. Both broke the attach:
+	// the scheme was treated as a relative directory, and the encoded name was long enough that
+	// truncating it dropped `.pptx`, so the allowlist refused the file as "this type".
+	const root = dir()
+	const name = "第66节_社会域模拟的动力学方程组.pptx"
+	writeFileSync(join(root, name), Buffer.alloc(2048, 1))
+	const encoded = encodeURIComponent(name)
+
+	const viaScheme = inlineLocalImages(`<a href="sandbox:${root}/${encoded}">ppt</a>`, { root })
+	assert.equal(viaScheme.attachments.length, 1, JSON.stringify(viaScheme.skipped))
+	assert.equal(viaScheme.attachments[0]!.filename, name, "the reader sees the real name")
+	assert.equal(viaScheme.attachments[0]!.contentType, "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+
+	const viaRelative = inlineLocalImages(`<a href="${encoded}">ppt</a>`, { root })
+	assert.equal(viaRelative.attachments.length, 1, "and a relative encoded link works too")
+})
+
+test("a long name keeps its extension when the filename is truncated", () => {
+	// The truncation bug in isolation: 200 visible characters before `.pdf` must not lose `.pdf`.
+	const root = dir()
+	const long = `${"a".repeat(200)}.pdf`
+	writeFileSync(join(root, long), "%PDF-1.4 fake")
+	const result = inlineLocalImages(`<a href="${long}">report</a>`, { root })
+	assert.equal(result.attachments.length, 1, JSON.stringify(result.skipped))
+	assert.ok(result.attachments[0]!.filename.length <= 120)
+	assert.match(result.attachments[0]!.filename, /\.pdf$/)
 })
 
 test("a duplicated file is not charged twice against the budget", () => {
