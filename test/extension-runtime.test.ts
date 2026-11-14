@@ -5,6 +5,7 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 
 import mailbridge, { type ExtensionCtxLike, type ExtensionLike, type SettleTimers } from "../src/extension.ts"
+import { CAPABILITIES } from "../src/daemon/api.ts"
 import type { ResolvedConfig } from "../src/core/config.ts"
 import type { DaemonResult } from "../src/daemon/spawn.ts"
 import type { UserContent } from "../src/core/attachments.ts"
@@ -138,7 +139,7 @@ function fakeDaemon(
 		daemonVersion?: string
 		/** Defaults to this build's protocol, so a test opts into a mismatch. */
 		apiVersion?: number
-		/** Defaults to this build's capabilities; a test opts out to model an older daemon. */
+		/** Defaults to this build's real capability list; a test opts out to model an older daemon. */
 		capabilities?: string[]
 
 	} = {},
@@ -165,7 +166,7 @@ function fakeDaemon(
 				pending: pendingRecords.length,
 				...(over.daemonVersion === undefined ? {} : { version: over.daemonVersion }),
 				apiVersion: over.apiVersion ?? 1,
-				capabilities: over.capabilities ?? ["health", "version", "pending", "claim", "ack", "send", "files"],
+				capabilities: over.capabilities ?? [...CAPABILITIES],
 			}),
 		pending: async () => ok({ pending: pendingRecords, withheld: 0 }),
 		mode: async () => ok({ mode: currentMode }),
@@ -2537,3 +2538,33 @@ test("/mailbridge restart can stop a daemon this session has no client for", asy
 	await captured.get("mailbridge")!("restart", ctx(notes))
 	assert.equal(daemon.shutdowns, 1, "the shutdown was attempted without a client")
 })
+
+test("a daemon advertising every capability is not warned about", async () => {
+	// The negative half: without this, deleting an id from `daemon/api.ts` kept the whole suite green
+	// while every real session start would warn "replace the daemon" about a current daemon.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on" })
+	const pi = boot(daemon, t.timers, ctx(notes))
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+	assert.equal(
+		notes.filter((n) => /predates/.test(n)).length,
+		0,
+		`a current daemon must not be called stale: ${JSON.stringify(notes)}`,
+	)
+})
+
+test("the slash-menu description fits one line", () => {
+	// This was the 78-column bug: pi draws it on one line and truncates without an ellipsis, so the
+	// tail of a subcommand list never appeared.
+	const specs = new Map<string, { description: string }>()
+	const pi = fakePi(ctx())
+	pi.registerCommand = (name, spec) => {
+		specs.set(name, spec)
+	}
+	mailbridge(pi, { env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" }, loadConfig: config, secret: () => SECRET })
+	const description = specs.get("mailbridge")?.description ?? ""
+	assert.ok(description.length <= 60, `${description.length} columns: ${description}`)
+})
+

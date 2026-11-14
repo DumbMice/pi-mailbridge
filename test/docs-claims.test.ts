@@ -1167,3 +1167,10 @@ test("the subcommand table is a literal, so the exhaustiveness check means somet
 	assert.match(source, /export const SUBCOMMAND_INFO = \[[\s\S]*?\] as const satisfies readonly SubcommandInfo\[\]/)
 })
 
+test("the subcommand switch keeps its exhaustiveness default", () => {
+	// Deleting this block leaves typecheck and the suite green, so nothing else notices - and a
+	// subcommand added later would then parse, list, complete and do nothing.
+	const source = readFileSync(join(root, "src/extension.ts"), "utf8")
+	assert.match(source, /default:\s*\{[\s\S]{0,200}const unhandled: never = parsed\.sub/)
+})
+

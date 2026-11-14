@@ -19,7 +19,7 @@ import { createSettleNotifier, type SettleContext, type SettleNotifier } from ".
 import { createDeliveryRunner, type DeliveryRunner } from "./core/deliveries.ts"
 import { toUserContent, type UserContent } from "./core/attachments.ts"
 import { parseMailCommand } from "./core/mail-command.ts"
-import { API_VERSION, apiCompatible } from "./daemon/api.ts"
+import { API_VERSION, apiCompatible, type Capability } from "./daemon/api.ts"
 import { probeHealth, probeHealthDetail } from "./daemon/spawn.ts"
 import { resolveDaemonScript } from "./daemon/script.ts"
 import { daemonBaseUrl, ensureDaemon, createDaemonClient, type DaemonClient } from "./daemon/spawn.ts"
@@ -147,10 +147,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 * in the daemon process (mail rendering, the attachment guard, scanning) rather than only in the
 	 * extension - otherwise an upgrade keeps the old daemon and the change silently does nothing.
 	 */
-	const REQUIRED_CAPABILITIES = [
+	const REQUIRED_CAPABILITIES: readonly { id: Capability; what: string }[] = [
 		{ id: "files", what: "document replies (it cannot deliver a PDF or a deck)" },
 		{ id: "attachments", what: "the current attachment rules (mail rendering and the project boundary)" },
-	] as const
+	]
 	/** One notice per session: a context so stale the settle could not even be routed. */
 	let staleContextWarned = false
 	/** Set by stopPolling(): a tick already in flight must not touch the daemon. */
