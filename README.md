@@ -286,11 +286,14 @@ ceiling:
 | Microsoft 365 (work) | 35 MB sent by default; on-prem Exchange often 10 MB |
 | QQ | 50 MB (+5 MB body), 200 MB/day |
 
-Attachments come only from **the agent's project directory**, and only for allowlisted types
-(`pdf txt log md csv tsv json yml yaml xml html zip gz tar docx xlsx pptx`, plus images). That
-keeps the obvious key *filenames* out of an accidental attach; it is not a content filter — an
-agent told to `cp ~/.ssh/id_rsa notes.txt` or `tar` a directory can still mail the result. Start
-pi in a project rather than in `$HOME`, and see
+Attachments come only from **inside the agent's working directory** — which may be `$HOME`, since
+that is where a fresh `pi` starts and where a deck usually ends up — and only for allowlisted types
+(`pdf txt log md csv tsv json yml yaml xml html zip gz tar docx xlsx pptx`, plus images). What is
+refused inside that root: any path segment beginning with a dot (`.ssh`, `.config`, `.local`,
+`.env`), the daemon's own config and state directories, and anything outside the root. A root of `/`
+attaches nothing. The allowlist keeps obvious key *filenames* out of an accidental attach; it is not
+a content filter — an agent told to `cp ~/.ssh/id_rsa notes.txt` or `tar` a directory can still mail
+the result, and a hardlink defeats the path check as it defeats any other copy. See
 [docs/SECURITY.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/SECURITY.md) §6b for the full boundary.
 
 ### Replying with a file

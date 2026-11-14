@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+### Attachments from a home-rooted session, and links the agent made up
+
+- **An agent working in `~` could not attach anything.** The guard refused every file when the
+  session's cwd was the home directory - which is where a fresh `pi` starts, and where an agent
+  asked to "make a PPT" puts it. Home is a valid root now; what still refuses is a hidden path
+  segment (`.ssh`, `.config`, `.local`, `.env`) and, by name, the daemon's own config and state.
+- **A link the model invented was silently dropped.** `sandbox:/home/me/report.pptx` was treated as
+  a relative path (so "file not found"), and markdown-it percent-encodes a non-ASCII name - a
+  Chinese title is long enough that truncating the filename at 120 characters removed `.pptx`, and
+  the allowlist then refused it as "this file type is not attached". Link targets are decoded
+  before use, an invented scheme in front of an absolute path is stripped, and truncation now
+  keeps the extension.
+
+### The notification names the model
+
+- **The settle mail said which session and project, not which model answered it.** The same
+  session can be resumed on a different model, or at a different thinking level, and "why is this
+  answer worse than before" is unanswerable without that. The footer now carries
+  `model: provider/id • thinking` between the session id and the project, and omits the line when
+  the runtime does not expose a model (older pi).
+
+### A mail that could be widened by one long line
+
+- **A rule-like line inside a code block stretched the whole message.** The fence carried
+  `overflow:auto`, which browsers honour and Gmail and Outlook do not: a 180-character line - a
+  terminal capture's `────` rule, a long command - did not scroll inside the block, it widened the
+  mail and every line after it had to be scrolled sideways. Fences now wrap (`pre-wrap` plus the
+  break-anywhere properties and the legacy `word-wrap` alias), so do table cells, inline code, the
+  signature footer, and the wrapper div that every paragraph and heading inherits from. `overflow`
+  stays as the last resort for an engine that honours none of them.
+- **A right-aligned column header rendered left-aligned.** Our `text-align:left` was appended after
+  markdown-it's own alignment and won; our style now comes first, so the column's alignment stands.
+
 ## 0.1.5 — 2026-11-13
 
 - **A reply can carry a PDF, a presentation or a spreadsheet.** These cannot be message parts, so
@@ -110,27 +145,6 @@ to this repository and this tag. Nothing to upgrade for, unless you want that at
   rejected, once, and leaves the mode alone.
 - **The frozen endpoint list missed `DELETE /register`** (the call that frees a decision slot), so
   a change to it needed no protocol bump; the snapshot regex now covers `DELETE`.
-
-### Attachments from a home-rooted session, and links the agent made up
-
-- **An agent working in `~` could not attach anything.** The guard refused every file when the
-  session's cwd was the home directory - which is where a fresh `pi` starts, and where an agent
-  asked to "make a PPT" puts it. Home is a valid root now; what still refuses is a hidden path
-  segment (`.ssh`, `.config`, `.local`, `.env`) and, by name, the daemon's own config and state.
-- **A link the model invented was silently dropped.** `sandbox:/home/me/report.pptx` was treated as
-  a relative path (so "file not found"), and markdown-it percent-encodes a non-ASCII name - a
-  Chinese title is long enough that truncating the filename at 120 characters removed `.pptx`, and
-  the allowlist then refused it as "this file type is not attached". Link targets are decoded
-  before use, an invented scheme in front of an absolute path is stripped, and truncation now
-  keeps the extension.
-
-### The notification names the model
-
-- **The settle mail said which session and project, not which model answered it.** The same
-  session can be resumed on a different model, or at a different thinking level, and "why is this
-  answer worse than before" is unanswerable without that. The footer now carries
-  `model: provider/id • thinking` between the session id and the project, and omits the line when
-  the runtime does not expose a model (older pi).
 
 ### A restart that reported the attempt, not the outcome
 

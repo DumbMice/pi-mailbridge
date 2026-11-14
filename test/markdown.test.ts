@@ -116,6 +116,29 @@ test("a long line in a code block wraps instead of widening the mail", () => {
 	assert.ok(html.includes(rule), "and the line is still there, unbroken")
 })
 
+test("the wrapper wraps, so a long token outside a fence cannot widen the mail", () => {
+	// The fence, the cells and inline code had rules; a paragraph, heading or link did not, and a
+	// base64 blob or a hash pasted without a fence still stretched the mail. The wrapper div is
+	// where that is fixed, and it inherits into p/h*/li/blockquote/a.
+	const { html } = renderMessage("x".repeat(300))
+	const div = /<div style="([^"]+)"/.exec(html)?.[1] ?? ""
+	assert.match(div, /overflow-wrap:anywhere/)
+	assert.match(div, /word-wrap:break-word/, "the legacy alias Outlook's engine honours")
+})
+
+test("a right-aligned column header keeps its alignment", () => {
+	// Our `text-align:left` was appended after markdown-it's own alignment and won, so a `--:`
+	// column had a left-aligned header over right-aligned cells. The presence-only assertion this
+	// replaces passed either way.
+	const html = renderBody("| left | right |\n|:--|--:|\n| 1 | 2 |")
+	const headers = [...html.matchAll(/<th style="([^"]+)"/g)].map((m) => m[1] ?? "")
+	assert.equal(headers.length, 2)
+	assert.ok(
+		headers[1]!.lastIndexOf("text-align:right") > headers[1]!.lastIndexOf("text-align:left"),
+		`the later declaration wins: ${headers[1]}`,
+	)
+})
+
 test("a long token in a table cell wraps, so the table cannot widen the mail", () => {
 	const wide = "─".repeat(180)
 	const { html } = renderMessage(`| a | b |\n| --- | --- |\n| ${wide} | x |`)

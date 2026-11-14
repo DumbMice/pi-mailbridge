@@ -1145,3 +1145,13 @@ test("the inbound document caps agree with the constants and with the wire ceili
 	)
 })
 
+test("unpublished changes live under an Unreleased heading at the top", () => {
+	// The exact mistake this guard exists for: entries for code that no published version contains
+	// were appended under 0.1.0, a released heading. A duplicated-heading check cannot see that.
+	const headings = doc("CHANGELOG.md")
+		.split("\n")
+		.filter((line) => line.startsWith("## "))
+	assert.equal(headings[0], "## Unreleased", `first release heading: ${headings[0]}`)
+	assert.equal(headings.filter((h) => h === "## Unreleased").length, 1)
+})
+

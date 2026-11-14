@@ -37,7 +37,11 @@ export function escapeHtml(value: string): string {
  */
 export function textToHtml(text: string): string {
 	return [
-		'<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.45">',
+		// overflow-wrap + word-wrap are the same property (the second is the legacy alias Outlook's
+		// engine honours); both are here so a long unbroken token - a hash, a base64 blob, a rule
+		// drawn with box-drawing characters outside a fence - wraps in every client rather than
+		// widening the whole message. It inherits into p, h*, li, blockquote and a.
+		'<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.45;word-wrap:break-word;overflow-wrap:anywhere">',
 		renderBody(text),
 		"</div>",
 	].join("")

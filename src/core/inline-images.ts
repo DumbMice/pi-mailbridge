@@ -177,8 +177,9 @@ type RootVerdict = "ok" | "outside-root" | "root-refused" | "hidden-path"
  *
  * Three rules, all fail-closed:
  *   - it must resolve, and it must land inside the project directory (a symlink out is refused);
- *   - the project directory itself must be a real project, not `/` or your home - with cwd = ~
- *     the config file is "inside the project" and the allowlist would happily mail the password;
+ *   - the root must not be `/`, where every path on the machine is "inside the project". Home is a
+ *     valid root (a fresh `pi` starts there, and that is where an agent puts a deck); what is
+ *     refused inside it is any path segment beginning with a dot (`.ssh`, `.config`, `.env`);
  *   - the daemon's own config and state directories are never attached, whatever the cwd.
  *
  * The comparison goes through `relative()`, not a `/`-joined prefix: on Windows the separator is
@@ -271,7 +272,10 @@ function escapeHtml(value: string): string {
 function refuseText(verdict: Exclude<RootVerdict, "ok">): string {
 	switch (verdict) {
 		case "root-refused":
-			return "not attached, start pi in a project directory"
+			// The daemon's own config/state, or a root that cannot bound anything (`/`). "Start pi
+			// in a project" was the old advice for a rule that no longer exists, and it does not
+			// help either case.
+			return "not attached, a private path"
 		case "hidden-path":
 			return "not attached, hidden path"
 		default:

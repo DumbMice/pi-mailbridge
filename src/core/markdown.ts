@@ -46,7 +46,7 @@ function styledTag(name: string, rawAttrs: unknown, extra: string): string {
 	const pairs = Array.isArray(rawAttrs) ? (rawAttrs as [string, string][]) : []
 	const attrs = new Map<string, string>(pairs)
 	const existing = attrs.get("style")
-	attrs.set("style", existing ? `${existing};${extra}` : extra)
+	attrs.set("style", existing ? `${extra};${existing}` : extra)
 	// cellspacing/cellpadding are attributes, not CSS, and survive sanitising better.
 	const rendered = [...attrs].map(([key, value]) => ` ${key}="${md.utils.escapeHtml(value)}"`).join("")
 	return `<${name}${rendered}>`
@@ -67,13 +67,15 @@ const MONO = "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"
 /**
  * Wrapping, not scrolling.
  *
- * `overflow:auto` is the obvious choice and the wrong one for mail: Gmail and Outlook strip or
- * ignore it on <pre>, so a 180-character line - a rule drawn with box-drawing characters, a long
- * shell command, a wide table row - does not scroll inside the block, it widens the whole message
- * until the reader has to scroll sideways through every line of it. pre-wrap keeps the block inside
- * the reading pane; break-word keeps one unbreakable token (a long path) from doing the same.
+ * `overflow:auto` alone is the obvious choice and the wrong one for mail: Gmail and Outlook strip
+ * or ignore it on <pre>, so a 180-character line - a rule drawn with box-drawing characters, a long
+ * shell command - does not scroll inside the block, it widens the whole message until the reader
+ * has to scroll sideways through every line of it. pre-wrap keeps the block inside the reading
+ * pane; break-word and its legacy alias keep one unbreakable token (a long path) from doing the
+ * same. `overflow:auto` stays last on purpose: it is the only escape hatch left for an engine that
+ * honours none of the wrap properties.
  */
-const CODE_BLOCK_STYLE = `white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;overflow:auto`
+const CODE_BLOCK_STYLE = `white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;word-wrap:break-word;overflow:auto`
 md.renderer.rules.fence = (tokens, idx) => {
 	const token = tokens[idx]!
 	const language = token.info.trim().split(/\s+/)[0] ?? ""
@@ -127,6 +129,9 @@ export function renderBody(text: string): string {
 	const tail = (tailLines[0]?.trim() === "--" ? tailLines.slice(1) : tailLines).join("\n")
 	// A visible divider, but literal text: rendering `--` as Markdown would make it a
 	// setext heading underline and swallow the body above it.
-	const signatureStyle = "font:inherit;opacity:.75;margin:18px 0 0;padding-top:10px;border-top:1px solid #d8dee4"
+	// The footer carries `project: <cwd>` and `session id:`, single long tokens: without wrapping a
+	// deep path widens the mail exactly as a long fence line did.
+	const signatureStyle =
+		"font:inherit;opacity:.75;margin:18px 0 0;padding-top:10px;border-top:1px solid #d8dee4;white-space:pre-wrap;overflow-wrap:anywhere;word-wrap:break-word"
 	return `${renderMarkdown(head)}\n<pre class="signature" style="${signatureStyle}">${escapeHtml(tail)}</pre>`
 }

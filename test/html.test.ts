@@ -43,7 +43,12 @@ test("line structure lives in the markup, not in CSS", () => {
 	const html = textToHtml("line one\nline two\n\n--\ndevice: x")
 	// A client that strips `style` must still render separate lines.
 	assert.match(html, /<p>line one<br>\nline two<\/p>/)
-	assert.ok(!html.includes("white-space"), "no reliance on pre-wrap")
+	// The *paragraph path* must not depend on styling. The signature block does use
+	// `white-space: pre-wrap` - to wrap long footer tokens rather than widen the mail - and the
+	// old document-wide assertion here could not tell the two apart.
+	const wrapper = /<div style="([^"]*)"[\s\S]*?<p>line one/.exec(html)?.[1]
+	assert.ok(wrapper !== undefined, "the wrapper div should be found")
+	assert.doesNotMatch(wrapper, /white-space/)
 })
 
 test("the signature block is literal, not Markdown", () => {
@@ -52,6 +57,8 @@ test("the signature block is literal, not Markdown", () => {
 	// because the block's top border is the divider in HTML.
 	const html = textToHtml("answer\n\n--\ndevice: ybc-linux\nturns: 3")
 	assert.match(html, /<pre class="signature"[^>]*border-top/)
+	// Long footer tokens (`project: <cwd>`, `session id:`) must wrap like a fence does.
+	assert.match(html, /<pre class="signature"[^>]*white-space:pre-wrap[^>]*overflow-wrap:anywhere/)
 	assert.match(html, /device: ybc-linux\nturns: 3/)
 	assert.doesNotMatch(html, />\s*--\s*</)
 	assert.doesNotMatch(html, /<h2>/)

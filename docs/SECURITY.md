@@ -270,7 +270,9 @@ model output. The controls, all fail-closed:
   rule: **no path segment may start with a dot** (`.ssh`, `.config`, `.local`, `.aws`, `.env`), on
   top of the config/state denial below. A `/`-rooted launch attaches nothing - there, every path
   on the machine is "inside the project".
-- **The daemon's own config and state directories are never attached**, whatever the `cwd`.
+- **The daemon's own config and state directories are refused**, whatever the `cwd` - by resolved
+  path, so a symlink into them does not help. A *hardlink* with an innocent name inside the root
+  does, exactly as `cp` does; from a home-rooted session that is the easiest place to stage one.
 - **An extension allowlist** (`pdf txt log md csv tsv json yml yaml xml html zip gz tar docx xlsx
   pptx`, plus `png jpg jpeg gif webp svg` for links and the sniffed image types inline)
   keeps the obvious key filenames out of an accidental attach. A linked file whose extension

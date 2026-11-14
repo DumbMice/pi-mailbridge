@@ -156,6 +156,52 @@ test("a linked file claiming to be an image must be one", () => {
 	assert.match(result.html, /\[not attached: not an image\]/)
 })
 
+test("a home root does not let a link escape it", () => {
+	// f9a19d6 replaced "refuse a home-rooted session" with "refuse a dot-prefixed segment" plus the
+	// daemon's own files. The loosening had no adversarial tests, so nothing would notice a later
+	// edit that reopened one of these.
+	const home = mkdtempSync(join(tmpdir(), "pmb-home-"))
+	mkdirSync(join(home, "Downloads"), { recursive: true })
+	writeFileSync(join(home, "Downloads", "deck.pptx"), "PK")
+	mkdirSync(join(home, ".ssh"), { recursive: true })
+	writeFileSync(join(home, ".ssh", "id_rsa"), "PRIVATE")
+
+	const cases: [string, string][] = [
+		["a visible file in home", `<p><a href="Downloads/deck.pptx">deck</a></p>`],
+		["an invented scheme onto /etc/passwd", `<p><a href="sandbox:/etc/passwd">x</a></p>`],
+		["file:// onto /etc/passwd", `<p><a href="file:///etc/passwd">x</a></p>`],
+		["percent-encoded traversal", `<p><a href="%2e%2e%2f%2e%2e%2fetc%2fpasswd">x</a></p>`],
+		["a hidden directory", `<p><a href=".ssh/id_rsa">x</a></p>`],
+		["a visible name symlinked into a hidden one", `<p><a href="notes.txt">x</a></p>`],
+	]
+	// The reason, not just the count: with the root check mutated to "ok", a path escape still ends
+	// at `not-allowed` (no extension) or `not-found`, so counting skips alone proves nothing.
+	const expected: Record<string, string> = {
+		"an invented scheme onto /etc/passwd": "outside-root",
+		"file:// onto /etc/passwd": "outside-root",
+		"percent-encoded traversal": "outside-root",
+		"a hidden directory": "hidden-path",
+		"a visible name symlinked into a hidden one": "hidden-path",
+	}
+	// The symlink must exist before the case that uses it.
+	symlinkSync(join(home, ".ssh", "id_rsa"), join(home, "notes.txt"))
+
+	for (const [name, html] of cases) {
+		const result = inlineLocalImages(html, { root: home })
+		if (name === "a visible file in home") {
+			assert.equal(result.attachments.length, 1, `${name} must attach`)
+			assert.equal(result.skipped.length, 0)
+			continue
+		}
+		assert.equal(result.attachments.length, 0, `${name} must not attach`)
+		assert.deepEqual(
+			result.skipped.map((s) => s.reason),
+			[expected[name]],
+			`${name} must be refused for the right reason: ${JSON.stringify(result.skipped)}`,
+		)
+	}
+})
+
 test("a linked image is attached with the type its bytes say, not its name", () => {
 	const root = dir()
 	writeFileSync(join(root, "shot.jpg"), PNG) // a real PNG, misnamed
