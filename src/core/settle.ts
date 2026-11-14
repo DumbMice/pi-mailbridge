@@ -16,6 +16,8 @@ export interface SettleContext {
 	sessionName?: string
 	/** Machine the session is running on. Named in subject and body. */
 	device?: string
+	/** Model serving this session, as `provider/id` plus the thinking level when known. */
+	model?: string
 	cwd: string
 	/** Completed turns in this session, when known. */
 	turns?: number
@@ -69,6 +71,9 @@ export function buildSettleBody(context: SettleContext): string {
 	// Only name the session when it has a name; otherwise this line repeated the id.
 	if (context.sessionName?.trim()) lines.push(`session: ${context.sessionName.trim()}`)
 	lines.push(`session id: ${context.sessionId}`)
+	// Which model answered, and at what thinking level: the same session can be resumed on a
+	// different one, and "why is this answer worse" is unanswerable without it.
+	if (context.model?.trim()) lines.push(`model: ${context.model.trim()}`)
 	lines.push(`project: ${context.cwd}`)
 	if (typeof context.turns === "number") lines.push(`turns: ${context.turns}`)
 	lines.push("")

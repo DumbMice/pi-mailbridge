@@ -75,6 +75,10 @@ export interface ExtensionCtxLike {
 		getBranch?(): unknown[]
 	}
 	ui: { notify(message: string, level?: "info" | "warning" | "error"): void }
+	/** Current model, when the runtime exposes one. */
+	model?: { id?: string; name?: string; provider?: string }
+	/** Current thinking level, when provided by the session runtime. */
+	thinkingLevel?: string
 }
 
 export interface SettleTimers {
@@ -199,15 +203,30 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		return { ...(lastAssistantText ? { lastAssistantText } : {}), ...(turns > 0 ? { turns } : {}) }
 	}
 
+	/**
+	 * "provider/id • thinking" for the notification footer, or undefined when the runtime does
+	 * not say. Duck-typed: an older pi exposes neither, and the line is then simply absent.
+	 */
+	function modelLabel(context: ExtensionCtxLike): string | undefined {
+		const model = context.model
+		const id = model?.id?.trim() || model?.name?.trim()
+		if (!id) return undefined
+		const provider = model?.provider?.trim()
+		const thinking = context.thinkingLevel?.trim()
+		return `${provider ? `${provider}/` : ""}${id}${thinking ? ` • ${thinking}` : ""}`
+	}
+
 	function sessionContext(): SettleContext | undefined {
 		if (!ctx) return undefined
 		const sessionId = ctx.sessionManager.getSessionId()
 		// `getSessionName()` is the documented method; `getName` never existed.
 		const name = ctx.sessionManager.getSessionName?.() ?? ctx.sessionManager.getName?.()
+		const model = modelLabel(ctx)
 		return {
 			sessionId,
 			...(name ? { sessionName: name } : {}),
 			device: config.device.name,
+			...(model ? { model } : {}),
 			cwd: ctx.cwd,
 			...readSessionSnapshot(ctx.sessionManager),
 		}

@@ -131,6 +131,7 @@ Done: the failing test passes now.
 device: dev-box-7
 session: fix-login
 session id: 01a1c453-f2fc-7169-8c89-69c93fa1a152
+model: deepseek/deepseek-flash • high
 project: /home/ybc/Work/proj
 turns: 3
 

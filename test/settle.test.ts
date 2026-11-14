@@ -252,3 +252,17 @@ test("turning the mode off during the debounce cancels the send", async () => {
 	await t.run()
 	assert.deepEqual(sent, [], "no mail goes out after the mode changed")
 })
+
+test("the model line sits between the session id and the project", () => {
+	const body = buildSettleBody(context({ device: "dev-box-7", model: "deepseek/deepseek-flash • high" }))
+	const lines = body.split("\n")
+	const at = lines.indexOf("model: deepseek/deepseek-flash • high")
+	assert.ok(at > 0, `model line present: ${JSON.stringify(lines)}`)
+	assert.match(lines[at - 1]!, /^session id: /, "directly under the session id")
+	assert.match(lines[at + 1]!, /^project: /, "directly above the project")
+})
+
+test("a runtime that names no model simply has no model line", () => {
+	const body = buildSettleBody(context({ device: "dev-box-7" }))
+	assert.ok(!/^model: /m.test(body), body)
+})

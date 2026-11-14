@@ -111,6 +111,14 @@ to this repository and this tag. Nothing to upgrade for, unless you want that at
 - **The frozen endpoint list missed `DELETE /register`** (the call that frees a decision slot), so
   a change to it needed no protocol bump; the snapshot regex now covers `DELETE`.
 
+### The notification names the model
+
+- **The settle mail said which session and project, not which model answered it.** The same
+  session can be resumed on a different model, or at a different thinking level, and "why is this
+  answer worse than before" is unanswerable without that. The footer now carries
+  `model: provider/id • thinking` between the session id and the project, and omits the line when
+  the runtime does not expose a model (older pi).
+
 ### A restart that reported the attempt, not the outcome
 
 - **`/mailbridge restart` could not tell five outcomes apart.** It skipped the stop entirely when

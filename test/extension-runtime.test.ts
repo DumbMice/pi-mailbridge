@@ -479,6 +479,63 @@ test("the settle email carries the assistant's last text", async () => {
 	assert.match(mail.text, /turns: 1/)
 })
 
+test("the settle email names the model between the session id and the project", async () => {
+	// The same session can be resumed on a different model, so "why is this answer worse" needs
+	// the model in the mail. The runtime is duck-typed: older pi exposes neither field.
+	const t = fakeTimers()
+	const daemon = fakeDaemon()
+	const c: ExtensionCtxLike = {
+		...ctxWithBranch([{ role: "assistant", content: [{ type: "text", text: "ok" }] }]),
+		model: { id: "deepseek-flash", provider: "deepseek", name: "DeepSeek Flash" },
+		thinkingLevel: "high",
+	}
+	const pi = fakePi(c)
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.filter((q) => q.ms === 10_000)[0]!.handler()
+	await new Promise((r) => setImmediate(r))
+
+	const mail = daemon.sent.filter((m) => /is waiting for you/.test(m.subject))[0]
+	assert.ok(mail, "a notification should have been sent")
+	const lines = mail.text.split("\n")
+	const at = lines.findIndex((line) => line === "model: deepseek/deepseek-flash • high")
+	assert.ok(at > 0, `model line present: ${JSON.stringify(lines)}`)
+	assert.match(lines[at - 1]!, /^session id: /)
+	assert.match(lines[at + 1]!, /^project: /)
+})
+
+test("a context without model fields still settles, with no model line", async () => {
+	const t = fakeTimers()
+	const daemon = fakeDaemon()
+	const pi = fakePi(ctxWithBranch([{ role: "assistant", content: [{ type: "text", text: "ok" }] }]))
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.filter((q) => q.ms === 10_000)[0]!.handler()
+	await new Promise((r) => setImmediate(r))
+
+	const mail = daemon.sent.filter((m) => /is waiting for you/.test(m.subject))[0]
+	assert.ok(mail, "a notification should have been sent")
+	assert.ok(!/^model: /m.test(mail.text), mail.text)
+})
+
 test("with no assistant text the placeholder is honest", async () => {
 	const t = fakeTimers()
 	const daemon = fakeDaemon()
