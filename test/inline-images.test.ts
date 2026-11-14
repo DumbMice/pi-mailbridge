@@ -168,6 +168,18 @@ test("a refused private path says so, not \"start pi in a project\"", () => {
 	assert.doesNotMatch(hidden.html, /start pi in a project/)
 })
 
+test("a session rooted in a hidden directory can still attach inside it", () => {
+	// SECURITY §6b says the dot rule looks only at segments *below* the root, and names the case:
+	// a session whose cwd is `~/.config/nvim`. Scanning the whole path instead would refuse
+	// everything there, which is a real workflow (an agent working on a config repo).
+	const hiddenRoot = mkdtempSync(join(tmpdir(), "pmb-hidden-"))
+	mkdirSync(join(hiddenRoot, ".config", "nvim"), { recursive: true })
+	const root = join(hiddenRoot, ".config", "nvim")
+	writeFileSync(join(root, "notes.md"), "# config notes")
+	const result = inlineLocalImages('<p><a href="notes.md">notes</a></p>', { root })
+	assert.equal(result.attachments.length, 1, `the hidden root is not itself scanned: ${JSON.stringify(result.skipped)}`)
+})
+
 test("a home root does not let a link escape it", () => {
 	// f9a19d6 replaced "refuse a home-rooted session" with "refuse a dot-prefixed segment" plus the
 	// daemon's own files. The loosening had no adversarial tests, so nothing would notice a later

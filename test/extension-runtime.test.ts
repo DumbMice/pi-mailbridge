@@ -5,7 +5,7 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 
 import mailbridge, { type ExtensionCtxLike, type ExtensionLike, type SettleTimers } from "../src/extension.ts"
-import { CAPABILITIES } from "../src/daemon/api.ts"
+import { API_VERSION, CAPABILITIES } from "../src/daemon/api.ts"
 import type { ResolvedConfig } from "../src/core/config.ts"
 import type { DaemonResult } from "../src/daemon/spawn.ts"
 import type { UserContent } from "../src/core/attachments.ts"
@@ -165,7 +165,7 @@ function fakeDaemon(
 				mode: currentMode,
 				pending: pendingRecords.length,
 				...(over.daemonVersion === undefined ? {} : { version: over.daemonVersion }),
-				apiVersion: over.apiVersion ?? 1,
+				apiVersion: over.apiVersion ?? API_VERSION,
 				capabilities: over.capabilities ?? [...CAPABILITIES],
 			}),
 		pending: async () => ok({ pending: pendingRecords, withheld: 0 }),
@@ -2566,5 +2566,44 @@ test("the slash-menu description fits one line", () => {
 	mailbridge(pi, { env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" }, loadConfig: config, secret: () => SECRET })
 	const description = specs.get("mailbridge")?.description ?? ""
 	assert.ok(description.length <= 60, `${description.length} columns: ${description}`)
+})
+
+test("a daemon from before capability reporting is told to restart, not trusted", async () => {
+	// A 0.1.4 daemon answers on protocol 1 with no `capabilities` field, so protocol equality reuses
+	// it and no per-capability check can fire. It lacks every daemon-side behaviour this build needs.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on", capabilities: undefined })
+	// Model an older daemon: no capabilities array at all.
+	daemon.client.health = async () => ({ ok: true as const, data: { ok: true, mode: "on", pending: 0, apiVersion: API_VERSION } })
+	const pi = boot(daemon, t.timers, ctx(notes))
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	const said = notes.find((n) => /predates/.test(n)) ?? ""
+	assert.match(said, /capability reporting/, `warns about a pre-capability daemon: ${JSON.stringify(notes)}`)
+})
+
+test("the settle reports the model the session is on now, not the one it started with", async () => {
+	// The claim in the changelog: a mid-session /model switch is reflected. Every other model test
+	// sets the field before session_start, which a one-shot snapshot would also pass.
+	const t = fakeTimers()
+	const daemon = fakeDaemon({ mode: "on" })
+	const context = ctx() as ExtensionCtxLike & { model?: { provider?: string; id?: string }; thinkingLevel?: string }
+	context.model = { provider: "p1", id: "old-model" }
+	context.thinkingLevel = "low"
+	const pi = boot(daemon, t.timers, context)
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	context.model = { provider: "p2", id: "k3.1-pro-highspeed" }
+	context.thinkingLevel = "high"
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.find((q) => q.ms === 10_000)?.handler()
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	const body = daemon.sent[0]?.text ?? ""
+	assert.match(body, /model: p2\/k3\.1-pro-highspeed • high/, `the live model is reported: ${body}`)
+	assert.doesNotMatch(body, /old-model/, "not the one from session start")
 })
 

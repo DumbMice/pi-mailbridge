@@ -738,7 +738,15 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			// change, so it does not bump it), which means nothing else would replace it - and every
 			// attachment would be dropped as mime-not-allowed with no explanation.
 			const capabilities = (health.data as { capabilities?: unknown }).capabilities
-			if (Array.isArray(capabilities) && !capabilityWarned) {
+			if (!capabilityWarned && capabilities === undefined) {
+				// A daemon older than capability reporting: it cannot say what it supports, which
+				// means it supports none of what this list needs.
+				capabilityWarned = true
+				ctx?.ui.notify(
+					"mailbridge: this daemon predates capability reporting — run /mailbridge restart to replace it",
+					"warning",
+				)
+			} else if (Array.isArray(capabilities) && !capabilityWarned) {
 				// Each entry names a behaviour that lives in the daemon process, so a session that
 				// reuses an older one silently lacks it - and the protocol number does not change
 				// for additive work, so nothing else would replace it.
@@ -914,8 +922,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 	registerCommand("mailbridge",
 		// Short on purpose: pi draws the slash menu on one line and cuts the description without an
-		// ellipsis, so a list of every subcommand lost its tail (and the `[p:npm:…]` source tag
-		// pi prepends costs another 32 columns). The names are a Tab away.
+		// ellipsis, so a list of every subcommand lost its tail. The bound the tests enforce (60)
+		// is the width that survives the narrowest layout pi uses for this menu. The names are one
+		// Tab away.
 		"/mailbridge — mailbox control (Tab lists commands)",
 		async (args, c) => {
 			// Re-read config on every command. It can change underneath us: `--setup`

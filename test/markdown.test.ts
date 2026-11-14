@@ -130,12 +130,15 @@ test("the wrapper wraps, so a long token outside a fence cannot widen the mail",
 	const div = /<div style="([^"]+)"/.exec(html)?.[1] ?? ""
 	assert.match(div, /overflow-wrap:anywhere/)
 	assert.match(div, /word-wrap:break-word/, "the legacy alias Outlook's engine honours")
+	// Same property under two names: whichever comes last wins, so the alias must come first or
+	// `anywhere` is discarded. Pinned here the same way as the fence and the footer.
+	assert.ok(div.indexOf("word-wrap") < div.indexOf("overflow-wrap"), `alias first: ${div}`)
 })
 
 test("a right-aligned column header keeps its alignment", () => {
 	// Our `text-align:left` was appended after markdown-it's own alignment and won, so a `--:`
-	// column had a left-aligned header over right-aligned cells. The presence-only assertion this
-	// replaces passed either way.
+	// column had a left-aligned header over right-aligned cells. The older presence-only assertion
+	// (kept above) passed either way; this one compares positions.
 	const html = renderBody("| left | right |\n|:--|--:|\n| 1 | 2 |")
 	const headers = [...html.matchAll(/<th style="([^"]+)"/g)].map((m) => m[1] ?? "")
 	assert.equal(headers.length, 2)
