@@ -6,6 +6,7 @@ import { join } from "node:path"
 
 import { MAX_FILES_TOTAL_BYTES } from "../src/core/attachments.ts"
 import { MAX_MESSAGE_BYTES } from "../src/daemon/watcher.ts"
+import { MAX_BODY_CHARS } from "../src/daemon/process.ts"
 import {
 	MAX_ATTACHMENTS,
 	MAX_FILES,
@@ -94,11 +95,27 @@ test("a reply that obeys every cap still fits under the mail ceiling", () => {
 	// The wire carries base64, so the mail ceiling has to be derived from the caps rather than
 	// picked: at 32 MB a 25 MB reply was refused before the body downloaded, losing the prose too.
 	const encoded = (bytes: number): number => Math.ceil(bytes / 3) * 4
-	const worstCase = encoded(MAX_FILES_TOTAL_BYTES) + encoded(MAX_TOTAL_BYTES) + 200 * 1024
+	const worstCase = encoded(MAX_FILES_TOTAL_BYTES) + encoded(MAX_TOTAL_BYTES) + MAX_BODY_CHARS + 64 * 1024
 	assert.ok(
 		worstCase < MAX_MESSAGE_BYTES,
 		`a maximum reply is ${Math.round(worstCase / 1024 / 1024)} MB on the wire; the ceiling is ${MAX_MESSAGE_BYTES / 1024 / 1024}`,
 	)
+})
+
+test("the attached-files block is one line per file, with nothing forged in it", () => {
+	// The block is prefixed [pi-mailbridge], so it reads as ours: a filename or MIME type carrying a
+	// newline or a control character must not be able to look like a second instruction.
+	const content = toUserContent("see attached", [], [
+		{ name: "a\u0000b.pdf", mimeType: "application/pdf\u2028", size: 2048, path: "/state/attachments/1-2/a.pdf" },
+		{ name: "deck.pptx", mimeType: "application/vnd.ms-powerpoint", size: 4_096, path: "/state/attachments/1-2/deck.pptx" },
+	])
+	assert.ok(Array.isArray(content))
+	const block = content.filter((c) => c.type === "text").at(-1)
+	assert.ok(block && block.type === "text")
+	assert.match(block.text, /attached 2 file\(s\):/)
+	assert.equal(block.text.split("\n").length, 3, "a header and exactly two bullets")
+	// The block's own newlines are its separators; anything else would be a forged line.
+	assert.doesNotMatch(block.text.replace(/\n/g, ""), /[\u0000-\u001f\u2028\u2029]/, "no control characters survived")
 })
 
 test("an iPhone HEIC photo is a file: no model reads it, a shell can convert it", () => {

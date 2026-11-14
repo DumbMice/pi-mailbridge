@@ -142,6 +142,30 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		cursor: startCursor,
 	}
 
+	/**
+	 * Persist, and if the queue is full make room by expiring records nothing can deliver any more.
+	 *
+	 * Shared by both insertion sites. The age-expiry recovery is the only relief a full queue has,
+	 * and the attachment-only stub used to skip it: a byte-full queue stalled there where a real
+	 * record would have recovered, which contradicted ARCHITECTURE's promise that refusal is a
+	 * stall the queue digs itself out of.
+	 */
+	function persistWithPressure(record: PendingRecord): boolean {
+		if (addPending(env, record).ok) return true
+		const expired = expirePending(env)
+		if (expired.length === 0) return false
+		// Not a rejection of *this* message: the reason says what was dropped, and the counts stay
+		// usable ("examined 1, rejected 0"), which they did not when the expiry was counted as one.
+		bump(result.reasons, "expired")
+		// Free a slot only when nothing else is queued for that session, or a live record would
+		// lose its reservation.
+		const stillQueued = new Set(listPending(env).map((r) => r.sessionId))
+		for (const gone of expired) {
+			if (!stillQueued.has(gone.sessionId)) deps.onDropped?.(gone.sessionId)
+		}
+		return addPending(env, record).ok
+	}
+
 	for (const uid of uids) {
 		// Dedupe: an acked UID must never be re-offered, whatever the server says.
 		if (isJournaled(env, uid, uidValidity)) {
@@ -262,31 +286,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			continue
 		}
 
-		/**
-	 * Persist, and if the queue is full make room by expiring records nothing can deliver any more.
-	 *
-	 * Shared by both insertion sites. The age-expiry recovery is the only relief a full queue has,
-	 * and the attachment-only stub used to skip it: a byte-full queue stalled there where a real
-	 * record would have recovered, which contradicted ARCHITECTURE's promise that refusal is a
-	 * stall the queue digs itself out of.
-	 */
-	function persistWithPressure(record: PendingRecord): boolean {
-		if (addPending(env, record).ok) return true
-		const expired = expirePending(env)
-		if (expired.length === 0) return false
-		// Not a rejection of *this* message: the reason says what was dropped, and the counts stay
-		// usable ("examined 1, rejected 0"), which they did not when the expiry was counted as one.
-		bump(result.reasons, "expired")
-		// Free a slot only when nothing else is queued for that session, or a live record would
-		// lose its reservation.
-		const stillQueued = new Set(listPending(env).map((r) => r.sessionId))
-		for (const gone of expired) {
-			if (!stillQueued.has(gone.sessionId)) deps.onDropped?.(gone.sessionId)
-		}
-		return addPending(env, record).ok
-	}
-
-	// A body cap as well as a message cap: the pending store is re-read on every poll and
+		// A body cap as well as a message cap: the pending store is re-read on every poll and
 		// on every /health, so one enormous reply would be paid for repeatedly.
 		const stripped = stripQuoted(message.text)
 		// Marked, not silently cut: the agent must be able to tell that its instruction is

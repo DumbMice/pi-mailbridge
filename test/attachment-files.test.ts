@@ -64,6 +64,14 @@ test("a name is capped by bytes, so a CJK filename cannot throw ENAMETOOLONG", (
 	assert.ok(name.endsWith(".pdf"), "and the extension survives")
 })
 
+test("a 300-byte extension cannot become the whole name", () => {
+	// The extension is kept so the agent can pick a reader, but it is capped too: otherwise the
+	// "extension" is the name, and a truncated-away stem reintroduces a leading dot.
+	const name = safeName("照." + "第".repeat(98), "x")
+	assert.ok(Buffer.byteLength(name, "utf8") <= 255, `${Buffer.byteLength(name, "utf8")} bytes`)
+	assert.ok(!name.startsWith("."), `no leading dot: ${name.slice(0, 8)}`)
+})
+
 test("a planted symlink is not followed", () => {
 	// Only same-user code can plant one; the write still must not be redirected out of the
 	// directory, which is what O_NOFOLLOW buys.

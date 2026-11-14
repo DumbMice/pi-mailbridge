@@ -835,6 +835,8 @@ test("a document that cannot be written is reported, not silently lost", () => {
 		assert.match(withProse!.body, /could not be saved \(write-failed: q3\.pdf\)/, "the prose keeps a note")
 		assert.match(documentOnly!.body, /could not be saved/, "and a document-only reply is not empty")
 		assert.equal(documentOnly!.body.trim().length > 0, true)
+		// A write failure must not stall the queue: both replies are past the cursor and ackable.
+		assert.equal(readCursor(e), 16, "the cursor moved past both")
 	})
 })
 

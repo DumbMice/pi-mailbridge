@@ -11,7 +11,7 @@
 //     so a hostile filename cannot escape the directory or overwrite a sibling
 //   - the directory is pruned by age and total size, so a full mailbox cannot fill the disk
 
-import { closeSync, constants, mkdirSync, openSync, readdirSync, rmSync, statSync, writeSync } from "node:fs"
+import { closeSync, constants, mkdirSync, openSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { basename, join } from "node:path"
 
 import type { SelectedFile } from "../core/attachments.ts"
@@ -52,12 +52,15 @@ export function safeName(name: string, fallback: string): string {
 		.trim()
 	// By BYTES, not characters: NAME_MAX is 255 bytes, so 120 CJK characters is 360 bytes and the
 	// write throws ENAMETOOLONG - on a path that is supposed to be the fallback, not a failure.
-	// The extension is kept: it is how the agent picks a reader.
+	// The extension is kept (how the agent picks a reader), but it is capped too: a 300-byte
+	// "extension" would otherwise be the whole name, and the leading-dot strip above would be
+	// undone by a truncated-away stem.
 	const dot = cleaned.lastIndexOf(".")
-	const extension = dot > 0 ? cleaned.slice(dot) : ""
+	const extension = dot > 0 ? truncateBytes(cleaned.slice(dot), 16) : ""
 	const stem = dot > 0 ? cleaned.slice(0, dot) : cleaned
 	const room = Math.max(1, 120 - Buffer.byteLength(extension, "utf8"))
-	return `${truncateBytes(stem, room)}${extension}` || fallback
+	const capped = `${truncateBytes(stem, room)}${extension}`.replace(/^[.\s]+/, "")
+	return capped || fallback
 }
 
 function truncateBytes(value: string, maxBytes: number): string {
@@ -101,7 +104,10 @@ export function saveInboundFiles(
 		// same discipline the outbound path applies) must not redirect the write elsewhere.
 		const fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o600)
 		try {
-			writeSync(fd, file.content)
+			// writeFileSync on the descriptor, not writeSync: a short write (ENOSPC mid-file,
+			// RLIMIT_FSIZE) returns a count instead of throwing, and a truncated document recorded
+			// as complete is the silent loss this module exists to prevent. writeFileSync loops.
+			writeFileSync(fd, file.content)
 		} finally {
 			closeSync(fd)
 		}
