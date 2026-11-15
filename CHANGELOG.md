@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### The README says nothing about the package itself
+
+- **No badges.** Version, downloads, licence, the Node floor, the publish workflow and the
+  provenance attestation are now badges at the top. All six are absolute URLs (shields.io for the
+  live numbers, the GitHub Actions badge for the workflow), because a relative image or link is
+  invisible on the npm page while looking fine on GitHub; a test enforces that and that the version
+  badge names the published package.
+
 ## 0.1.6 — 2026-11-14
 
 The wire gains one capability, `attachments`: the mail rendering and the attachment boundary

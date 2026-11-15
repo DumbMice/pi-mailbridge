@@ -222,6 +222,24 @@ test("README links to the three design docs", () => {
 	}
 })
 
+test("the README carries badges, and they survive the npm page", () => {
+	// Badges are ordinary images to a renderer, so the same rule applies: absolute src, absolute
+	// target. A relative one is invisible (or dead) on npmjs.com while looking fine on GitHub.
+	const badges = [...readme.matchAll(/\[!\[([^\]]*)\]\(([^)]+)\)\]\(([^)]+)\)/g)]
+	assert.ok(badges.length >= 4, `expected a badge row, found ${badges.length}`)
+	for (const [, label, image, target] of badges) {
+		assert.match(image!, /^https:\/\//, `badge "${label}" image must be absolute`)
+		assert.match(target!, /^https:\/\//, `badge "${label}" link must be absolute`)
+	}
+	const hosts = badges.map((m) => new URL(m[2]!).host)
+	assert.ok(hosts.includes("img.shields.io"), "shields.io carries the live numbers")
+	// The version badge reads the registry, so it must name the published package, not a copy.
+	assert.ok(
+		badges.some((m) => m[2]!.includes(`npm/v/${packageJson.name}`)),
+		`a version badge for ${packageJson.name}`,
+	)
+})
+
 test("the README's images and doc links work on the npm page, not just on GitHub", () => {
 	// npm renders the README out of the published tarball, and a relative src or href has no base
 	// to resolve against there: the image showed up as red alt text on the package page. Both

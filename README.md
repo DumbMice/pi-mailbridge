@@ -1,5 +1,12 @@
 # pi-mailbridge
 
+[![npm version](https://img.shields.io/npm/v/@dumbmice/pi-mailbridge?label=npm)](https://www.npmjs.com/package/@dumbmice/pi-mailbridge)
+[![npm downloads](https://img.shields.io/npm/dm/@dumbmice/pi-mailbridge?label=downloads)](https://www.npmjs.com/package/@dumbmice/pi-mailbridge)
+[![license](https://img.shields.io/npm/l/@dumbmice/pi-mailbridge)](https://github.com/DumbMice/pi-mailbridge/blob/main/LICENSE)
+[![node](https://img.shields.io/badge/node-%E2%89%A522.6-brightgreen)](https://github.com/DumbMice/pi-mailbridge/blob/main/package.json)
+[![publish](https://img.shields.io/github/actions/workflow/status/DumbMice/pi-mailbridge/publish.yml?label=publish)](https://github.com/DumbMice/pi-mailbridge/actions/workflows/publish.yml)
+[![provenance](https://img.shields.io/badge/provenance-SLSA%20v1-blue)](https://www.npmjs.com/package/@dumbmice/pi-mailbridge)
+
 Answer your coding agent from your mailbox.
 
 When a [pi](https://pi.dev) session needs a decision, it emails you. You reply from your phone,
