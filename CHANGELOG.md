@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.7 — 2026-11-14
+
 ### The README says nothing about the package itself
 
 - **No badges.** Version, downloads, licence, the Node floor, the publish workflow and the
