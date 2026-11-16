@@ -55,6 +55,7 @@ function harness(
 		sendOk?: boolean
 		healthOk?: boolean
 		registerOk?: boolean
+		registerCode?: string
 		cfg?: ResolvedConfig
 	} = {},
 ): Harness {
@@ -83,7 +84,10 @@ function harness(
 		claim: async () => ok({ ok: true }),
 		ack: async () => ok({ ok: true }),
 		register: async (sessionId: string) => {
-			if (over.registerOk === false) return { ok: false as const, status: 503, code: "registry_full" }
+			if (over.registerOk === false) {
+				const code = over.registerCode ?? "registry_full"
+				return { ok: false as const, status: code === "registry_full" ? 503 : code === "timeout" ? 0 : 401, code }
+			}
 			registered.push(sessionId)
 			return ok({ alreadyPending: over.alreadyPending ?? false, full: false })
 		},
@@ -185,8 +189,29 @@ test("request_decision reports a failed reservation instead of mailing", async (
 	const h = harness({ registerOk: false })
 	await h.start()
 	const result = await call(h, "request_decision", { subject: "s", question: "q" })
-	assert.match(result.content[0]!.text, /already outstanding|outstanding/i)
+	assert.match(result.content[0]!.text, /Too many decisions are outstanding/)
 	assert.equal(h.sent.length, 0)
+})
+
+test("a failed reservation names the real reason, not 'another decision is outstanding'", async () => {
+	// Every failure used to become "Another decision is already outstanding" - false for a 401 or a
+	// timeout, and the agent, believing it, would not retry.
+	for (const [registerCode, expected] of [
+		["unauthorized", /Could not reserve a decision slot \(unauthorized\)/],
+		["timeout", /Could not reserve a decision slot \(timeout\)/],
+		["registry_full", /Too many decisions are outstanding/],
+	] as const) {
+		const h = harness({ registerOk: false, registerCode })
+		await h.start()
+		const result = await call(h, "request_decision", { subject: "s", question: "q" })
+		assert.match(result.content[0]!.text, expected, `${registerCode} must name the reason`)
+		assert.doesNotMatch(
+			result.content[0]!.text,
+			/already outstanding/i,
+			`${registerCode} must not claim a pending decision`,
+		)
+		assert.equal(h.sent.length, 0)
+	}
 })
 
 test("notify_user sends without reserving a decision slot", async () => {

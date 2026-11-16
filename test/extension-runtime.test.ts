@@ -3022,3 +3022,50 @@ test("an older daemon that rejects our key is reported, not killed in a loop", a
 	assert.doesNotMatch(notes.join("\n"), /still on protocol 0/, `no futile retry wording: ${JSON.stringify(notes)}`)
 })
 
+test("the latch also stops the session from draining the daemon it called unusable", async () => {
+	// Latching without dropping the runtime left the client live: the next tick took the else-branch
+	// and drained a queue whose replies this session cannot resolve - the failure the replacement
+	// machinery exists to prevent.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on", apiVersion: 2 })
+	let pendingCalls = 0
+	const counted = daemon.client.pending
+	daemon.client.pending = async () => {
+		pendingCalls += 1
+		return counted()
+	}
+	const pi = fakePi(ctx(notes))
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		// Healthy at startup (this session runs), then the daemon on the port turns out to be newer.
+		ensureDaemon: (() => {
+			let calls = 0
+			return async () => {
+				calls += 1
+				return calls === 1 ? true : { healthy: false, incompatible: true, apiVersion: 2 }
+			}
+		})(),
+		probeHealth: async () => true,
+		probeHealthDetail: async () => ({ ok: true, apiVersion: 2 }),
+		versionCheckMs: 0,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
+
+	// Startup legitimately reads the queue once; what matters is what happens after the latch.
+	pendingCalls = 0
+	for (let round = 0; round < 2; round += 1) {
+		t.queue.shift()?.handler()
+		for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
+	}
+
+	assert.ok(notes.some((n) => /restart pi to load the matching extension/.test(n)), `latched: ${JSON.stringify(notes)}`)
+	assert.equal(pendingCalls, 0, "a latched session must not consume the newer daemon's queue")
+})
+

@@ -59,8 +59,11 @@ release note say the daemon "rebuilds" - as if `tsc` ran on a user's machine.
 - **spawn / replace / restart** - the daemon *process*. `ensureDaemon` spawns it, refuses to reuse one on another protocol, and
   the session replaces it; `/mailbridge restart` restarts it.
 - **version** - the package version, one per build: diagnostic only, for the panel and bug reports.
-- **protocol** (`API_VERSION` in `daemon/api.ts`) - the wire contract. Strict equality: a daemon on
-  another protocol is replaced, never negotiated down.
+- **protocol** (`API_VERSION` in `daemon/api.ts`) - the wire contract. Strict equality: another
+  protocol is never negotiated down. **Direction decides who moves**: an older daemon is replaced
+  (this session is current); a newer one is not killed, because it belongs to a newer pi - the
+  session latches, drops its runtime and asks for a restart of pi. Killing a newer daemon would
+  break every newer session on the machine, once a minute.
 - **schema version** (`STATE_VERSION` in `store/schema.ts`) - the on-disk shape. Refuse newer,
   migrate older.
 

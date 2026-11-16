@@ -12,6 +12,16 @@
   `node:http` transport, which has no proxy semantics, so the fix is scoped to this package: no
   environment variable is written and no other extension or child process is affected.
 
+### An older pi no longer kills a newer daemon
+
+- **After `pi update`, the direction is now decided before anything is stopped.** An *older* daemon
+  is replaced as before — this session is current, and the spawn brings the package's code up. A
+  *newer* one means this session is the stale half: it is left alone, the latch noted in the release
+  notes for `0.1.x` finally fires on the path that actually runs, the session drops its client and
+  runner so it cannot drain a queue it cannot resolve, and it asks for a restart of pi. Previously
+  the latch was unreachable, so a stale session shut the newer daemon down and respawned it once a
+  minute, indefinitely, while advising a command that ends in the same mismatch.
+
 ### A wrong `daemon.port` now says so
 
 - **Something else answering on the port is named as such.** A dev server squatting

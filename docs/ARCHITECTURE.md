@@ -252,6 +252,12 @@ refreshes on the next `/mailbridge` command or pi restart.
 **Loopback, and never through a proxy** — the transport and the reason for it are in §3, next to
 the endpoint list it applies to. One statement, one place: it has already moved twice.
 
+**Direction decides who moves.** A daemon on an *older* protocol is replaced: the spawn brings the
+package's own code up. A daemon on a *newer* protocol is not touched: it belongs to a newer pi, and
+killing it would break every newer session on the machine, once a minute. The session latches
+(`protocolStuck`), drops its client and runner so it cannot consume a queue it cannot resolve, and
+asks for a restart of pi. `/mailbridge restart` cannot help there and does not pretend to.
+
 **Singleton.** `daemon.lock` in the state directory is the lock, with the owner's pid inside: a
 live holder makes the newcomer exit 0, and a file left by a crash is stolen by an atomic rename
 (not an unlink-then-retake, which lets two starters both win). The listening port is a second

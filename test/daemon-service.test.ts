@@ -63,6 +63,10 @@ async function boot(options: { listen?: boolean } = {}): Promise<Harness> {
 		send: async (m) => {
 			sent.push(m)
 		},
+		// What daemon main() passes: without these the endpoints answer 501 and a client shaper is
+		// never exercised on its success path.
+		reload: async () => ({ ok: true }),
+		shutdown: () => {},
 	})
 
 	const { port } = options.listen === false ? { port: 0 } : await service.listen(0, "127.0.0.1")
@@ -1219,6 +1223,9 @@ test("every client call accepts the reply the real daemon sends", async () => {
 			ack: await client.ack(999_999, "instance-contract"),
 			send: await client.send({ subject: "s", text: "t" }),
 			reload: await client.reload(),
+			bye: await client.bye("instance-contract"),
+			// `/shutdown` is last: the service stops accepting after it.
+			shutdown: await client.shutdown(),
 		}
 		for (const [name, result] of Object.entries(results)) {
 			// `claim`/`ack` on a missing uid legitimately fail, but must not fail as `bad_response`:
@@ -1227,6 +1234,9 @@ test("every client call accepts the reply the real daemon sends", async () => {
 			assert.notEqual(code, "bad_response", `${name}: the client rejected the daemon's own reply`)
 		}
 		assert.equal(results.register.ok, true, "register must be accepted")
+		assert.equal(results.reload.ok, true, "reload's success envelope must be accepted")
+		assert.equal(results.bye.ok, true, "bye's success envelope must be accepted")
+		assert.equal(results.shutdown.ok, true, "shutdown's success envelope must be accepted")
 		assert.equal(results.pending.ok, true)
 		assert.equal(results.mode.ok, true)
 	} finally {

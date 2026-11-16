@@ -511,6 +511,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			// stopping it would kill a daemon newer sessions are using and the replacement could only
 			// bring the same (still incompatible) daemon back. Latch before the shutdown, not after.
 			protocolStuck = true
+			// Drop the runtime with the latch: the daemon on the port is one this session must not
+			// consume. Leaving the client live would let the next tick drain a queue whose replies
+			// this session cannot resolve - the failure the replacement machinery exists to prevent.
+			client = undefined
+			runner = undefined
 			ctx?.ui.notify(
 				`mailbridge: this pi session speaks protocol ${API_VERSION} and the installed daemon speaks ${theirs} — restart pi to load the matching extension`,
 				"error",
@@ -1532,7 +1537,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			const sessionId = c.sessionManager.getSessionId()
 			const reserved = await client.register(sessionId)
 			if (!reserved.ok) {
-				return { content: [{ type: "text", text: "Another decision is already outstanding for this session." }], details: {} }
+				// The code decides the story. Reporting every failure as "another decision is
+				// outstanding" is false for a full registry, a 401 or a timeout - and the agent,
+				// believing it, does not retry.
+				const why =
+					reserved.code === "registry_full"
+						? "Too many decisions are outstanding across sessions — resolve one, then retry."
+						: `Could not reserve a decision slot (${reserved.code ?? reserved.status}).`
+				return { content: [{ type: "text", text: why }], details: {} }
 			}
 			if (reserved.data.alreadyPending) {
 				return { content: [{ type: "text", text: "A decision is already outstanding for this session; not mailing twice." }], details: {} }

@@ -1284,3 +1284,19 @@ test("prose uses re-create for in-process objects, never rebuild", () => {
 function text_of(file: string): string {
 	return readFileSync(join(root, file), "utf8")
 }
+
+test("the docs state the protocol direction rule, not a blanket replacement", () => {
+	// The code refuses to replace a daemon that is NEWER than this session (killing it would break
+	// every newer session on the machine). Prose said "a daemon on another protocol is replaced" in
+	// three files for two rounds after the code stopped doing that.
+	for (const file of ["README.md", "AGENTS.md", "docs/ARCHITECTURE.md"]) {
+		const text = flat(doc(file))
+		assert.match(text, /older|newer/, `${file} must name the direction`)
+		assert.match(
+			text,
+			/original|newer[^.]{0,120}(not|never)[^.]{0,60}(kill|replace|touch)|does not kill|is not touched|not killed/i,
+			`${file} must say a newer daemon is left alone`,
+		)
+	}
+})
+

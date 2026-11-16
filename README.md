@@ -397,8 +397,10 @@ rejections: not-allowlisted 1
 ```
 
 The version on the first line is the daemon's package version. What decides whether the session can
-use it is the **protocol** (`protocol 1`): a daemon on another protocol is replaced within a minute
-(see Lifecycle); a different package version on the same protocol is fine.
+use it is the **protocol** (`protocol 1`): a daemon on an *older* protocol is replaced within a
+minute (see Lifecycle); one on a *newer* protocol is not killed — it belongs to a newer pi, and the
+session stops consuming it and asks you to restart pi. A different package version on the same
+protocol is fine.
 
 A non-zero `rejected` count means mail was refused. A reply delivered only as an attachment-drop
 notice counts as **kept**; `attachments dropped:` names its loss separately. `handled:` lines are the
