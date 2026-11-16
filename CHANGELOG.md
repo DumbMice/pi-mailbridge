@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Two answers from one session's real mail
+
+- **A review video was not attached.** The outbound allowlist had no video types, so a session that
+  linked three `.mp4` review clips mailed three sentences reading "not attached: this file type is
+  not attached". `mp4 m4v mov webm` are now attached as files under the same 15 MB per-file and
+  `notify.maxAttachmentMb` total as everything else - a mail client plays or saves them; it does not
+  inline them.
+- **A settlement could re-mail the previous answer.** The notification quotes the last assistant
+  message in the branch, so a turn that ended without producing text - a dropped model stream, the
+  user stopping it - settled with the answer that had already been mailed. Observed live: 2915
+  characters at 08:14 and the identical 2915 at 09:52 after a connection error. A settle whose
+  answer has already been sent is now skipped; the record of what was sent is only updated on a
+  successful send, so a transient failure still lets the next settle through.
+
 ## 0.1.7 — 2026-11-14
 
 ### The README says nothing about the package itself

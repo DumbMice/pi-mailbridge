@@ -110,6 +110,13 @@ const ALLOWED_FILE_EXTENSIONS: Record<string, string> = {
 	gif: "image/gif",
 	webp: "image/webp",
 	svg: "image/svg+xml",
+	// Video: a review clip is the one attachment a demo session always produces, and a mail client
+	// plays it from the attachment rather than showing a broken link. Same per-file cap as any
+	// other file, so this is a 15 MB ceiling, not "attach anything".
+	mp4: "video/mp4",
+	m4v: "video/x-m4v",
+	mov: "video/quicktime",
+	webm: "video/webm",
 	docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 	xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 	pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",

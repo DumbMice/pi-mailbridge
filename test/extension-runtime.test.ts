@@ -487,6 +487,76 @@ function ctxWithBranch(messages: { role: string; content: unknown }[]): Extensio
 	}
 }
 
+test("a turn that produced no new answer does not re-mail the last one", async () => {
+	// `lastAssistantText` is the last assistant message in the branch, so a turn that died without
+	// writing anything (a dropped model stream, the user stopping it) settles with the *previous*
+	// answer. Live case: a 2915-character settle at 08:14 and the identical 2915-character one at
+	// 09:52, after a connection error - the same mail twice.
+	const t = fakeTimers()
+	const daemon = fakeDaemon()
+	const c = ctxWithBranch([
+		{ role: "user", content: [{ type: "text", text: "make the demo" }] },
+		{ role: "assistant", content: [{ type: "text", text: "Todo #54 review is complete." }] },
+	])
+	const pi = fakePi(c)
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+
+	// First settle: mailed.
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.filter((q) => q.ms === 10_000).at(-1)!.handler()
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	assert.equal(daemon.sent.length, 1, "the first settle is mailed")
+
+	// The next turn died before producing text, so the branch still ends with the same answer.
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.filter((q) => q.ms === 10_000).at(-1)?.handler()
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	assert.equal(daemon.sent.length, 1, `the repeat is suppressed: ${JSON.stringify(daemon.sent.map((m) => m.subject))}`)
+})
+
+test("a later turn with a different answer is still mailed", async () => {
+	const t = fakeTimers()
+	const daemon = fakeDaemon()
+	const branch: { role: string; content: { type: string; text: string }[] }[] = [
+		{ role: "user", content: [{ type: "text", text: "go" }] },
+		{ role: "assistant", content: [{ type: "text", text: "first answer" }] },
+	]
+	const c = ctxWithBranch(branch)
+	const pi = fakePi(c)
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.filter((q) => q.ms === 10_000).at(-1)!.handler()
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+
+	branch.push({ role: "assistant", content: [{ type: "text", text: "second answer" }] })
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.filter((q) => q.ms === 10_000).at(-1)!.handler()
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	assert.equal(daemon.sent.length, 2, "new text, new mail")
+	assert.match(daemon.sent[1]!.text, /second answer/)
+})
+
 test("the settle email carries the assistant's last text", async () => {
 	const t = fakeTimers()
 	const daemon = fakeDaemon()

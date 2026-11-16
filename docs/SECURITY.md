@@ -276,7 +276,9 @@ model output. The controls, all fail-closed:
   path, so a symlink into them does not help. A *hardlink* with an innocent name inside the root
   does, exactly as `cp` does; from a home-rooted session that is the easiest place to stage one.
 - **An extension allowlist** (`pdf txt log md csv tsv json yml yaml xml html zip gz tar docx xlsx
-  pptx`, plus `png jpg jpeg gif webp svg` for links and the sniffed image types inline)
+  pptx`, plus `png jpg jpeg gif webp svg` and `mp4 m4v mov webm` for links, and the sniffed image
+  types inline). A video is attached as a file, so a mail client plays it from the attachment or
+  saves it; the 15 MB per-file cap applies to it like anything else
   keeps the obvious key filenames out of an accidental attach. A linked file whose extension
   claims a raster image must also **sniff** as one (a `.png` full of text is refused, and a real
   PNG misnamed `.jpg` is attached as `image/png`); SVG is the exception, since XML has no

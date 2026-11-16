@@ -243,6 +243,22 @@ test("a linked SVG is still allowed: XML has no signature to sniff", () => {
 	assert.equal(result.attachments[0]!.contentType, "image/svg+xml")
 })
 
+test("a video is attached as a file, and the per-file cap still applies", () => {
+	// A demo session's deliverable is a review clip; it used to be refused as "this file type is not
+	// attached", which is what a user saw in place of three mp4 links.
+	const root = dir()
+	writeFileSync(join(root, "review.mp4"), Buffer.alloc(2_000_000, 1))
+	const small = inlineLocalImages('<p><a href="review.mp4">review</a></p>', { root })
+	assert.equal(small.attachments.length, 1, JSON.stringify(small.skipped))
+	assert.equal(small.attachments[0]!.contentType, "video/mp4")
+	assert.equal(small.attachments[0]!.contentDisposition, "attachment")
+
+	writeFileSync(join(root, "huge.webm"), Buffer.alloc(MAX_FILE_BYTES + 1, 1))
+	const big = inlineLocalImages('<p><a href="huge.webm">huge</a></p>', { root })
+	assert.equal(big.attachments.length, 0, "the 15 MB per-file cap applies to video too")
+	assert.deepEqual(big.skipped.map((s) => s.reason), ["too-large"])
+})
+
 test("an attached file is capped before it is read", () => {
 	// The refusal message is identical whether the cap runs before or after the read, so the
 	// assertion has to be on the read itself: a 15 GB log must not be loaded into memory on the

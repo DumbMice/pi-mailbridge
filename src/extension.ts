@@ -153,6 +153,15 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	]
 	/** One notice per session: a context so stale the settle could not even be routed. */
 	let staleContextWarned = false
+	/**
+	 * The answer last mailed for this session.
+	 *
+	 * `lastAssistantText` is the last assistant message in the branch, so a turn that ended without
+	 * producing text - the model stream died, the user stopped it - settles with the *previous*
+	 * answer, and the user gets the same mail again. Live case: a settle at 08:14 and the identical
+	 * 2915-character one at 09:52 after a connection error.
+	 */
+	let lastSettledAnswer: { sessionId: string; text: string } | undefined
 	/** Set by stopPolling(): a tick already in flight must not touch the daemon. */
 	let pollPaused = false
 	/** The tick that may be inside an await right now; see trackTick/settleTick. */
@@ -621,6 +630,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				// `sent === undefined` means there is no client at all; reporting that as a
 				// success would make "nothing was sent" indistinguishable from "sent".
 				if (!sent) throw new Error("send failed (daemon unavailable)")
+				if (sent.ok) {
+					// Recorded only on success: a send that failed must stay eligible for the next
+					// settle, or a transient network error would silence the notification for good.
+					lastSettledAnswer = { sessionId: settled.sessionId, text: settled.lastAssistantText?.trim() ?? "" }
+				}
 				if (!sent.ok) {
 					throw new Error(
 						sent.code === "send_budget"
@@ -864,6 +878,13 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	// The ONLY settle signal. `agent_end` is deliberately not registered: pi may
 	// still retry, compact or run queued follow-ups after it.
 	pi.on("agent_settled", (event) => {
+		// A settle with the answer we already mailed is not news: it is a turn that produced no
+		// text of its own. Skip on a non-empty match, which is what the branch always holds.
+		const context = sessionContext()
+		const text = context?.lastAssistantText?.trim() ?? ""
+		if (text && context && lastSettledAnswer?.sessionId === context.sessionId && lastSettledAnswer.text === text) {
+			return
+		}
 		notifier?.settled({ aborted: event["aborted"] === true })
 	})
 

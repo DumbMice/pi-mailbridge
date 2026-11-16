@@ -295,7 +295,9 @@ ceiling:
 
 Attachments come only from **inside the agent's working directory** — which may be `$HOME`, since
 that is where a fresh `pi` starts and where a deck usually ends up — and only for allowlisted types
-(`pdf txt log md csv tsv json yml yaml xml html zip gz tar docx xlsx pptx`, plus images). What is
+(`pdf txt log md csv tsv json yml yaml xml html zip gz tar docx xlsx pptx`, plus images and
+`mp4/m4v/mov/webm` video — attached as files, under the same 15 MB per file and
+`notify.maxAttachmentMb` total). What is
 refused inside that root: any path segment beginning with a dot (`.ssh`, `.config`, `.local`,
 `.env`), the daemon's own config and state directories, and anything outside the root. A root of `/`
 attaches nothing. The allowlist keeps obvious key *filenames* out of an accidental attach; it is not
