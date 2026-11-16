@@ -14,7 +14,7 @@ import { chmodSync, closeSync, mkdirSync, openSync, renameSync, statSync } from 
 import { dirname } from "node:path"
 
 import type { PendingRecord } from "../store/pending-store.ts"
-import { ensureLoopbackExemptFromProxy, isLoopbackHost } from "../core/proxy.ts"
+import { ensureDaemonExemptFromProxy } from "../core/proxy.ts"
 import { API_VERSION, apiCompatible } from "./api.ts"
 import { statePath } from "../store/paths.ts"
 
@@ -45,12 +45,7 @@ export async function probeHealth(options: ProbeOptions): Promise<boolean> {
  * remote host is left alone: it is meant to go through the proxy.
  */
 function exemptBaseUrlFromProxy(baseUrl: string): void {
-	try {
-		const host = new URL(baseUrl).hostname
-		ensureLoopbackExemptFromProxy(process.env, isLoopbackHost(host) ? [host] : [])
-	} catch {
-		// An unparseable base URL is reported by the request itself.
-	}
+	ensureDaemonExemptFromProxy(baseUrl)
 }
 
 export async function probeHealthDetail(options: ProbeOptions): Promise<{ ok: boolean; apiVersion?: number }> {

@@ -95,17 +95,17 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 Bounds: body ≤ 1 MB, registry ≤ 10 000 entries, SSE clients ≤ 100. A second daemon start exits 0
 on `daemon.lock` (and, as a second guard, on `EADDRINUSE`) — quiet by design.
 
-**No proxy, ever.** pi installs `undici`'s `EnvHttpProxyAgent` as the global dispatcher, so with
-`HTTP_PROXY` set and loopback absent from `NO_PROXY`, every `fetch` — `http://127.0.0.1:4177`
-included — is tunnelled through the proxy and times out; the daemon reads as unreachable while it
-is answering in sub-millisecond time. `core/proxy.ts` adds `localhost`, `127.0.0.1` and `::1` — plus the configured
-`daemon.host` when it is loopback in another form (`127.0.0.2`, `[::1]`, `x.localhost`) — to
-whichever of `no_proxy` / `NO_PROXY` is live, extending rather than replacing the user's list.
-undici re-reads the variable on every dispatch, so this works on the dispatcher pi already built.
-It happens at module scope in `extension.ts` (before the first request) and again in the probe and
-client constructors (so a stale dispatcher cannot strand them). The client itself is an ordinary
-`fetch`; **only loopback is removed from the proxy** — every other host still goes through it, and a
-remote `daemon.host` is deliberately left proxied.
+**The daemon endpoint is never proxied — and nothing else changes.** pi installs `undici`'s
+`EnvHttpProxyAgent` as the global dispatcher, so with `HTTP_PROXY` set and loopback absent from
+`NO_PROXY`, every `fetch` — `http://127.0.0.1:4177` included — is tunnelled through the proxy and
+times out; the daemon reads as unreachable while it is answering in sub-millisecond time.
+`core/proxy.ts` adds the daemon's own `host:port` (`127.0.0.1:4177`, `[::1]:4177`,
+`127.0.0.2:<port>`) to whichever of `no_proxy` / `NO_PROXY` is live — extending, never replacing,
+the user's list. `NO_PROXY` entries take a port, so the exemption is exactly our endpoint: another
+local service on another port keeps going through the proxy, internet traffic is untouched, and a
+non-loopback `daemon.host` is never exempted. undici re-reads the variable on every dispatch, so
+this works on the dispatcher pi already built; the probe and client constructors apply it, so
+neither depends on the other having run. The client itself is an ordinary `fetch`.
 
 ## 4. Routing token
 

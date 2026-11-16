@@ -1,37 +1,31 @@
-// Loopback must not go through a proxy.
+// Our daemon must not go through a proxy — and nothing else should change.
 //
-// pi installs `undici`'s `EnvHttpProxyAgent` as the global dispatcher, so every `fetch` in the
-// agent process — including `http://127.0.0.1:4177` — is routed through `HTTP_PROXY` when that
-// variable is set and `NO_PROXY` does not exclude loopback. A socks proxy asked to reach
-// 127.0.0.1 simply times out, so the daemon looks unreachable while it is answering in
-// sub-millisecond time. (`node:http` does not proxy, but a second HTTP client just to dodge a
-// configuration problem is not the fix.)
+// pi installs `undici`'s `EnvHttpProxyAgent` as the global dispatcher, so with `HTTP_PROXY` set and
+// loopback absent from `NO_PROXY`, every `fetch` — `http://127.0.0.1:4177` included — is tunnelled
+// through the proxy and times out. A socks proxy asked to reach 127.0.0.1 simply never answers, so
+// the daemon looks unreachable while it is answering in sub-millisecond time. A live session was
+// unusable because of it.
 //
-// The fix is the standard one: loopback belongs in `NO_PROXY`. undici re-reads `NO_PROXY` on
-// every dispatch (`#noProxyChanged` → re-parse), so adding the entries here takes effect for the
-// dispatcher pi already built, and for any dispatcher built later. It also fixes every other
-// loopback call in the process, which is why it is done for the whole process rather than for
-// our requests alone.
+// The fix is the standard mechanism: `NO_PROXY`. `NO_PROXY` entries take an optional port, so the
+// exemption is the daemon's own endpoint (`127.0.0.1:4177`), not loopback at large: another local
+// service on another port keeps going through the proxy exactly as before, and a remote
+// `daemon.host` is never exempted at all.
 //
-// The user's list is extended, never replaced: an `*` wildcard, a corporate gateway list, or a
-// deliberate `example.com` exclusion all keep working, and a list that already covers loopback is
-// left byte-for-byte alone.
-
-const LOOPBACK = ["localhost", "127.0.0.1", "::1"] as const
+// undici re-reads `no_proxy` on every dispatch (`#noProxyChanged` → re-parse), so this takes effect
+// on the dispatcher pi already built, and the user's existing list is extended, never replaced.
 
 /** `[::1]` → `::1`, `LOCALHOST.` → `localhost`: the form undici compares against. */
 function normalizeHost(host: string): string {
 	return host
 		.trim()
-		.replace(/^\[|\]$/g, "")
+		.replace(/^\[|]$/g, "")
 		.replace(/\.+$/, "")
 		.toLowerCase()
 }
 
 /**
  * Loopback in any of its forms: `localhost` and its subdomains, `::1`, and the whole of
- * 127.0.0.0/8 - `daemon.host` may be `127.0.0.2` to dodge a port clash, and that must not be
- * proxied either.
+ * 127.0.0.0/8 - `daemon.host` may be `127.0.0.2` to dodge a port clash.
  */
 export function isLoopbackHost(host: string): boolean {
 	const name = normalizeHost(host)
@@ -47,34 +41,44 @@ function proxyVariableName(env: NodeJS.ProcessEnv): "no_proxy" | "NO_PROXY" {
 	return "NO_PROXY"
 }
 
-/** Split a `NO_PROXY` value the way undici does, dropping empties and brackets. */
+/** Split a `NO_PROXY` value the way undici does. */
 function entries(value: string): string[] {
 	return value
 		.split(/[,\s]/)
 		.map((entry) => entry.trim())
 		.filter((entry) => entry !== "")
-		.map((entry) => entry.replace(/^\[|\]$/g, "").toLowerCase())
+}
+
+/** `[::1]:4177` and `::1:4177` are the same entry; comparison ignores case and trailing dots. */
+function entryKey(entry: string): string {
+	return entry.toLowerCase().replace(/^\[|]/g, "").replace(/\.+$/, "")
+}
+
+/** `host:port`, with brackets when the host is IPv6 (`[::1]:4177` is what undici parses). */
+export function noProxyEntryFor(host: string, port: number): string {
+	const name = normalizeHost(host)
+	return name.includes(":") ? `[${name}]:${port}` : `${name}:${port}`
 }
 
 /**
- * Ensure `NO_PROXY` excludes loopback, so a global proxy dispatcher cannot swallow our own
- * daemon calls. Idempotent and safe to call repeatedly. Returns `true` when the variable was
- * changed.
- *
- * `*:*` is a host:port pair for a specific port; we only add bare hosts, which match any port.
+ * Add the daemon's own endpoint to `NO_PROXY`, and nothing else. Idempotent; returns `true` when
+ * the variable changed. A non-loopback daemon is left proxied on purpose: that traffic is meant to
+ * go through the proxy like any other internet request.
  */
-export function ensureLoopbackExemptFromProxy(
-	env: NodeJS.ProcessEnv = process.env,
-	/** The host the client is actually configured for; ignored unless it is loopback. */
-	extraHosts: readonly string[] = [],
-): boolean {
+export function ensureDaemonExemptFromProxy(baseUrl: string, env: NodeJS.ProcessEnv = process.env): boolean {
+	let url: URL
+	try {
+		url = new URL(baseUrl)
+	} catch {
+		return false // an unparseable base URL is reported by the request itself
+	}
+	if (!isLoopbackHost(url.hostname)) return false
+	const entry = noProxyEntryFor(url.hostname, url.port === "" ? 80 : Number(url.port))
+
 	const name = proxyVariableName(env)
 	const current = env[name] ?? ""
-	const present = new Set(entries(current))
-	const wanted = [...LOOPBACK, ...extraHosts.filter(isLoopbackHost).map(normalizeHost)]
-	const missing = wanted.filter((host) => !present.has(host))
-	if (missing.length === 0) return false
+	if (entries(current).some((existing) => entryKey(existing) === entryKey(entry))) return false
 	const existing = current.trim() === "" ? [] : [current.trim()]
-	env[name] = [...existing, ...missing].join(",")
+	env[name] = [...existing, entry].join(",")
 	return true
 }
