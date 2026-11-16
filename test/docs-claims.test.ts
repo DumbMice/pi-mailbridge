@@ -1215,6 +1215,15 @@ test("prose that calls the suite socket-free agrees with the tests", () => {
 			assert.match(sentence, /loopback|remote|off the|local/i, `${file}: "${sentence.trim()}" contradicts ${binders.length} tests`)
 		}
 	}
+
+	// AGENTS.md names the socket-binding tests explicitly. That list is only useful if it is the
+	// whole list: a sixth test binding a port must fail here rather than quietly make the note wrong.
+	const named = [...doc("AGENTS.md").matchAll(/`(test\/[\w./-]+\.test\.ts)`/g)].map((m) => m[1] as string)
+	const namedSet = new Set(named)
+	const expected = binders.map((name) => `test/${name}`).filter((path) => namedSet.has(path))
+	assert.ok(expected.length > 0, "AGENTS.md names none of the socket-binding tests")
+	const missing = binders.map((name) => `test/${name}`).filter((path) => !namedSet.has(path))
+	assert.deepEqual(missing, [], `AGENTS.md does not mention the socket-binding test(s) ${missing.join(", ")}`)
 })
 
 test("prose that calls a package a dependency only names declared ones", () => {

@@ -209,8 +209,14 @@ export function isLoopbackHost(host: string): boolean {
 	// resolves wherever DNS says, taking the bearer token off the box.
 	if (name === "localhost") return true
 	if (name === "::1" || name === "0:0:0:0:0:0:0:1" || name === "::ffff:127.0.0.1") return true
-	const quad = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(name)
-	return quad !== null && quad.slice(1).every((octet) => Number(octet) <= 255)
+	// The inet_aton decimal forms: `127`, `127.1`, `127.0.1`, `127.0.0.1` all resolve to loopback on
+	// glibc and macOS, and `http.request({ hostname: "127.1" })` connects. A dotted-quad-only test
+	// would warn about - and fail `--check` for - a configuration that works.
+	if (!/^127(?:\.\d{1,3}){0,3}$/.test(name)) return false
+	return name
+		.split(".")
+		.slice(1)
+		.every((octet) => Number(octet) <= 255)
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig {

@@ -234,13 +234,23 @@ test("the loopback check is a value test, not a prefix test", () => {
 	// `startsWith("127.")` accepted a DNS name that resolves anywhere (bearer token in cleartext)
 	// and a path-looking value whose URL sends the token to port 80.
 	// `pi.localhost` is the subtle one: a name, not an address, and not special to most resolvers.
-	for (const host of ["127.0.0.1.attacker.example", "127.0.0.1/x", "127.0.0.1:4177", "127.0.0.1#x", "pi.localhost"]) {
+	for (const host of [
+		"127.0.0.1.attacker.example",
+		"127.0.0.1/x",
+		"127.0.0.1:4177",
+		"127.0.0.1#x",
+		"pi.localhost",
+		"127.0.0.256",
+		"127.0.0.1.5",
+	]) {
 		assert.ok(
 			loadWith({ daemon: { host } }).warnings.some((w) => /daemon\.host/.test(w)),
 			`${host} must warn: it is not loopback`,
 		)
 	}
-	for (const host of ["127.0.0.1", "127.0.0.2", "localhost", "::1", "[::1]", "::ffff:127.0.0.1", "0:0:0:0:0:0:0:1"]) {
+	// `127.1`, `127.0.1` and bare `127` resolve to loopback on glibc and macOS; warning about them
+	// would fail `--check` for a setup that connects.
+	for (const host of ["127.0.0.1", "127.0.0.2", "127.1", "127.0.1", "127", "localhost", "::1", "[::1]", "::ffff:127.0.0.1", "0:0:0:0:0:0:0:1"]) {
 		assert.ok(
 			!loadWith({ daemon: { host } }).warnings.some((w) => /daemon\.host/.test(w)),
 			`${host} is loopback and must not warn`,

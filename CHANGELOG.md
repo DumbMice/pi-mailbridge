@@ -35,7 +35,9 @@
   now warn, and `pi.localhost` is no longer treated as loopback — which also fails
   `pi-mailbridge --check`, since warnings are folded into problems. On a system whose resolver
   special-cases `*.localhost` (systemd-resolved does) that is a false positive for a working setup:
-  use `localhost` itself instead.
+  use `localhost` itself instead. The shorter decimal forms `127`, `127.1` and `127.0.1` are
+  accepted: they resolve to loopback on glibc and macOS, so rejecting them would fail `--check` for
+  a configuration that connects.
 
 ### Two answers from one session's real mail
 
