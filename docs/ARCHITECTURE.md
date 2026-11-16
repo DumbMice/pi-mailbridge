@@ -78,7 +78,7 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/health` | liveness probe; **unauthenticated** by design (mode, pending count, the decision-registry size, emitted as both `sessions` and `registry` — sessions *with an outstanding decision*, not live sessions; live ones are `clients` — ping timing, SSE subscribers, the last scan's summary, `configLoadedAt`, `version`, `apiVersion` and `capabilities`; no content, no addresses) |
+| GET | `/health` | liveness probe; **unauthenticated** by design (`mode`, pending count, the decision-registry size, emitted as both `sessions` and `registry` — sessions *with an outstanding decision*, not live sessions; live ones are `clients` — ping timing, SSE subscribers, the last scan's summary, `configLoadedAt`, `version`, `apiVersion` and `capabilities`; no content, no addresses. `ok: true` is **required** — the client tells our daemon from anything else on the port by it plus `mode`/`apiVersion`/`capabilities`) |
 | GET | `/events` | SSE: `delivery`, `mode` (no client uses it; sessions poll) |
 | GET | `/pending` | the delivery channel: polled every 10 s, replayed on reconnect; returns the daemon's own device's records plus untagged ones |
 | POST | `/claim` | `{uid, instanceId, uidValidity?}` — atomic claim; refused as `stale-space` for another UID space and `foreign-device` for a record another device scanned |

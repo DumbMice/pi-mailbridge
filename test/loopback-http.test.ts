@@ -366,3 +366,39 @@ test("a reply just under the cap still resolves", async () => {
 	}
 })
 
+test("an oversized reply reaches the client as bad_response, not network", async () => {
+	// The transport names the error; if the name is lost, a body too large to be ours is reported as
+	// "the daemon is down" - the wrong advice this whole change exists to remove.
+	const { createDaemonClient } = await import("../src/daemon/spawn.ts")
+	const s = await serve((_req, res) => {
+		res.writeHead(200, { "content-type": "application/json" })
+		const chunk = "x".repeat(256 * 1024)
+		const pump = (): void => {
+			if (res.write(chunk)) setImmediate(pump)
+			else res.once("drain", pump)
+		}
+		pump()
+	})
+	try {
+		const result = await createDaemonClient({ baseUrl: s.url, token: "t" }).mode()
+		assert.deepEqual({ ok: result.ok, code: result.ok ? undefined : result.code }, { ok: false, code: "bad_response" })
+	} finally {
+		s.close()
+	}
+})
+
+test("the probe treats an oversized reply as a stranger, not as a dead daemon", async () => {
+	// The mapping is what makes the diagnosis reachable: the transport rejects by name, and the probe
+	// has to turn that name into `foreign` — otherwise the biggest squatter of all reads as "down".
+	const { probeHealthDetail } = await import("../src/daemon/spawn.ts")
+	const probe = await probeHealthDetail({
+		baseUrl: "http://127.0.0.1:1",
+		fetchImpl: (async () => {
+			const error = new TypeError("response body larger than 16777216 bytes")
+			error.name = "BadResponseError"
+			throw error
+		}) as unknown as typeof fetch,
+	})
+	assert.deepEqual(probe, { ok: false, foreign: true })
+})
+

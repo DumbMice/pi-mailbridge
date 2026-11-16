@@ -2867,3 +2867,42 @@ test("a foreign service on daemon.port is named as such, not as an old protocol"
 	assert.ok(!/protocol 0/.test(said), `nothing may blame the protocol: ${said}`)
 	assert.match(said, /something else is answering|did not come back/, `the panel must explain it: ${said}`)
 })
+
+test("/mailbridge restart names a foreign service instead of advising another restart", async () => {
+	// With a stranger on the port, "run /mailbridge restart again" is advice that can never work:
+	// the restart ladder has to surface the reason it already knows.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const daemon = fakeDaemon({ mode: "on" })
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		// Healthy at startup, foreign when the restart tries to bring one back.
+		ensureDaemon: (() => {
+			let calls = 0
+			return async () => {
+				calls += 1
+				return calls === 1 ? { healthy: true } : { healthy: false, foreign: true }
+			}
+		})(),
+		probeHealth: async () => false,
+		stopWaitMs: 0,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+
+	await captured.get("mailbridge")!("restart", ctx(notes))
+	const said = notes.join("\n")
+	assert.match(said, /something else is answering on daemon\.port/)
+	assert.ok(!/run \/mailbridge restart again/.test(said), `contradictory advice: ${said}`)
+})
+

@@ -603,7 +603,9 @@ test("something else on the port is reported as foreign, not as an old protocol"
 		const { probeHealthDetail, ensureDaemon } = await import("../src/daemon/spawn.ts")
 		const { apiCompatible } = await import("../src/daemon/api.ts")
 
-		for (const body of ["<!doctype html><title>dev</title>", "", '{"hello":"world"}']) {
+		// `{"ok":true}` is the important one: it is the most common health payload there is, and
+		// `ok` alone used to be enough to be mistaken for our daemon (protocol 0, then /shutdown).
+		for (const body of ["<!doctype html><title>dev</title>", "", '{"hello":"world"}', '{"ok":true}']) {
 			const server = createServer((_req, res) => {
 				res.writeHead(200, { "content-type": "text/html" })
 				res.end(body)
@@ -669,5 +671,62 @@ test("a foreign service blocks spawning only while it is there", () => {
 		assert.equal(spawned, 1, "the refusal was not sticky: a spawn was attempted once the squatter left")
 		assert.equal(after.foreign, undefined)
 	})()
+})
+
+test("a non-2xx answer on /health is a stranger, but a 5xx may be our own", async () => {
+	// A 401/404/503 responder is somebody else's service: folding it into "nothing answered" spawns
+	// a daemon every backoff, and the child exits 0 on EADDRINUSE against a port nobody names.
+	// A 5xx stays "nothing usable" — that can be our daemon failing its own handler.
+	const { createServer } = await import("node:http")
+	const { probeHealthDetail } = await import("../src/daemon/spawn.ts")
+	for (const [status, foreign] of [
+		[401, true],
+		[404, true],
+		[503, true],
+		[301, true],
+		[502, true],
+		[500, false],
+	] as const) {
+		const server = createServer((_req, res) => {
+			res.writeHead(status)
+			res.end()
+		})
+		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()))
+		try {
+			const baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+			const probe = await probeHealthDetail({ baseUrl })
+			assert.equal(probe.ok, false, `${status} is not a healthy daemon`)
+			assert.equal(probe.foreign === true, foreign, `${status} foreign=${foreign}`)
+		} finally {
+			server.close()
+		}
+	}
+})
+
+test("our own daemon shapes are never foreign, including an old protocol", async () => {
+	// The discriminator must not misread a daemon we shipped: pre-apiVersion daemons send `ok`+`mode`,
+	// and every daemon sends `mode`.
+	const { createServer } = await import("node:http")
+	const { probeHealthDetail } = await import("../src/daemon/spawn.ts")
+	const bodies: Array<{ body: Record<string, unknown>; apiVersion?: number }> = [
+		{ body: { ok: true, apiVersion: 1, mode: "on", capabilities: ["health"] }, apiVersion: 1 },
+		{ body: { ok: true, apiVersion: 0, mode: "on" }, apiVersion: 0 },
+		{ body: { ok: true, mode: "on" }, apiVersion: undefined },
+	]
+	for (const { body, apiVersion } of bodies) {
+		const server = createServer((_req, res) => {
+			res.writeHead(200, { "content-type": "application/json" })
+			res.end(JSON.stringify(body))
+		})
+		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()))
+		try {
+			const probe = await probeHealthDetail({ baseUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}` })
+			assert.equal(probe.ok, true, `${JSON.stringify(body)} is our daemon`)
+			assert.equal(probe.foreign, undefined)
+			assert.equal(probe.apiVersion, apiVersion)
+		} finally {
+			server.close()
+		}
+	}
 })
 

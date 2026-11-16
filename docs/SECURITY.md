@@ -125,7 +125,9 @@ A legitimate email can still contain text that reads like instructions
   reachable without the token, apart from the `/health` liveness probe. That returns mode,
   pending/clients counts, the decision-registry size, ping timing, the number of SSE subscribers,
   the last scan's reason *counts*, the build and protocol versions, and the config file's mtime and
-  whether IMAP is connected — no mail content, no addresses, no subjects.
+  whether IMAP is connected — no mail content, no addresses, no subjects. It carries `ok: true`,
+  which the client requires: a bare `{"ok":true}` from another service on the same port is
+  therefore not mistaken for the daemon.
 - Bearer token from `secret.key`, mode `0600`, created first-writer-wins,
   compared in constant time.
 - Body cap 1 MB; registry cap 10 000; SSE client cap 100; ten notifications a minute; ten notifications a minute.

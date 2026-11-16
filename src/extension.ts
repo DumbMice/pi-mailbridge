@@ -477,6 +477,13 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 * reloads this module while the daemon keeps executing what it started with. A version it
 	 * cannot resolve routing ids against is worse than no daemon, because replies are consumed.
 	 */
+	/**
+	 * One wording for "something else owns daemon.port" — used by the startup notice and by the
+	 * respawn path, which used to carry two near-identical copies of it.
+	 */
+	const foreignMessage = (suffix: string): string =>
+		`mailbridge: something else is answering on daemon.port — change daemon.port, or stop that service${suffix}`
+
 	async function replaceOutdatedDaemon(known?: { apiVersion?: number; incompatible?: boolean }): Promise<boolean> {
 		// Once a respawn has proved the mismatch is not ours to fix, stop trying.
 		if (protocolStuck) return false
@@ -524,7 +531,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		if (!ensured.healthy || !(await replaceRuntime())) {
 			ctx?.ui.notify(
 				ensured.foreign
-					? `mailbridge: something else is answering on daemon.port and it is not the daemon — change daemon.port, or stop that service`
+					? foreignMessage("")
 					: ensured.incompatible
 						? `mailbridge: the daemon is still on protocol ${ensured.apiVersion ?? "0"} (this session: ${API_VERSION}) — /mailbridge restart forces it`
 						: `mailbridge: the daemon did not come back after the update${ensured.error ? ` (${ensured.error})` : ""} — retrying, and /mailbridge restart forces it`,
@@ -553,7 +560,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	const probeDetail =
 		deps.probeHealthDetail ??
 		(deps.probeHealth
-			? async (options: { baseUrl: string }): Promise<{ ok: boolean; apiVersion?: number }> =>
+			? async (options: { baseUrl: string }): Promise<{ ok: boolean; apiVersion?: number; foreign?: boolean }> =>
 					// A seam that only says "something answers" cannot also say "and it is protocol 0",
 					// so it means the protocol this build speaks - otherwise every such stub looks
 					// like an outdated daemon and gets shut down.
@@ -878,7 +885,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		if (!ensured.healthy) {
 			c.ui.notify(
 				ensured.foreign
-					? "mailbridge: something else is answering on daemon.port — change daemon.port, or stop that service; replies will not arrive"
+					? foreignMessage("; replies will not arrive")
 					: ensured.incompatible
 						? "mailbridge: the running daemon speaks another protocol — restarting it"
 						: `mailbridge: daemon not reachable${ensured.error ? ` (${ensured.error})` : ""}; replies will not arrive`,
@@ -1020,10 +1027,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						return false
 					}
 				}
-				if (!(await ensureDaemonSafe())) {
-					// `ensureDaemonSafe` is the boolean form; the detailed form above names a foreign
-					// service, which is the one diagnosis worth distinguishing here.
-					ui.notify("mailbridge: daemon not reachable; replies will not arrive", "warning")
+				const ensured = await ensureDaemonDetailed()
+				if (!ensured.healthy) {
+					ui.notify(
+						ensured.foreign
+							? foreignMessage("; replies will not arrive")
+							: "mailbridge: daemon not reachable; replies will not arrive",
+						"warning",
+					)
 					return false
 				}
 				if (!(await startRuntime())) return false
@@ -1035,8 +1046,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			const statusReport = async () => {
 				const secret = secretFn()
 				const health = client ? await client.health() : undefined
-				// No client in *this* session is not the same as no daemon on the port.
-				const alive = health?.ok ? true : await probe({ baseUrl: clientBase ?? currentBaseUrl() })
+				// No client in *this* session is not the same as no daemon on the port. A squatter is
+				// neither: it answers, so `probe` alone would call it alive.
+				const detail = health?.ok ? undefined : await probeDetail({ baseUrl: clientBase ?? currentBaseUrl() })
+				const alive = health?.ok ? true : detail?.ok === true
 				const pending = client ? await client.pending() : undefined
 				// The daemon is a separate process with its own lifetime; after `pi update` it can
 				// be an older build, so name it here rather than making the user read /health.
@@ -1380,9 +1393,12 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 							"the daemon rejected this session's key, so it could not be stopped — stop it (or let it idle out) and start pi again"
 					} else if (!ensured.healthy) {
 						level = "error"
-						message = ensured.incompatible
-							? `daemon is still on another protocol (${ensured.apiVersion ?? "0"} → ${API_VERSION}) — close pi and start it again`
-							: `daemon did not come back${ensured.error ? ` (${ensured.error})` : ""} — run /mailbridge restart again`
+						message = ensured.foreign
+							? // A stranger holds the port; "run /mailbridge restart again" can never work.
+								foreignMessage("")
+							: ensured.incompatible
+								? `daemon is still on another protocol (${ensured.apiVersion ?? "0"} → ${API_VERSION}) — close pi and start it again`
+								: `daemon did not come back${ensured.error ? ` (${ensured.error})` : ""} — run /mailbridge restart again`
 					} else if (survivor && joinExpired) {
 						// The poll was still starting a daemon when the budget ran out, so the thing
 						// on the port may be its spawn rather than something that survived the stop.

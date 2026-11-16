@@ -50,3 +50,20 @@ export const ENDPOINTS = [
 export function apiCompatible(mine: number, theirs: number | undefined): boolean {
 	return typeof theirs === "number" && theirs === mine
 }
+
+/**
+ * The `/health` payload, as the client reads it.
+ *
+ * `ok` is the discriminator: `{"ok":true}` alone is too common to mean anything (a dev server on
+ * `daemon.port` answers exactly that), so the probe also requires `mode`, `apiVersion` or
+ * `capabilities`. Dropping `ok` from this payload in a later release would make every session call
+ * the daemon "something else answering" — so it is part of the contract, not decoration.
+ */
+export interface HealthPayload {
+	ok: true
+	mode: string
+	apiVersion?: number
+	capabilities?: readonly string[]
+	[key: string]: unknown
+}
+

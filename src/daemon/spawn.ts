@@ -18,6 +18,25 @@ import { loopbackFetch } from "./loopback-http.ts"
 import { API_VERSION, apiCompatible } from "./api.ts"
 import { statePath } from "../store/paths.ts"
 
+/**
+ * Is this body our `/health`?
+ *
+ * `ok: true` alone is not enough: `{"ok":true}` is the most common health payload there is, so a
+ * dev server on `daemon.port` would still be read as "our daemon, protocol 0" — replaced, and
+ * POSTed `/shutdown` at — which is the misdiagnosis the discriminated probe exists to prevent.
+ * Every daemon we have ever shipped also sends `mode`, and every one since `apiVersion` existed
+ * sends a numeric `apiVersion`; requiring one of the three keeps an old daemon recognisable while
+ * a stranger's `{"ok":true}` is not.
+ */
+function classifyHealth(body: unknown): { ok: boolean; apiVersion?: number; foreign?: true } {
+	if (typeof body !== "object" || body === null || (body as { ok?: unknown }).ok !== true) return { ok: false, foreign: true }
+	const health = body as { apiVersion?: unknown; mode?: unknown; capabilities?: unknown }
+	const ours =
+		typeof health.apiVersion === "number" || typeof health.mode === "string" || Array.isArray(health.capabilities)
+	if (!ours) return { ok: false, foreign: true }
+	return { ok: true, ...(typeof health.apiVersion === "number" ? { apiVersion: health.apiVersion } : {}) }
+}
+
 export interface ProbeOptions {
 	baseUrl: string
 	timeoutMs?: number
@@ -46,20 +65,24 @@ export async function probeHealthDetail(options: ProbeOptions): Promise<{ ok: bo
 	const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 750)
 	try {
 		const response = await doFetch(`${options.baseUrl}/health`, { signal: controller.signal })
-		if (!response.ok) return { ok: false }
+		if (!response.ok) {
+			// `500` is the one status our own /health can emit (a handler failure), so it stays
+			// "nothing usable". Everything else from an unauthenticated endpoint - 3xx, 401, 404,
+			// 502/503 from a gateway - is somebody else's service: folding those into "nothing
+			// answered" spawns a daemon every backoff, and the child exits 0 on EADDRINUSE against a
+			// port nobody names.
+			return response.status === 500 ? { ok: false } : { ok: false, foreign: true }
+		}
 		let body: unknown
 		try {
 			body = await response.json()
 		} catch {
 			return { ok: false, foreign: true }
 		}
-		// Our /health always carries `ok: true`; anything else on the port will not.
-		if (typeof body !== "object" || body === null || (body as { ok?: unknown }).ok !== true) {
-			return { ok: false, foreign: true }
-		}
-		const version = (body as { apiVersion?: unknown }).apiVersion
-		return { ok: true, ...(typeof version === "number" ? { apiVersion: version } : {}) }
-	} catch {
+		return classifyHealth(body)
+	} catch (error) {
+		// A reply too large to be ours is the same story as a wrong-shaped one.
+		if (error instanceof Error && error.name === "BadResponseError") return { ok: false, foreign: true }
 		return { ok: false }
 	} finally {
 		clearTimeout(timer)
