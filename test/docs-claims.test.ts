@@ -1251,19 +1251,27 @@ test("prose that calls a package a dependency only names declared ones", () => {
 
 test("prose uses re-create for in-process objects, never rebuild", () => {
 	// AGENTS.md names this word as wrong for the session's in-process objects, and the repo shipped
-	// it wrong once. The older check only matched "rebuilds the <noun>", so "capture the notifier,
-	// rebuild, flush" slipped through.
-	for (const file of ["README.md", "docs/ARCHITECTURE.md", "docs/SECURITY.md", "docs/MAPPING.md"]) {
-		const text = flat(doc(file))
+	// it wrong once. Two rules, because proximity alone was too weak: "The daemon is up, so the
+	// client is rebuilt" satisfied a ±40-char allowance just by mentioning the daemon.
+	const inProcess = /(?:\brebuilt\b|\brebuild(?:s|ing)?\b)[^.]{0,24}\b(?:client|runner|notifier|runtime|session|secret|token|state)\b/i
+	const inProcessAfter = /\b(?:client|runner|notifier|runtime|session)\b[^.]{0,24}(?:\brebuilt\b|\brebuild(?:s|ing)?\b)/i
+	// CHANGELOG is the historical record and is deliberately not rewritten; AGENTS.md quotes the
+	// forbidden word on purpose, twice, as the rule itself.
+	const files = [...allProse().map((p) => p.file).filter((f) => f !== "AGENTS.md"), "CHANGELOG.md"]
+	for (const file of files) {
+		const text = flat(text_of(file))
+		const hit = inProcess.exec(text) ?? inProcessAfter.exec(text)
+		assert.equal(hit, null, `${file}: "${hit?.[0] ?? ""}" - the session's objects are re-created, not rebuilt`)
+	}
+
+	// Backstop for the building sense: any other "rebuild" must be about the daemon or the package.
+	for (const file of files.filter((f) => f !== "CHANGELOG.md")) {
+		const text = flat(text_of(file))
 		for (const match of text.matchAll(/\b(?:rebuild|rebuilding|rebuilt|rebuilds)\b/gi)) {
 			const at = match.index ?? 0
-			// The context *around* the word, with the word itself removed: "rebuild" contains
-			// "build", so an allowance window that included it matched its own subject.
 			const around = (
 				text.slice(Math.max(0, at - 40), at) + " " + text.slice(at + match[0].length, at + match[0].length + 40)
 			).trim()
-			// Three legitimate senses, all outside the session's in-process objects: building the
-			// daemon or the package, and a mailbox folder that the provider rebuilt (UIDVALIDITY).
 			assert.match(
 				around,
 				/\bdaemon|\bpackage\b|\bdist\b|\btsc\b|\bcompile|\bfolder\b|\bmailbox\b|UIDVALIDITY/,
@@ -1273,3 +1281,6 @@ test("prose uses re-create for in-process objects, never rebuild", () => {
 	}
 })
 
+function text_of(file: string): string {
+	return readFileSync(join(root, file), "utf8")
+}

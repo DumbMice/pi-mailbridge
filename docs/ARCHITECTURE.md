@@ -92,7 +92,7 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 | POST | `/reload` | re-read config: stop the watcher, reload, redial. On failure it restores the previous config and warns; a refused connect returns `ok` with a warning |
 | POST | `/shutdown` | stop the daemon (used by the restart path) |
 
-Every reply is JSON, and the client treats anything else as `code: "bad_response"` rather than
+Every successful reply is JSON, and the client treats anything else as `code: "bad_response"` rather than
 `network` — an empty or HTML `200` on that port means something else is answering (a wrong
 `daemon.port`), which is a different problem from "the daemon is down" and must not be reported as
 either success or unreachable.

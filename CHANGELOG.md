@@ -257,7 +257,7 @@ to this repository and this tag. Nothing to upgrade for, unless you want that at
 ### Four bug classes fixed at the root, not at the symptom
 
 **Runtime replacement.** Three paths (dead daemon, protocol mismatch, `/mailbridge restart`) each
-rebuilt the client/notifier/runner themselves, and each dropped a debounced settle in its own way -
+re-created the client/notifier/runner themselves, and each dropped a debounced settle in its own way -
 the same bug had to be fixed three times. One helper (`replaceRuntime`) now owns the sequence, so a
 new replacement path cannot forget it.
 
