@@ -514,4 +514,36 @@ test("a fork failure is reported, not thrown into pi's process", async () => {
 	assert.equal(result.healthy, false, "reported as an unhealthy start, not an exception")
 })
 
+test("daemonBaseUrl brackets an IPv6 host so the URL parses", () => {
+	// `config.ts` accepts `::1` as a loopback daemon.host without a warning; an unbracketed URL
+	// (`http://::1:4177`) does not parse at all, so every probe would report the daemon missing.
+	assert.equal(daemonBaseUrl(4177, "::1"), "http://[::1]:4177")
+	assert.equal(daemonBaseUrl(4177, "[::1]"), "http://[::1]:4177", "already-bracketed input is not doubled")
+	assert.equal(daemonBaseUrl(4177, "127.0.0.1"), "http://127.0.0.1:4177")
+	assert.doesNotThrow(() => new URL(`${daemonBaseUrl(4177, "::1")}/health`))
+})
+
+test("a daemon on [::1] answers through the transport", () => {
+	// The two halves of IPv6 support meeting: daemonBaseUrl brackets, `listen` strips, the transport
+	// unbrackets. Each was fixed separately; this is the path that proves they compose.
+	return (async () => {
+		const { createServer } = await import("node:http")
+		const { probeHealthDetail } = await import("../src/daemon/spawn.ts")
+		const server = createServer((_req, res) => {
+			res.writeHead(200, { "content-type": "application/json" })
+			res.end(JSON.stringify({ ok: true, apiVersion: 1 }))
+		})
+		const bound = await new Promise<boolean>((resolve) => {
+			server.once("error", () => resolve(false))
+			server.listen(0, "::1", () => resolve(true))
+		})
+		if (!bound) return // a host without IPv6 loopback
+		try {
+			const port = (server.address() as { port: number }).port
+			assert.deepEqual(await probeHealthDetail({ baseUrl: daemonBaseUrl(port, "::1") }), { ok: true, apiVersion: 1 })
+		} finally {
+			server.close()
+		}
+	})()
+})
 

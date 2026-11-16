@@ -242,11 +242,8 @@ based, so an edit that preserves the mtime (`cp -p`, a restore) is not noticed u
 `smoke`/`restart`; and only the daemon re-reads — the session's own copy of the config
 refreshes on the next `/mailbridge` command or pi restart.
 
-**Loopback, and never through a proxy.** The session talks to the daemon over `node:http`, not
-`fetch`: pi installs `undici.EnvHttpProxyAgent` as the global dispatcher, so with `HTTP_PROXY` set
-every `fetch` to `127.0.0.1` is tunnelled and times out - a live session reported "daemon:
-unreachable" while the daemon answered in half a millisecond. `node:http` has no proxy semantics, so
-a loopback call cannot be redirected.
+**Loopback, and never through a proxy** — the transport and the reason for it are in §3, next to
+the endpoint list it applies to. One statement, one place: it has already moved twice.
 
 **Singleton.** `daemon.lock` in the state directory is the lock, with the owner's pid inside: a
 live holder makes the newcomer exit 0, and a file left by a crash is stolen by an atomic rename
@@ -373,7 +370,7 @@ src/
     secret.ts           shared HMAC/bearer key, atomic 0600
     threads.ts          outbound Message-IDs: threading + reply chain
     uid-cursor.ts       cursor + UID space; resets when the mailbox is renumbered
-test/                   hermetic unit tests; no IMAP, no SMTP, no sockets
+test/                   hermetic unit tests; no IMAP, no SMTP, loopback servers only
 ```
 
 `/events` (SSE) exists on the daemon for push clients; the extension currently polls

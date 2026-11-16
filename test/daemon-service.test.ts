@@ -38,7 +38,7 @@ interface Harness {
 	close(): Promise<void>
 }
 
-async function boot(): Promise<Harness> {
+async function boot(options: { listen?: boolean } = {}): Promise<Harness> {
 	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-daemon-")) }
 	const sent: { to: string; subject: string; text: string; messageId?: string }[] = []
 	const markedSeen: number[] = []
@@ -65,7 +65,7 @@ async function boot(): Promise<Harness> {
 		},
 	})
 
-	const { port } = await service.listen(0, "127.0.0.1")
+	const { port } = options.listen === false ? { port: 0 } : await service.listen(0, "127.0.0.1")
 	return {
 		service,
 		base: `http://127.0.0.1:${port}`,
@@ -1169,6 +1169,23 @@ test("/pending reports how many records it is withholding, without their content
 		assert.deepEqual(body.pending.map((r) => r.uid), [1])
 		assert.equal(body.withheld, 1, "the count is reported")
 		assert.equal(JSON.stringify(body).includes("old"), false, "and no content leaks")
+	} finally {
+		await h.close()
+	}
+})
+
+test("listen accepts a bracketed IPv6 host and reports the bare address", async () => {
+	// `daemon.host` is a URL-ish value (`[::1]` is what config accepts), while `server.listen` wants
+	// a bare address: passing the brackets through fails to bind and the daemon looks dead.
+	const h = await boot({ listen: false })
+	try {
+		const { port, host } = await h.service.listen(0, "[::1]")
+		assert.equal(host, "::1", "the reported host is the address that was bound")
+		assert.ok(port > 0)
+	} catch (error) {
+		// A host without IPv6 loopback cannot bind at all; that is not a failure of the strip.
+		const code = (error as NodeJS.ErrnoException).code
+		if (code !== "EADDRNOTAVAIL" && code !== "EAFNOSUPPORT") throw error
 	} finally {
 		await h.close()
 	}

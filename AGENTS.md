@@ -98,11 +98,12 @@ npm run typecheck
 
 Tests must be hermetic. Inject a fake SMTP transport; never open a socket.
 
-Two exceptions are deliberate and both are local: `test/daemon-lifecycle.test.ts` and
-`test/proxy.test.ts` start a server on `127.0.0.1` (nothing leaves the machine, and the proxy test
-needs a real socket to prove a proxy would have swallowed it — it drives the same
-`undici.EnvHttpProxyAgent` pi installs). `undici` is a devDependency for that test alone; the
-shipped package has no runtime dependencies.
+The exception is deliberate and local: `test/daemon-lifecycle.test.ts`,
+`test/daemon-service.test.ts`, `test/e2e.test.ts`, `test/loopback-http.test.ts` and
+`test/uid-space-chain.test.ts` bind a server on `127.0.0.1` — loopback only, nothing leaves the
+machine, and the transport and service tests need a real socket to prove what they claim. The
+transport adds no runtime dependency of its own (the package's runtime dependencies are listed
+above); the devDependencies are TypeScript and type stubs.
 
 ## The daemon transport ignores proxies
 

@@ -78,6 +78,59 @@ test("accepts headers as an array or a Headers instance", async () => {
 	}
 })
 
+test("opens a fresh connection per request rather than pooling", async () => {
+	// Node's global agent has `keepAlive: true`; without `agent: false` a socket the daemon closed
+	// on restart would fail the next poll tick with ECONNRESET.
+	let connections = 0
+	const server = createServer((_req, res) => res.writeHead(200).end("ok"))
+	server.on("connection", () => {
+		connections += 1
+	})
+	const port = await new Promise<number>((resolve) =>
+		server.listen(0, "127.0.0.1", () => resolve((server.address() as { port: number }).port)),
+	)
+	try {
+		await loopbackFetch(`http://127.0.0.1:${port}`)
+		await loopbackFetch(`http://127.0.0.1:${port}`)
+		assert.equal(connections, 2, "two requests, two sockets")
+	} finally {
+		server.close()
+	}
+})
+
+test("a bodyless status resolves instead of throwing", async () => {
+	// `new Response(bytes, { status: 204 })` throws, which would report a valid empty reply as a
+	// failed request. The daemon answers 200 everywhere today; this is for the endpoint that is not.
+	for (const status of [204, 205, 304]) {
+		const s = await serve((_req, res) => {
+			res.writeHead(status)
+			res.end()
+		})
+		try {
+			const response = await loopbackFetch(s.url)
+			assert.equal(response.status, status)
+			assert.equal(await response.text(), "")
+		} finally {
+			s.close()
+		}
+	}
+})
+
+test("a status the Response constructor refuses rejects instead of hanging", async () => {
+	// Node's client accepts a 3-digit status the WHATWG constructor rejects (999). The throw happens
+	// inside the settle callback, so without a guard it escapes as an uncaught exception and the
+	// promise never settles - and the abort listener is already gone, so even abort cannot free it.
+	const s = await serve((_req, res) => {
+		res.writeHead(999)
+		res.end()
+	})
+	try {
+		await assert.rejects(() => loopbackFetch(s.url), /status|invalid/i)
+	} finally {
+		s.close()
+	}
+})
+
 test("rejects on connection failure instead of hanging", async () => {
 	// Nothing is listening: this is the daemon-down path the probe relies on.
 	await assert.rejects(() => loopbackFetch("http://127.0.0.1:1/health"))
@@ -100,12 +153,72 @@ test("honours an AbortSignal", async () => {
 })
 
 test("an already-aborted signal rejects without opening a socket", async () => {
+	let connections = 0
+	const server = createServer((_req, res) => res.writeHead(200).end("ok"))
+	server.on("connection", () => {
+		connections += 1
+	})
+	const port = await new Promise<number>((resolve) =>
+		server.listen(0, "127.0.0.1", () => resolve((server.address() as { port: number }).port)),
+	)
 	const controller = new AbortController()
 	controller.abort()
-	await assert.rejects(
-		() => loopbackFetch("http://127.0.0.1:1/health", { signal: controller.signal }),
-		(error: Error) => error.name === "AbortError",
-	)
+	try {
+		await assert.rejects(
+			() => loopbackFetch(`http://127.0.0.1:${port}/health`, { signal: controller.signal }),
+			(error: Error) => error.name === "AbortError",
+		)
+		assert.equal(connections, 0, "no socket was opened")
+	} finally {
+		server.close()
+	}
+})
+
+test("carries a body larger than one chunk", async () => {
+	// A 1 MiB payload through a stream: catches a per-chunk `toString()` regression that a short
+	// body would hide.
+	const payload = "x".repeat(1_000_000)
+	const s = await serve((_req, res) => res.writeHead(200, { "content-type": "text/plain" }).end(payload))
+	try {
+		assert.equal((await (await loopbackFetch(s.url)).text()).length, payload.length)
+	} finally {
+		s.close()
+	}
+})
+
+test("does not leave an abort listener on the caller's signal", async () => {
+	// Every call registers a listener on a signal the caller may reuse; leaking it would keep the
+	// transport alive inside the caller's controller.
+	const { getEventListeners } = await import("node:events") as unknown as { getEventListeners: (t: unknown, e: string) => unknown[] }
+	await assert.rejects(() => loopbackFetch("http://127.0.0.1:1/health"), /ECONNREFUSED|connect/)
+	const controller = new AbortController()
+	assert.equal(getEventListeners(controller.signal, "abort").length, 0)
+
+	// and on the refusal path that does not use `finish`: a non-string body.
+	const s = await serve((_req, res) => res.writeHead(200).end("ok"))
+	try {
+		await assert.rejects(
+			() => loopbackFetch(s.url, { body: new Uint8Array([1]) as unknown as string, signal: controller.signal }),
+			/string bodies only/,
+		)
+		assert.equal(getEventListeners(controller.signal, "abort").length, 0, "listener removed on the refusal path")
+	} finally {
+		s.close()
+	}
+})
+
+test("refuses a Request input instead of ignoring its method and body", async () => {
+	// The signature is `typeof fetch`, so a Request type-checks; reading only `.url` would send a
+	// bodiless GET that silently differs from what the caller asked for.
+	const s = await serve((_req, res) => res.writeHead(200).end("ok"))
+	try {
+		await assert.rejects(
+			() => loopbackFetch(new Request(`${s.url}/claim`, { method: "POST", body: "x" })),
+			/not a Request/,
+		)
+	} finally {
+		s.close()
+	}
 })
 
 test("a body cut short rejects rather than leaving the promise unsettled", async () => {

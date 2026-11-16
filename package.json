@@ -1,87 +1,87 @@
 {
-  "name": "@dumbmice/pi-mailbridge",
-  "version": "0.1.7",
-  "description": "Drive Pi coding-agent sessions from your mailbox: get an email when an agent settles, reply to resume that exact session.",
-  "keywords": [
-    "pi",
-    "pi-package",
-    "pi-extension",
-    "pi-coding-agent",
-    "email",
-    "imap",
-    "smtp",
-    "idle",
-    "notifications",
-    "afk"
-  ],
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/DumbMice/pi-mailbridge.git"
-  },
-  "bugs": {
-    "url": "https://github.com/DumbMice/pi-mailbridge/issues"
-  },
-  "homepage": "https://github.com/DumbMice/pi-mailbridge#readme",
-  "author": {
-    "name": "Yang Bangcheng",
-    "email": "yangbangcheng@bigai.ai"
-  },
-  "type": "module",
-  "engines": {
-    "node": ">=22.6"
-  },
-  "bin": {
-    "pi-mailbridge": "./bin/pi-mailbridge.mjs"
-  },
-  "files": [
-    "dist",
-    "src",
-    "bin",
-    "docs",
-    "config.example.json",
-    "CHANGELOG.md",
-    "scripts/render-teaser.ts"
-  ],
-  "pi": {
-    "extensions": [
-      "./src/extension.ts"
-    ]
-  },
-  "main": "./dist/extension.js",
-  "scripts": {
-    "daemon": "node --experimental-strip-types src/daemon/main.ts",
-    "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test test/*.test.ts",
-    "prepublishOnly": "npm run build && npm run typecheck && npm test",
-    "build": "tsc -p tsconfig.build.json",
-    "pretest": "npm run build"
-  },
-  "dependencies": {
-    "imapflow": "^2.11.0",
-    "mailparser": "^3.14.3",
-    "markdown-it": "^15.0.3",
-    "nodemailer": "^10.5.0",
-    "openid-client": "^6.8.9"
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
-    "@sinclair/typebox": "*"
-  },
-  "devDependencies": {
-    "@types/mailparser": "^3.4.5",
-    "@types/markdown-it": "^14.2.0",
-    "@types/node": "^22.10.0",
-    "@types/nodemailer": "^6.4.17",
-    "typescript": "^5.7.0"
-  },
-  "peerDependenciesMeta": {
-    "@earendil-works/pi-ai": {
-      "optional": true
-    },
-    "@earendil-works/pi-coding-agent": {
-      "optional": true
-    }
-  }
+	"name": "@dumbmice/pi-mailbridge",
+	"version": "0.1.7",
+	"description": "Drive Pi coding-agent sessions from your mailbox: get an email when an agent settles, reply to resume that exact session.",
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"pi-coding-agent",
+		"email",
+		"imap",
+		"smtp",
+		"idle",
+		"notifications",
+		"afk"
+	],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/DumbMice/pi-mailbridge.git"
+	},
+	"bugs": {
+		"url": "https://github.com/DumbMice/pi-mailbridge/issues"
+	},
+	"homepage": "https://github.com/DumbMice/pi-mailbridge#readme",
+	"author": {
+		"name": "Yang Bangcheng",
+		"email": "yangbangcheng@bigai.ai"
+	},
+	"type": "module",
+	"engines": {
+		"node": ">=22.6"
+	},
+	"bin": {
+		"pi-mailbridge": "./bin/pi-mailbridge.mjs"
+	},
+	"files": [
+		"dist",
+		"src",
+		"bin",
+		"docs",
+		"config.example.json",
+		"CHANGELOG.md",
+		"scripts/render-teaser.ts"
+	],
+	"pi": {
+		"extensions": [
+			"./src/extension.ts"
+		]
+	},
+	"main": "./dist/extension.js",
+	"scripts": {
+		"daemon": "node --experimental-strip-types src/daemon/main.ts",
+		"typecheck": "tsc --noEmit",
+		"test": "node --experimental-strip-types --test test/*.test.ts",
+		"prepublishOnly": "npm run build && npm run typecheck && npm test",
+		"build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
+		"pretest": "npm run build"
+	},
+	"dependencies": {
+		"imapflow": "^2.11.0",
+		"mailparser": "^3.14.3",
+		"markdown-it": "^15.0.3",
+		"nodemailer": "^10.5.0",
+		"openid-client": "^6.8.9"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": "*",
+		"@sinclair/typebox": "*"
+	},
+	"devDependencies": {
+		"@types/mailparser": "^3.4.5",
+		"@types/markdown-it": "^14.2.0",
+		"@types/node": "^22.10.0",
+		"@types/nodemailer": "^6.4.17",
+		"typescript": "^5.7.0"
+	},
+	"peerDependenciesMeta": {
+		"@earendil-works/pi-ai": {
+			"optional": true
+		},
+		"@earendil-works/pi-coding-agent": {
+			"optional": true
+		}
+	}
 }

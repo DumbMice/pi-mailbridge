@@ -204,8 +204,14 @@ export async function ensureDaemon(options: EnsureDaemonOptions): Promise<Ensure
  * daemon itself answers in half a millisecond. `node:http` has no proxy semantics, so a loopback
  * request can never be redirected.
  */
+/**
+ * `http://host:port`, bracket-ready. An IPv6 literal must be bracketed to parse at all
+ * (`new URL("http://::1:4177")` throws), and `daemon.host` accepts the bare form, so the bracket
+ * belongs here rather than in every caller.
+ */
 export function daemonBaseUrl(port: number, host = "127.0.0.1"): string {
-	return `http://${host}:${port}`
+	const bare = host.replace(/^\[|]$/g, "")
+	return bare.includes(":") ? `http://[${bare}]:${port}` : `http://${bare}:${port}`
 }
 
 /** SMTP transactions with inlined images are slow; be generous rather than lose the mail. */

@@ -1182,3 +1182,60 @@ test("the subcommand switch keeps its exhaustiveness default", () => {
 	assert.match(source, /default:\s*\{[\s\S]{0,200}const unhandled: never = parsed\.sub/)
 })
 
+test("every test file the docs name actually exists", () => {
+	// A doc that points at a deleted test is a lie the reader cannot check cheaply, and this repo
+	// has already shipped one (a test file deleted while AGENTS.md still described it). Any path in
+	// backticks that looks like a test file must resolve from the repo root.
+	const repo = new URL("..", import.meta.url).pathname
+	const documents = ["AGENTS.md", "README.md", ...readdirSync(join(repo, "docs"))
+		.filter((name) => name.endsWith(".md"))
+		.map((name) => `docs/${name}`)]
+	const referenced = new Set<string>()
+	for (const doc of documents) {
+		const text = readFileSync(join(repo, doc), "utf8")
+		for (const match of text.matchAll(/`(test\/[\w./-]+\.test\.ts)`/g)) referenced.add(match[1] as string)
+	}
+	assert.ok(referenced.size > 0, "the scan found no test references at all - the pattern is wrong")
+	for (const path of referenced) {
+		assert.equal(existsSync(join(repo, path)), true, `${path} is named in the docs but does not exist`)
+	}
+})
+
+test("prose that calls the suite socket-free agrees with the tests", () => {
+	// Five test files bind a loopback server for real; prose claiming the suite opens "no socket"
+	// is only true if it says *remote* or *off loopback*. A rewrite of AGENTS.md once contradicted
+	// README.md in exactly this way.
+	const binders = readdirSync(join(root, "test")).filter(
+		(name) => name.endsWith(".test.ts") && /\.listen\(|createServer\(/.test(doc(join("test", name))),
+	)
+	assert.ok(binders.length > 0, "the scan found no socket-binding test - the pattern is wrong")
+	for (const { file, text } of allProse()) {
+		for (const sentence of flat(text).split(/(?<=[.!?])\s+/)) {
+			if (!/(?:no|and no) sockets?\b/i.test(sentence)) continue
+			assert.match(sentence, /loopback|remote|off the|local/i, `${file}: "${sentence.trim()}" contradicts ${binders.length} tests`)
+		}
+	}
+})
+
+test("prose that calls a package a dependency only names declared ones", () => {
+	// The AGENTS.md rewrite left "`undici` is a devDependency" behind after the dependency was
+	// removed. Two sentence shapes name packages as dependencies; both must match package.json.
+	const pkg = JSON.parse(doc("package.json")) as {
+		dependencies: Record<string, string>
+		devDependencies: Record<string, string>
+	}
+	const declared = new Set([...Object.keys(pkg.dependencies), ...Object.keys(pkg.devDependencies)])
+	const named = new Set<string>()
+	const sources = [...allProse(), { file: "CHANGELOG.md", text: doc("CHANGELOG.md") }]
+	for (const { file, text } of sources) {
+		const prose = flat(text)
+		// "`undici` is a devDependency" / "`undici` is an optional dependency"
+		for (const match of prose.matchAll(/`([@\w/.@-]+)` is an? (?:\w+ )?(?:dev|runtime)?dependenc/gi)) named.add(match[1] as string)
+		// "the only runtime dependencies are `imapflow`, `mailparser`, …"
+		for (const match of prose.matchAll(/dependenc(?:y|ies) (?:are|is) ((?:`[^`]+`[,\s]*)+(?:and `[^`]+`)?)/gi)) {
+			for (const item of (match[1] as string).matchAll(/`([^`]+)`/g)) named.add(item[1] as string)
+		}
+	}
+	assert.ok(named.size >= 5, `the scan named ${named.size} packages - expected at least the declared five`)
+	for (const name of named) assert.equal(declared.has(name), true, `${name} is called a dependency; package.json does not declare it`)
+})

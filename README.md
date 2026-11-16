@@ -632,7 +632,7 @@ What that does not buy you: there is **no automated live-mailbox test**. Provide
 observed, not guaranteed — a provider can change how it rewrites headers or pushes `EXISTS`. The
 hermetic suite covers the token, authz, scan pipeline, stores, daemon HTTP surface, lifecycle,
 extension surface, tools, attachments and the full end-to-end loop; it needs no network, no
-mailbox and no socket.
+mailbox, and no socket off the loopback interface.
 
 Not implemented: starting a *new* session from mail, and MIME/S-MIME.
 

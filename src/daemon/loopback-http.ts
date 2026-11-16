@@ -27,12 +27,16 @@
 //   * no content decompression — the daemon sends plain JSON with no `content-encoding`
 //     (see `daemon/api.ts`); a compressed response would be returned as raw bytes, so if the daemon
 //     ever starts compressing, add `node:zlib` here rather than switching back to `fetch`;
-//   * no connection pooling — one socket per request, closed by the server's `connection: close`
-//     or by us; at this request rate pooling buys nothing.
+//   * no connection pooling — `agent: false` asks for a one-shot agent per request. Node's global
+//     agent has `keepAlive: true`, so omitting the option would silently pool sockets to the daemon;
+//     a socket the daemon closed on `/mailbridge restart` would then fail the next request with
+//     ECONNRESET inside a poll tick. At this request rate the extra TCP handshake on loopback costs
+//     nothing.
 //
 // It does honour `init.signal` (the callers' own timeouts), and it rejects if the response stream
 // breaks mid-body — otherwise a truncated reply would leave the promise unsettled forever, and the
-// caller's drain with it.
+// caller's drain with it. Multi-valued response headers are joined by `Headers` (`set-cookie` is the
+// usual casualty); the daemon emits plain JSON only, so this is a documented limit, not a gap.
 
 import { request as httpRequest, type IncomingMessage } from "node:http"
 
@@ -73,13 +77,27 @@ export const loopbackFetch: typeof fetch = (input, init) =>
 			reject(new TypeError(`the daemon is loopback HTTP, not ${url.protocol}`))
 			return
 		}
+		if (typeof input !== "string" && !(input instanceof URL)) {
+			// The signature is `typeof fetch`, so a `Request` type-checks. Reading only `.url` would
+			// silently drop its method and body and send a different request than asked for.
+			reject(new TypeError("loopbackFetch takes a URL string or URL, not a Request"))
+			return
+		}
 
 		let settled = false
 		const finish = (fn: () => void): void => {
 			if (settled) return
 			settled = true
 			cleanup()
-			fn()
+			// `new Response(...)` throws on a status that forbids a body, among other things. A throw
+			// here would escape an event listener as an uncaught exception and leave the promise
+			// unsettled - un-abortable too, because the listener is already removed - which is the
+			// hang `spawn.ts` documents. It has to surface as a rejection.
+			try {
+				fn()
+			} catch (error) {
+				reject(error)
+			}
 		}
 
 		const request = httpRequest(
@@ -89,20 +107,26 @@ export const loopbackFetch: typeof fetch = (input, init) =>
 				path: `${url.pathname}${url.search}`,
 				method: init?.method ?? "GET",
 				headers: headerRecord(init?.headers as HeaderInit),
+				// One socket per request; see the header comment.
+				agent: false,
 			},
 			(response: IncomingMessage) => {
 				const chunks: Buffer[] = []
 				response.on("data", (chunk: Buffer) => chunks.push(chunk))
 				response.on("end", () =>
-					finish(() =>
+					finish(() => {
+						const status = response.statusCode ?? 502
+						// 204/205/304 may not carry a body: `new Response(bytes, { status: 204 })` throws,
+						// which would turn a valid empty reply into a rejected request.
+						const bodyless = status === 204 || status === 205 || status === 304
 						resolve(
-							new Response(Buffer.concat(chunks), {
-								status: response.statusCode ?? 502,
+							new Response(bodyless && chunks.length === 0 ? null : Buffer.concat(chunks), {
+								status,
 								// `headers`, not a spread: spreading into ResponseInit drops them silently.
 								headers: response.headers as unknown as Record<string, string>,
 							}),
-						),
-					),
+						)
+					}),
 				)
 				// A body cut short (content-length mismatch, server restart) ends the stream with an
 				// error rather than "end"; without this the promise never settles.
@@ -132,8 +156,11 @@ export const loopbackFetch: typeof fetch = (input, init) =>
 		const body = init?.body
 		if (typeof body === "string") request.write(body)
 		else if (body !== undefined && body !== null) {
-			reject(new TypeError("loopbackFetch accepts string bodies only"))
+			// Streams, buffers and FormData are not needed by any caller. Refuse rather than
+			// serialise something the daemon would misread - and go through `finish`, so the abort
+			// listener does not outlive the call.
 			request.destroy()
+			finish(() => reject(new TypeError("loopbackFetch accepts string bodies only")))
 			return
 		}
 		request.end()
