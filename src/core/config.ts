@@ -203,7 +203,11 @@ function envOverrides(env: NodeJS.ProcessEnv): Record<string, unknown> {
  */
 export function isLoopbackHost(host: string): boolean {
 	const name = String(host).trim().replace(/^\[|]$/g, "").toLowerCase()
-	if (name === "localhost" || name.endsWith(".localhost")) return true
+	// `localhost` itself only. A `*.localhost` *name* is not special to glibc or macOS resolvers
+	// (RFC 6761 §6.3 is a SHOULD for APIs, and browsers are the ones that implement it), so
+	// `pi.localhost` either fails to resolve - a daemon that cannot bind with `--check` green - or
+	// resolves wherever DNS says, taking the bearer token off the box.
+	if (name === "localhost") return true
 	if (name === "::1" || name === "0:0:0:0:0:0:0:1" || name === "::ffff:127.0.0.1") return true
 	const quad = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(name)
 	return quad !== null && quad.slice(1).every((octet) => Number(octet) <= 255)

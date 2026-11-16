@@ -108,8 +108,10 @@ transport instead: a `fetch`-shaped wrapper over `node:http`, which has no proxy
 The fix lives inside the package and writes no process state, which is why `NO_PROXY` is not used —
 appending there works, but it is process-global and every child process (the bash tool included)
 would inherit the entry. It follows no redirects, does no decompression (the daemon sends plain
-JSON) and opens one socket per request; it does honour the caller's abort signal and rejects if a
-response body is cut short.
+JSON) and opens one socket per request; it does honour the caller's abort signal, rejects if a
+response body is cut short, and stops reading a reply past 16 MiB (the largest real reply is a
+`/pending` bounded by the store's 8 MiB) — a body that large is not ours, and is reported as
+`bad_response` rather than `network`.
 
 ## 4. Routing token
 

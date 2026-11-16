@@ -335,7 +335,7 @@ test("the client and probe use this transport, not the ambient fetch", async () 
 	}
 })
 
-test("a reply that streams forever is cut off, not buffered without bound", async () => {
+test("a reply that streams forever is cut off, not buffered without bound", { timeout: 10_000 }, async () => {
 	// A squatter on the port that answers 200 and never ends would otherwise grow the pi process
 	// until the caller's abort fired - the body cap is the only bound on bytes.
 	const s = await serve((_req, res) => {
@@ -349,6 +349,18 @@ test("a reply that streams forever is cut off, not buffered without bound", asyn
 	})
 	try {
 		await assert.rejects(() => loopbackFetch(s.url), /larger than/)
+	} finally {
+		s.close()
+	}
+})
+
+test("a reply just under the cap still resolves", async () => {
+	// Pins the boundary the cap must not move: the largest real reply is a `/pending` bounded by the
+	// store's own 8 MiB, so a body comfortably under 16 MiB has to come back intact.
+	const payload = "y".repeat(15 * 1024 * 1024)
+	const s = await serve((_req, res) => res.writeHead(200, { "content-length": String(payload.length) }).end(payload))
+	try {
+		assert.equal((await (await loopbackFetch(s.url)).text()).length, payload.length)
 	} finally {
 		s.close()
 	}

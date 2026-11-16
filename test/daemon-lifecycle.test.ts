@@ -1,6 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { spawn, type ChildProcess } from "node:child_process"
+import { API_VERSION } from "../src/daemon/api.ts"
 import net from "node:net"
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -180,7 +181,8 @@ test("ensureDaemon spawns detached when nothing answers", { timeout: 20_000 }, a
 			probes++
 			// First call (pre-check) fails, afterwards it "is up".
 			if (probes === 1) throw new Error("ECONNREFUSED")
-			return new Response("{}", { status: 200 })
+			// A realistic /health: the probe now treats anything without `ok: true` as foreign.
+			return new Response(JSON.stringify({ ok: true, apiVersion: API_VERSION }), { status: 200 })
 		}) as unknown as typeof fetch,
 		sleep: async () => {},
 	})
@@ -315,7 +317,10 @@ test("a send outlives the generic ceiling, so a slow relay is not cut off", asyn
 			// signal, so a short budget really does kill it - that is what makes this test
 			// fail when the per-call timeout is removed.
 			return new Promise((resolve, reject) => {
-				const timer = setTimeout(() => resolve(new Response("{}", { status: 200 })), 150)
+				const timer = setTimeout(
+					() => resolve(new Response(JSON.stringify({ ok: true, apiVersion: API_VERSION }), { status: 200 })),
+					150,
+				)
 				init?.signal?.addEventListener("abort", () => {
 					clearTimeout(timer)
 					const e = new Error("aborted")
@@ -577,7 +582,54 @@ test("something that is not our daemon answering 200 is bad_response, not succes
 					`${c.name}: claim must not report success`,
 				)
 				const mode = await client.mode()
-				assert.equal(mode.ok || mode.code !== "network", true, `${c.name}: not a network failure`)
+				assert.deepEqual(
+					{ ok: mode.ok, code: mode.ok ? undefined : mode.code },
+					{ ok: false, code: "bad_response" },
+					`${c.name}: mode must be neither success nor network`,
+				)
+			} finally {
+				server.close()
+			}
+		}
+	})()
+})
+
+test("something else on the port is reported as foreign, not as an old protocol", () => {
+	// A dev server squatting daemon.port answers /health with HTML (or an empty 200). Calling that
+	// "protocol 0" made the session replace a daemon that was never there: /shutdown POSTed at the
+	// squatter once a minute, and "the daemon is still on protocol 0" as the explanation.
+	return (async () => {
+		const { createServer } = await import("node:http")
+		const { probeHealthDetail, ensureDaemon } = await import("../src/daemon/spawn.ts")
+		const { apiCompatible } = await import("../src/daemon/api.ts")
+
+		for (const body of ["<!doctype html><title>dev</title>", "", '{"hello":"world"}']) {
+			const server = createServer((_req, res) => {
+				res.writeHead(200, { "content-type": "text/html" })
+				res.end(body)
+			})
+			await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()))
+			const baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+			try {
+				const probe = await probeHealthDetail({ baseUrl })
+				assert.equal(probe.ok, false, `${JSON.stringify(body)} is not our /health`)
+				assert.equal(probe.apiVersion, undefined, "no protocol was observed, so none may be claimed")
+				assert.equal(probe.foreign, true, "it answered, so it is not 'nothing is listening'")
+				assert.equal(apiCompatible(API_VERSION, probe.apiVersion), false)
+
+				let spawned = 0
+				const result = await ensureDaemon({
+					baseUrl,
+					scriptPath: "/tmp/does-not-matter.ts",
+					spawnImpl: (() => {
+						spawned += 1
+						throw new Error("must not spawn onto a foreign port")
+					}) as never,
+					waitMs: 10,
+					sleep: async () => {},
+				})
+				assert.equal(spawned, 0, "spawning would collide with the service that owns the port")
+				assert.deepEqual({ healthy: result.healthy, foreign: result.foreign }, { healthy: false, foreign: true })
 			} finally {
 				server.close()
 			}

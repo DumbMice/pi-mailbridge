@@ -2843,3 +2843,27 @@ test("the settle reports the model the session is on now, not the one it started
 	assert.doesNotMatch(body, /old-model/, "not the one from session start")
 })
 
+test("a foreign service on daemon.port is named as such, not as an old protocol", async () => {
+	// A dev server squatting the port used to be reported as "the daemon is still on protocol 0",
+	// which sends the user to /mailbridge restart forever. The reason has to survive to the panel.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on" })
+	const pi = fakePi(ctx(notes))
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => ({ healthy: false, foreign: true }),
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+
+	await pi.fire("session_start")
+	for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
+
+	const said = notes.join(" | ")
+	assert.ok(!/protocol 0/.test(said), `nothing may blame the protocol: ${said}`)
+	assert.match(said, /something else is answering|did not come back/, `the panel must explain it: ${said}`)
+})

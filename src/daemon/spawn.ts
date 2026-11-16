@@ -32,24 +32,33 @@ export async function probeHealth(options: ProbeOptions): Promise<boolean> {
 }
 
 /**
- * `/health`, with the protocol it speaks.
+ * `/health`, with what actually answered.
  *
- * `ok` means "something answered"; `apiVersion` says whether *this* build can use it. A daemon
- * from another protocol is alive but unusable, and reusing it would make a replacement look
- * successful while the mismatch stayed.
+ * Three outcomes, and they are different problems: nothing answered (`ok: false`); our daemon
+ * answered and speaks some protocol (`ok: true`, maybe an `apiVersion`); or *something else*
+ * answered on that port (`foreign: true`). Collapsing the third into the second made a dev server
+ * squatting `daemon.port` look like "the daemon is on protocol 0", so the session announced a
+ * protocol mismatch and POSTed `/shutdown` at it once a minute.
  */
-export async function probeHealthDetail(options: ProbeOptions): Promise<{ ok: boolean; apiVersion?: number }> {
+export async function probeHealthDetail(options: ProbeOptions): Promise<{ ok: boolean; apiVersion?: number; foreign?: true }> {
 	const doFetch = options.fetchImpl ?? loopbackFetch
 	const controller = new AbortController()
 	const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 750)
 	try {
 		const response = await doFetch(`${options.baseUrl}/health`, { signal: controller.signal })
 		if (!response.ok) return { ok: false }
-		const body = (await response.json().catch(() => undefined)) as { apiVersion?: unknown } | undefined
-		return {
-			ok: true,
-			...(typeof body?.apiVersion === "number" ? { apiVersion: body.apiVersion } : {}),
+		let body: unknown
+		try {
+			body = await response.json()
+		} catch {
+			return { ok: false, foreign: true }
 		}
+		// Our /health always carries `ok: true`; anything else on the port will not.
+		if (typeof body !== "object" || body === null || (body as { ok?: unknown }).ok !== true) {
+			return { ok: false, foreign: true }
+		}
+		const version = (body as { apiVersion?: unknown }).apiVersion
+		return { ok: true, ...(typeof version === "number" ? { apiVersion: version } : {}) }
 	} catch {
 		return { ok: false }
 	} finally {
@@ -93,6 +102,8 @@ export interface EnsureDaemonResult {
 	error?: string
 	/** The protocol the answering daemon spoke, when one answered and was not reused. */
 	apiVersion?: number
+	/** Something answers on the port but is not this daemon: a wrong `daemon.port`. */
+	foreign?: boolean
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
@@ -113,6 +124,11 @@ export async function ensureDaemon(options: EnsureDaemonOptions): Promise<Ensure
 		// caller can replace it, instead of being adopted and failing on the first request.
 		if (apiCompatible(API_VERSION, found.apiVersion)) return { started: false, healthy: true }
 		return { started: false, healthy: false, incompatible: true, apiVersion: found.apiVersion }
+	}
+	if (found.foreign) {
+		// Answering, but not us: a different service owns daemon.port. Spawning would collide with
+		// it and the "protocol mismatch" story would send the user to `/mailbridge restart` forever.
+		return { started: false, healthy: false, foreign: true }
 	}
 
 	const spawn = options.spawnImpl ?? nodeSpawn
@@ -273,6 +289,8 @@ export function createDaemonClient(options: DaemonClientOptions) {
 			// A timeout is reported distinctly: the outcome is unknown, so callers must
 			// treat it like a network failure (retry later) rather than a definite "no".
 			if (error instanceof Error && error.name === "AbortError") return { ok: false, status: 0, code: "timeout" }
+			// A reply that is too large to be ours is a wrong-port problem, not a dead daemon.
+			if (error instanceof Error && error.name === "BadResponseError") return { ok: false, status: 0, code: "bad_response" }
 			return { ok: false, status: 0, code: "network" }
 		} finally {
 			clearTimeout(timer)

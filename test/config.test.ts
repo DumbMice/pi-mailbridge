@@ -233,13 +233,14 @@ test("a padded or empty daemon.host is normalised, not just warned about", () =>
 test("the loopback check is a value test, not a prefix test", () => {
 	// `startsWith("127.")` accepted a DNS name that resolves anywhere (bearer token in cleartext)
 	// and a path-looking value whose URL sends the token to port 80.
-	for (const host of ["127.0.0.1.attacker.example", "127.0.0.1/x", "127.0.0.1:4177", "127.0.0.1#x"]) {
+	// `pi.localhost` is the subtle one: a name, not an address, and not special to most resolvers.
+	for (const host of ["127.0.0.1.attacker.example", "127.0.0.1/x", "127.0.0.1:4177", "127.0.0.1#x", "pi.localhost"]) {
 		assert.ok(
 			loadWith({ daemon: { host } }).warnings.some((w) => /daemon\.host/.test(w)),
 			`${host} must warn: it is not loopback`,
 		)
 	}
-	for (const host of ["127.0.0.1", "127.0.0.2", "localhost", "::1", "[::1]", "::ffff:127.0.0.1", "0:0:0:0:0:0:0:1", "pi.localhost"]) {
+	for (const host of ["127.0.0.1", "127.0.0.2", "localhost", "::1", "[::1]", "::ffff:127.0.0.1", "0:0:0:0:0:0:0:1"]) {
 		assert.ok(
 			!loadWith({ daemon: { host } }).warnings.some((w) => /daemon\.host/.test(w)),
 			`${host} is loopback and must not warn`,

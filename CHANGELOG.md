@@ -12,6 +12,23 @@
   `node:http` transport, which has no proxy semantics, so the fix is scoped to this package: no
   environment variable is written and no other extension or child process is affected.
 
+### A wrong `daemon.port` now says so
+
+- **Something else answering on the port is named as such.** A dev server squatting
+  `daemon.port` used to look like "the daemon is on protocol 0": the session announced a protocol
+  mismatch and POSTed `/shutdown` at the stranger once a minute. The probe now distinguishes
+  "nothing answered", "our daemon, another protocol" and "something answered but it is not the
+  daemon" — the panel says which, and no daemon is spawned onto an occupied port.
+- **A non-JSON or empty `200` is `bad_response`, not `network`** — the previous wording pointed at
+  `pi update` for a daemon that was up, and an empty `200` even counted as success, letting
+  `claim`/`ack`/`send` report done with nothing done. A reply too large to be ours is classified the
+  same way, and the client stops reading at 16 MiB instead of buffering without a ceiling.
+- **`daemon.host` is normalised**: trimmed, brackets stripped (`[::1]` → `::1`), empty becomes
+  `127.0.0.1`. Previously `""` built `http://:4177`, which does not parse, while the daemon bound
+  `127.0.0.1` — permanently unreachable with `--check` green. The loopback check is a value test,
+  so `127.0.0.1.attacker.example` and `127.0.0.1/x` (whose URL sends the bearer token to port 80)
+  now warn, and `pi.localhost` is no longer treated as loopback.
+
 ### Two answers from one session's real mail
 
 - **A review video was not attached.** The outbound allowlist had no video types, so a session that

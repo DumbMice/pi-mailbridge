@@ -107,12 +107,21 @@ export interface MailbridgeDeps {
 		baseUrl: string,
 		scriptPath: string,
 	) => Promise<
-		boolean | { healthy: boolean; started?: boolean; incompatible?: boolean; error?: string; apiVersion?: number }
+		| boolean
+		| {
+				healthy: boolean
+				started?: boolean
+				incompatible?: boolean
+				/** Something answers on the port but it is not the daemon. */
+				foreign?: boolean
+				error?: string
+				apiVersion?: number
+		  }
 	>
 	/** Injected by tests: is something answering on this base URL? */
 	probeHealth?: (options: { baseUrl: string }) => Promise<boolean>
 	/** As above, but reporting the protocol that answered. */
-	probeHealthDetail?: (options: { baseUrl: string }) => Promise<{ ok: boolean; apiVersion?: number }>
+	probeHealthDetail?: (options: { baseUrl: string }) => Promise<{ ok: boolean; apiVersion?: number; foreign?: boolean }>
 	/** How often to re-check the daemon's protocol. Defaults to a minute. */
 	versionCheckMs?: number
 	/** How often the poll may respawn a dead daemon. Defaults to a minute. */
@@ -514,9 +523,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		if (pollPaused) return false
 		if (!ensured.healthy || !(await replaceRuntime())) {
 			ctx?.ui.notify(
-				ensured.incompatible
-					? `mailbridge: the daemon is still on protocol ${ensured.apiVersion ?? "0"} (this session: ${API_VERSION}) — /mailbridge restart forces it`
-					: `mailbridge: the daemon did not come back after the update${ensured.error ? ` (${ensured.error})` : ""} — retrying, and /mailbridge restart forces it`,
+				ensured.foreign
+					? `mailbridge: something else is answering on daemon.port and it is not the daemon — change daemon.port, or stop that service`
+					: ensured.incompatible
+						? `mailbridge: the daemon is still on protocol ${ensured.apiVersion ?? "0"} (this session: ${API_VERSION}) — /mailbridge restart forces it`
+						: `mailbridge: the daemon did not come back after the update${ensured.error ? ` (${ensured.error})` : ""} — retrying, and /mailbridge restart forces it`,
 				"warning",
 			)
 			return true
@@ -824,6 +835,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		/** True when this call spawned the process, rather than finding one. */
 		started?: boolean
 		incompatible?: boolean
+		/** Answering, but not the daemon; the caller names that instead of blaming the protocol. */
+		foreign?: boolean
 		error?: string
 		apiVersion?: number
 	}> {
@@ -864,9 +877,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		const ensured = await ensureDaemonDetailed()
 		if (!ensured.healthy) {
 			c.ui.notify(
-				ensured.incompatible
-					? "mailbridge: the running daemon speaks another protocol — restarting it"
-					: `mailbridge: daemon not reachable${ensured.error ? ` (${ensured.error})` : ""}; replies will not arrive`,
+				ensured.foreign
+					? "mailbridge: something else is answering on daemon.port — change daemon.port, or stop that service; replies will not arrive"
+					: ensured.incompatible
+						? "mailbridge: the running daemon speaks another protocol — restarting it"
+						: `mailbridge: daemon not reachable${ensured.error ? ` (${ensured.error})` : ""}; replies will not arrive`,
 				"warning",
 			)
 			// An incompatible daemon is the replacement path, not a dead one. It succeeds or it
@@ -1006,6 +1021,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					}
 				}
 				if (!(await ensureDaemonSafe())) {
+					// `ensureDaemonSafe` is the boolean form; the detailed form above names a foreign
+					// service, which is the one diagnosis worth distinguishing here.
 					ui.notify("mailbridge: daemon not reachable; replies will not arrive", "warning")
 					return false
 				}

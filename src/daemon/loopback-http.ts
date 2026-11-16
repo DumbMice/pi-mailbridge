@@ -127,7 +127,10 @@ export const loopbackFetch: typeof fetch = (input, init) =>
 					if (settled) return
 					size += chunk.length
 					if (size > MAX_RESPONSE_BYTES) {
-						finish(() => reject(new TypeError(`response body larger than ${MAX_RESPONSE_BYTES} bytes`)))
+						const error = new TypeError(`response body larger than ${MAX_RESPONSE_BYTES} bytes`)
+						// Named, so the client can say "that is not our daemon" instead of "network".
+						error.name = "BadResponseError"
+						finish(() => reject(error))
 						response.destroy()
 						return
 					}

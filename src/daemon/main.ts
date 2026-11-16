@@ -58,6 +58,7 @@ import { advanceCursor, isPrimed, markPrimed, readCursor } from "../store/uid-cu
 import { alreadyPrimedMessage, runPrime } from "../core/prime.ts"
 import { packageVersion } from "../core/version.ts"
 import { API_VERSION } from "./api.ts"
+import { daemonBaseUrl } from "./spawn.ts"
 import { recordOutbound } from "../store/threads.ts"
 import { tokenFromSubject } from "../core/token.ts"
 
@@ -699,7 +700,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		process.exit(0)
 	}
 	const { port, host } = await service.listen()
-	log(`listening on http://${host}:${port}`)
+	log(`listening on ${daemonBaseUrl(port, host)}`)
 
 	// Register shutdown handlers BEFORE dialling IMAP: a SIGTERM during a slow
 	// DNS/TLS dial must still shut down cleanly.
