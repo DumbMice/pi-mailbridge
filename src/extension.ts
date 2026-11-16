@@ -506,6 +506,17 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		// The awaits above can take seconds; a command may have parked the loop in the meantime.
 		if (pollPaused) return false
 
+		if ((theirs ?? 0) > API_VERSION) {
+			// The daemon is newer than this session: it is the package on disk that is ahead, so
+			// stopping it would kill a daemon newer sessions are using and the replacement could only
+			// bring the same (still incompatible) daemon back. Latch before the shutdown, not after.
+			protocolStuck = true
+			ctx?.ui.notify(
+				`mailbridge: this pi session speaks protocol ${API_VERSION} and the installed daemon speaks ${theirs} — restart pi to load the matching extension`,
+				"error",
+			)
+			return true
+		}
 		ctx?.ui.notify(
 			`mailbridge: replacing the running daemon (protocol ${theirs ?? "0"} → ${API_VERSION})`,
 			"info",

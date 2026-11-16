@@ -282,7 +282,11 @@ export function createDaemonClient(options: DaemonClientOptions) {
 		path: string,
 		body?: unknown,
 		timeoutMs: number = options.timeoutMs ?? 15_000,
-		/** Most endpoints answer `{ok: true, …}`; the two that do not are checked by shape instead. */
+		/**
+		 * Most endpoints answer `{ok: true, …}`; `/mode`, `/pending` and `/register` do not, and are
+		 * checked by shape instead. Verified against `daemon/service.ts`, not guessed: a wrong guess
+		 * here turns a working endpoint into `bad_response`.
+		 */
 		validate: (body: Record<string, unknown>) => boolean = (body) => body.ok === true,
 	): Promise<DaemonResult<T>> {
 		const controller = new AbortController()
@@ -388,7 +392,17 @@ export function createDaemonClient(options: DaemonClientOptions) {
 				sessionId,
 				...(uidValidity === undefined ? {} : { uidValidity }),
 			}),
-		register: (sessionId: string) => call<{ alreadyPending: boolean; full: boolean }>("POST", "/register", { sessionId }),
+		// `/register` answers `{alreadyPending, full}` - no `ok` - so it is shape-checked. Getting this
+		// wrong is not cosmetic: the caller reads `!reserved.ok` as "another decision is outstanding",
+		// so every request_decision would refuse to mail *and* leak the slot the daemon reserved.
+		register: (sessionId: string) =>
+			call<{ alreadyPending: boolean; full: boolean }>(
+				"POST",
+				"/register",
+				{ sessionId },
+				undefined,
+				(body) => typeof body.alreadyPending === "boolean" && typeof body.full === "boolean",
+			),
 		release: (sessionId: string) => call<{ ok: boolean }>("DELETE", "/register", { sessionId }),
 		// A notification can carry a few hundred KB of inlined images and the daemon awaits
 		// the whole SMTP transaction, so a slow-but-healthy relay must not be cut off: the

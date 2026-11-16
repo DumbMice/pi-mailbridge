@@ -1531,10 +1531,10 @@ test("a replacement that cannot respawn keeps the poll loop alive", async () => 
 	assert.ok(t.queue.length >= 1, "the poll loop must still be armed")
 })
 
-test("when the respawn still speaks another protocol, stop replacing and say why", async () => {
-	// An old session against a newly installed package: every respawn starts the new daemon,
-	// the old session judges it incompatible and kills it - once a minute, forever, while the
-	// toasts read like progress. The only cure is restarting pi, so stop and say so.
+test("a newer daemon is never killed: the stale session latches and says why", async () => {
+	// An old session against a newly installed package: the daemon on the port is *newer* than this
+	// session, so killing it cannot help - the only cure is restarting pi. The protocol is known
+	// before the shutdown, so the latch fires first: not one kill, not one a minute.
 	const t = fakeTimers()
 	const notes: string[] = []
 	const daemon = fakeDaemon({ mode: "on", apiVersion: 2 })
@@ -1562,7 +1562,7 @@ test("when the respawn still speaks another protocol, stop replacing and say why
 	first?.handler()
 	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
 
-	assert.equal(daemon.shutdowns, 1, "replaced once, not every tick")
+	assert.equal(daemon.shutdowns, 0, "a newer daemon is never killed, not even once")
 	assert.ok(
 		notes.some((n) => /restart pi to load the matching extension/.test(n)),
 		`notes: ${JSON.stringify(notes)}`,
@@ -1574,7 +1574,7 @@ test("when the respawn still speaks another protocol, stop replacing and say why
 	const second = t.queue.shift()
 	second?.handler()
 	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
-	assert.equal(daemon.shutdowns, 1, "and does not keep trying")
+	assert.equal(daemon.shutdowns, 0, "and it stays that way on later ticks")
 	// Knowing the daemon is newer must not strand the session: the tick re-arms itself, so a daemon
 	// that later becomes compatible is attached to without another kill.
 	assert.equal(t.queue.length, 1, "the latched session still re-arms its poll")

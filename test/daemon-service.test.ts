@@ -1197,3 +1197,66 @@ test("listen accepts a bracketed IPv6 host and reports the bare address", async 
 		await h.close()
 	}
 })
+
+test("every client call accepts the reply the real daemon sends", async () => {
+	// The class of bug this pins: the client was tightened to require `{ok:true}` on every endpoint,
+	// but `/register` answers `{alreadyPending, full}`. Every test faked the client, so nothing
+	// compared the two sides - and `request_decision` would have refused to mail every time while
+	// leaking the slot the daemon had already reserved.
+	const { createDaemonClient } = await import("../src/daemon/spawn.ts")
+	const h = await boot()
+	try {
+		const client = createDaemonClient({ baseUrl: h.base, token: TOKEN })
+		const results = {
+			health: await client.health(),
+			mode: await client.mode(),
+			setMode: await client.setMode("on"),
+			pending: await client.pending(),
+			register: await client.register("s-contract"),
+			release: await client.release("s-contract"),
+			ping: await client.ping("instance-contract"),
+			claim: await client.claim(999_999, "instance-contract"),
+			ack: await client.ack(999_999, "instance-contract"),
+			send: await client.send({ subject: "s", text: "t" }),
+			reload: await client.reload(),
+		}
+		for (const [name, result] of Object.entries(results)) {
+			// `claim`/`ack` on a missing uid legitimately fail, but must not fail as `bad_response`:
+			// that means the client and the daemon disagree about the wire shape.
+			const code = result.ok ? undefined : (result as { code?: string }).code
+			assert.notEqual(code, "bad_response", `${name}: the client rejected the daemon's own reply`)
+		}
+		assert.equal(results.register.ok, true, "register must be accepted")
+		assert.equal(results.pending.ok, true)
+		assert.equal(results.mode.ok, true)
+	} finally {
+		await h.close()
+	}
+})
+
+test("every accepted loopback form actually binds on this host", async () => {
+	// Accepting a form is only right if both halves work: the client canonicalises the URL and the
+	// daemon hands the raw string to `server.listen`. `127` passed the check and failed to bind, so
+	// the accept set is verified here rather than assumed from its shape.
+	const net = await import("node:net")
+	const { isLoopbackHost } = await import("../src/core/config.ts")
+	for (const host of ["127.0.0.1", "127.0.0.2", "127.1", "127.0.1"]) {
+		assert.equal(isLoopbackHost(host), true, `${host} is in the accepted set`)
+		const bound = await new Promise<{ ok: boolean; address?: string; code?: string }>((resolve) => {
+			const server = net.createServer()
+			server.once("error", (error: NodeJS.ErrnoException) => resolve({ ok: false, code: error.code }))
+			server.listen(0, host, () => {
+				const address = server.address()
+				resolve({ ok: true, address: typeof address === "object" && address ? address.address : "" })
+				server.close()
+			})
+		})
+		assert.equal(bound.ok, true, `${host} must bind (got ${bound.code ?? "no error"})`)
+		// And the client must agree about which address that is.
+		const url = new URL(`http://${host}:4177`)
+		assert.equal(url.hostname !== "0.0.0.0", true, `${host} must not canonicalise to 0.0.0.0`)
+		assert.match(url.hostname, /^127\./, `${host} canonicalises to a 127/8 address, not ${url.hostname}`)
+	}
+})
+
+

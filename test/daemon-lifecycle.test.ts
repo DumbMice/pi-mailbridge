@@ -568,6 +568,9 @@ test("something that is not our daemon answering 200 is bad_response, not succes
 		const cases: Array<{ name: string; body: string; type: string }> = [
 			{ name: "empty 200", body: "", type: "text/plain" },
 			{ name: "html 200", body: "<!doctype html><title>dev</title>", type: "text/html" },
+			// Valid JSON with no envelope: the case the envelope check exists for. Without it a
+			// squatter answering `{}` made `claim` look confirmed.
+			{ name: "json 200 without an envelope", body: "{}", type: "application/json" },
 		]
 		for (const c of cases) {
 			const server = createServer((_req, res) => {
@@ -608,7 +611,10 @@ test("something else on the port is reported as foreign, not as an old protocol"
 
 		// `{"ok":true}` is the important one: it is the most common health payload there is, and
 		// `ok` alone used to be enough to be mistaken for our daemon (protocol 0, then /shutdown).
-		for (const body of ["<!doctype html><title>dev</title>", "", '{"hello":"world"}', '{"ok":true}']) {
+		const json = (body: string) => ({ "content-type": "application/json", body })
+		// `{}` is the case fix (c) exists for: valid JSON, no envelope. It was not covered, which is
+		// how the `/register` mismatch slipped through.
+		for (const body of ["<!doctype html><title>dev</title>", "", '{"hello":"world"}', '{"ok":true}', "{}"]) {
 			const server = createServer((_req, res) => {
 				res.writeHead(200, { "content-type": "text/html" })
 				res.end(body)

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { loadConfig } from "../src/core/config.ts"
+import { isLoopbackHost, loadConfig } from "../src/core/config.ts"
 import { checkProblems } from "../src/daemon/main.ts"
 import { configPath } from "../src/store/paths.ts"
 
@@ -260,4 +260,3 @@ test("the loopback check is a value test, not a prefix test", () => {
 		)
 	}
 })
-
