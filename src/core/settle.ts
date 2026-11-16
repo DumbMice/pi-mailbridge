@@ -19,7 +19,7 @@ export interface SettleContext {
 	/** Model serving this session, as `provider/id` plus the thinking level when known. */
 	model?: string
 	cwd: string
-	/** Completed turns in this session, when known. */
+	/** Assistant entries in the branch, when known - including ones that only called a tool. */
 	turns?: number
 	/**
 	 * Assistant messages that contained text, when known. The settle dedupe keys on it: it does not

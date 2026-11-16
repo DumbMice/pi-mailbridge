@@ -494,7 +494,7 @@ environment variables. A working example: [`config.example.json`](https://github
 | `daemon.host` / `.port` | `127.0.0.1` / `4177` | loopback HTTP; a lock file in the state directory is the instance lock, and the port is a second guard |
 | `daemon.idleTimeoutSecs` | `120` | grace period after the last ping |
 | `daemon.scanIntervalSecs` | `60` | catch-up scan while mode is on, so a silent IDLE cannot strand a reply; `0` disables |
-| `notify.onSettled` | `true` | email when an agent settles |
+| `notify.onSettled` | `true` | email when an agent settles, unless that answer was already mailed (a settled turn that wrote nothing) |
 | `notify.debounceMs` | `10000` | quiet period before the settle mail |
 | `notify.notifyOnAborted` | `false` | also mail when you hit Escape |
 | `notify.maxAttachmentMb` | `18` | total size of files attached to one notification, before base64. Default sits under Gmail/Outlook.com's 25 MB; QQ allows 50 MB, so a QQ account can raise it |

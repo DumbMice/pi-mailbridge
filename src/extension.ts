@@ -161,6 +161,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 * producing text - the model stream died, the user stopped it - settles with the *previous*
 	 * answer, and the user gets the same mail again. Live case: a settle at 08:14 and the identical
 	 * 2915-character one at 09:52 after a connection error.
+	 *
+	 * Known remainder: `answered` is derived from the branch, so it *drops* when the branch shrinks
+	 * (compaction, a `/tree` rewind). The pair then fails the equality test wherever it should and
+	 * the mail goes out - the harmless direction - except for a rewind followed by a byte-identical
+	 * regenerated answer, which is suppressed.
 	 */
 	let lastSettledAnswer: { sessionId: string; answered?: number; text: string } | undefined
 	/** Set by stopPolling(): a tick already in flight must not touch the daemon. */
