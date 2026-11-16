@@ -18,6 +18,7 @@ import { formatScan, type ScanSummary } from "./core/status.ts"
 import { createSettleNotifier, type SettleContext, type SettleNotifier } from "./core/settle.ts"
 import { createDeliveryRunner, type DeliveryRunner } from "./core/deliveries.ts"
 import { toUserContent, type UserContent } from "./core/attachments.ts"
+import { ensureLoopbackExemptFromProxy } from "./core/proxy.ts"
 import { parseMailCommand } from "./core/mail-command.ts"
 import { API_VERSION, apiCompatible, type Capability } from "./daemon/api.ts"
 import { probeHealth, probeHealthDetail } from "./daemon/spawn.ts"
@@ -33,6 +34,13 @@ import { fileTokenStore } from "./store/oauth-store.ts"
 import { ensureRouteForSession, registerRoute } from "./store/routes.ts"
 import { existsSync } from "node:fs"
 import { fileURLToPath } from "node:url"
+
+
+// Loopback must not be proxied. pi installs a global proxy dispatcher, so with `HTTP_PROXY` set
+// and loopback missing from `NO_PROXY`, `http://127.0.0.1:<port>` is tunnelled through the proxy
+// and times out while the daemon is answering. Module scope, so every code path in this process
+// is covered before its first request.
+ensureLoopbackExemptFromProxy()
 
 const POLL_MS = 10_000
 /** How often the poll may try to start a dead daemon. */

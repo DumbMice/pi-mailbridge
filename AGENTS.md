@@ -98,6 +98,21 @@ npm run typecheck
 
 Tests must be hermetic. Inject a fake SMTP transport; never open a socket.
 
+Two exceptions are deliberate and both are local: `test/daemon-lifecycle.test.ts` and
+`test/proxy.test.ts` start a server on `127.0.0.1` (nothing leaves the machine, and the proxy test
+needs a real socket to prove a proxy would have swallowed it — it drives the same
+`undici.EnvHttpProxyAgent` pi installs). `undici` is a devDependency for that test alone; the
+shipped package has no runtime dependencies.
+
+## Loopback is never proxied
+
+pi installs a global proxy dispatcher, so `HTTP_PROXY` without loopback in `NO_PROXY` makes the
+daemon look unreachable while it is up. `core/proxy.ts` extends `no_proxy`/`NO_PROXY` with
+`localhost`, `127.0.0.1`, `::1` at module scope in `extension.ts`: module scope because pi builds
+its dispatcher before extensions load and the client is needed from the first poll tick, and
+extension-only because nothing else in the package talks to loopback. Never solve this with a
+second HTTP client — the standard mechanism exists and undici re-reads it per dispatch.
+
 ## Scope boundary
 
 This package **does not create or switch sessions.** `ctx.newSession()` replaces

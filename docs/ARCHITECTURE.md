@@ -95,6 +95,15 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 Bounds: body ≤ 1 MB, registry ≤ 10 000 entries, SSE clients ≤ 100. A second daemon start exits 0
 on `daemon.lock` (and, as a second guard, on `EADDRINUSE`) — quiet by design.
 
+**No proxy, ever.** pi installs `undici`'s `EnvHttpProxyAgent` as the global dispatcher, so with
+`HTTP_PROXY` set and loopback absent from `NO_PROXY`, every `fetch` — `http://127.0.0.1:4177`
+included — is tunnelled through the proxy and times out; the daemon reads as unreachable while it
+is answering in sub-millisecond time. `core/proxy.ts` adds `localhost`, `127.0.0.1` and `::1` to
+whichever of `no_proxy` / `NO_PROXY` is live, at module scope in `extension.ts` — before the first
+request, and extending rather than replacing the user's list. undici re-reads the variable on every
+dispatch, so this works on the dispatcher pi already built. The client itself is an ordinary
+`fetch`.
+
 ## 4. Routing token
 
 Subject format:
@@ -325,6 +334,7 @@ src/
     mailer.ts           nodemailer transport (password | XOAUTH2), headers
     mail-command.ts     a reply that is a command → the safe subset, else text
     prime.ts            "watch from now on" - first run only, guarded by the cursor
+    proxy.ts            loopback out of NO_PROXY, so a global proxy cannot swallow the daemon
     markdown.ts         notifications render as markdown
     oauth*.ts           device-code + OpenID flows, one-retry token provider
     reply-parse.ts      quote stripping, address + AR-header pinning
