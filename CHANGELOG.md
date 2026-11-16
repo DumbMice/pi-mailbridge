@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### The daemon was unreachable from any session with `HTTP_PROXY` set
+
+- **pi installs `undici.EnvHttpProxyAgent` as the global fetch dispatcher**, so with `HTTP_PROXY`
+  set - the default on many machines, and the one a live session had (`HTTP_PROXY=socks5://…`, no
+  `NO_PROXY`) - every request from the extension, including `http://127.0.0.1:4177`, was tunnelled
+  to the proxy and timed out. The panel said "daemon: unreachable" while the daemon answered in
+  half a millisecond, and every mailbox tool refused to work. The daemon client and its probes now
+  use `node:http`, which has no proxy semantics: a loopback call cannot be redirected.
+
 ### Two answers from one session's real mail
 
 - **A review video was not attached.** The outbound allowlist had no video types, so a session that

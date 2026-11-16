@@ -10,6 +10,7 @@
 // immortal: it exits once every session has stopped pinging.
 
 import { spawn as nodeSpawn, type SpawnOptions } from "node:child_process"
+import { request as httpRequest, type IncomingMessage } from "node:http"
 import { chmodSync, closeSync, mkdirSync, openSync, renameSync, statSync } from "node:fs"
 import { dirname } from "node:path"
 
@@ -38,7 +39,7 @@ export async function probeHealth(options: ProbeOptions): Promise<boolean> {
  * successful while the mismatch stayed.
  */
 export async function probeHealthDetail(options: ProbeOptions): Promise<{ ok: boolean; apiVersion?: number }> {
-	const doFetch = options.fetchImpl ?? fetch
+	const doFetch = options.fetchImpl ?? loopbackFetch
 	const controller = new AbortController()
 	const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 750)
 	try {
@@ -105,7 +106,7 @@ const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(r
  * than two watchers on one mailbox.
  */
 export async function ensureDaemon(options: EnsureDaemonOptions): Promise<EnsureDaemonResult> {
-	const doFetch = options.fetchImpl ?? fetch
+	const doFetch = options.fetchImpl ?? loopbackFetch
 	const found = await probeHealthDetail({ baseUrl: options.baseUrl, fetchImpl: doFetch })
 	if (found.ok) {
 		// Reuse only a daemon this build can talk to. An incompatible one is reported so the
@@ -193,6 +194,63 @@ export async function ensureDaemon(options: EnsureDaemonOptions): Promise<Ensure
 }
 
 /** Default loopback base URL for the configured port. */
+/**
+ * `fetch` for the loopback daemon, over `node:http`.
+ *
+ * Not the ambient `fetch`: pi installs `undici.EnvHttpProxyAgent` as the global dispatcher
+ * (`dist/core/http-dispatcher.js`), so with `HTTP_PROXY` set every request - including
+ * `http://127.0.0.1:4177` - is tunnelled to the proxy. Measured: a loopback `/health` through that
+ * dispatcher times out, the session reports "daemon: unreachable", and nothing works while the
+ * daemon itself answers in half a millisecond. `node:http` has no proxy semantics, so a loopback
+ * request can never be redirected.
+ */
+export const loopbackFetch: typeof fetch = (input, init) =>
+	new Promise((resolve, reject) => {
+		const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url)
+		if (url.protocol !== "http:") {
+			reject(new Error(`the daemon is loopback HTTP, not ${url.protocol}`))
+			return
+		}
+		const headers: Record<string, string> = {}
+		for (const [key, value] of Object.entries((init?.headers ?? {}) as Record<string, string>)) headers[key] = value
+		const request = httpRequest(
+			{
+				hostname: url.hostname,
+				port: url.port === "" ? 80 : Number(url.port),
+				path: `${url.pathname}${url.search}`,
+				method: init?.method ?? "GET",
+				headers,
+			},
+			(response: IncomingMessage) => {
+				const chunks: Buffer[] = []
+				response.on("data", (chunk: Buffer) => chunks.push(chunk))
+				response.on("end", () => {
+					resolve(
+						new Response(Buffer.concat(chunks), {
+							status: response.statusCode ?? 502,
+							...(response.headers as Record<string, string>),
+						}),
+					)
+				})
+			},
+		)
+		request.on("error", reject)
+		const signal = init?.signal
+		const abort = (): void => {
+			request.destroy()
+			reject(new DOMException("aborted", "AbortError"))
+		}
+		if (signal) {
+			if (signal.aborted) {
+				abort()
+				return
+			}
+			signal.addEventListener("abort", abort, { once: true })
+		}
+		if (init?.body !== undefined && init.body !== null) request.write(init.body as string)
+		request.end()
+	})
+
 export function daemonBaseUrl(port: number, host = "127.0.0.1"): string {
 	return `http://${host}:${port}`
 }
@@ -220,7 +278,7 @@ export interface DaemonClientOptions {
 export type DaemonResult<T> = { ok: true; data: T } | { ok: false; status: number; code?: string }
 
 export function createDaemonClient(options: DaemonClientOptions) {
-	const doFetch = options.fetchImpl ?? fetch
+	const doFetch = options.fetchImpl ?? loopbackFetch
 	const deviceName = options.device ?? ""
 	const headers = { authorization: `Bearer ${options.token}`, "content-type": "application/json" }
 

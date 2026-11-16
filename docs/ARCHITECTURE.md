@@ -231,6 +231,12 @@ based, so an edit that preserves the mtime (`cp -p`, a restore) is not noticed u
 `smoke`/`restart`; and only the daemon re-reads — the session's own copy of the config
 refreshes on the next `/mailbridge` command or pi restart.
 
+**Loopback, and never through a proxy.** The session talks to the daemon over `node:http`, not
+`fetch`: pi installs `undici.EnvHttpProxyAgent` as the global dispatcher, so with `HTTP_PROXY` set
+every `fetch` to `127.0.0.1` is tunnelled and times out - a live session reported "daemon:
+unreachable" while the daemon answered in half a millisecond. `node:http` has no proxy semantics, so
+a loopback call cannot be redirected.
+
 **Singleton.** `daemon.lock` in the state directory is the lock, with the owner's pid inside: a
 live holder makes the newcomer exit 0, and a file left by a crash is stolen by an atomic rename
 (not an unlink-then-retake, which lets two starters both win). The listening port is a second

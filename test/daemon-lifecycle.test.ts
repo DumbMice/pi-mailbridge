@@ -513,3 +513,42 @@ test("a fork failure is reported, not thrown into pi's process", async () => {
 	assert.equal(result.started, true)
 	assert.equal(result.healthy, false, "reported as an unhealthy start, not an exception")
 })
+
+test("the daemon client ignores a proxy installed on the global fetch", () => {
+	// pi installs `undici.EnvHttpProxyAgent` as the global dispatcher, so with HTTP_PROXY set every
+	// request - including http://127.0.0.1:4177 - is tunnelled and times out. A real session was
+	// unusable because of it: "daemon: unreachable" while the daemon answered in 0.5 ms.
+	return (async () => {
+		const { createServer } = await import("node:http")
+		const { probeHealthDetail, createDaemonClient } = await import("../src/daemon/spawn.ts")
+		const server = createServer((req, res) => {
+			if (req.url === "/health") {
+				res.writeHead(200, { "content-type": "application/json" })
+				res.end(JSON.stringify({ ok: true, apiVersion: 1, mode: "on", pending: 0 }))
+				return
+			}
+			if (req.url === "/mode") {
+				res.writeHead(200, { "content-type": "application/json" })
+				res.end(JSON.stringify({ mode: "on" }))
+				return
+			}
+			res.writeHead(404).end()
+		})
+		await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()))
+		const port = (server.address() as { port: number }).port
+		const baseUrl = `http://127.0.0.1:${port}`
+
+		const realFetch = globalThis.fetch
+		// Exactly what a poisoned dispatcher looks like to the caller.
+		globalThis.fetch = (() => Promise.reject(new Error("proxy tunnel failed"))) as typeof fetch
+		try {
+			assert.deepEqual(await probeHealthDetail({ baseUrl }), { ok: true, apiVersion: 1 })
+			const client = createDaemonClient({ baseUrl, token: "t" })
+			assert.equal((await client.mode()).ok, true, "and the typed client, not just the probe")
+		} finally {
+			globalThis.fetch = realFetch
+			server.close()
+		}
+	})()
+})
+
