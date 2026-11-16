@@ -1248,3 +1248,28 @@ test("prose that calls a package a dependency only names declared ones", () => {
 	assert.ok(named.size >= 5, `the scan named ${named.size} packages - expected at least the declared five`)
 	for (const name of named) assert.equal(declared.has(name), true, `${name} is called a dependency; package.json does not declare it`)
 })
+
+test("prose uses re-create for in-process objects, never rebuild", () => {
+	// AGENTS.md names this word as wrong for the session's in-process objects, and the repo shipped
+	// it wrong once. The older check only matched "rebuilds the <noun>", so "capture the notifier,
+	// rebuild, flush" slipped through.
+	for (const file of ["README.md", "docs/ARCHITECTURE.md", "docs/SECURITY.md", "docs/MAPPING.md"]) {
+		const text = flat(doc(file))
+		for (const match of text.matchAll(/\b(?:rebuild|rebuilding|rebuilt|rebuilds)\b/gi)) {
+			const at = match.index ?? 0
+			// The context *around* the word, with the word itself removed: "rebuild" contains
+			// "build", so an allowance window that included it matched its own subject.
+			const around = (
+				text.slice(Math.max(0, at - 40), at) + " " + text.slice(at + match[0].length, at + match[0].length + 40)
+			).trim()
+			// Three legitimate senses, all outside the session's in-process objects: building the
+			// daemon or the package, and a mailbox folder that the provider rebuilt (UIDVALIDITY).
+			assert.match(
+				around,
+				/\bdaemon|\bpackage\b|\bdist\b|\btsc\b|\bcompile|\bfolder\b|\bmailbox\b|UIDVALIDITY/,
+				`${file}: …${around}… uses "${match[0]}" where AGENTS.md says re-create`,
+			)
+		}
+	}
+})
+

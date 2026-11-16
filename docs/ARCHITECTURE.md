@@ -271,7 +271,7 @@ has already passed them, so the recovery is to restore the previous `device.name
 delivered again) or to have the human reply again. Rename before a quiet mailbox, not during.
 
 **One owner for replacement.** A dead daemon, a protocol mismatch and `/mailbridge restart` all go
-through one `replaceRuntime()`: capture the notifier, rebuild, flush the pending settle. Three
+through one `replaceRuntime()`: capture the notifier, re-create the runtime, flush the pending settle. Three
 paths each doing it themselves is how the same dropped notification was fixed three times.
 
 **A command that stops the daemon parks the poll first.** The tick runs every ten seconds and a
@@ -327,7 +327,7 @@ then exits - it is not exempt.
 src/
   extension.ts          pi entry: tools, commands, polling client, session lifecycle
   core/
-    attachments.ts        inbound classification: inline parts vs a file on disk vs a drop      image/markdown attachment rendering
+    attachments.ts        inbound classification: inline parts vs a file on disk vs a drop
     authz.ts            loop/bounce → robot → allowlist → DMARC (off for one mailbox)
     commands.ts         /mailbridge parsing + usage text
     config.ts           layered config, env overrides, type validation

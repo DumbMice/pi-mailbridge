@@ -282,6 +282,8 @@ export function createDaemonClient(options: DaemonClientOptions) {
 		path: string,
 		body?: unknown,
 		timeoutMs: number = options.timeoutMs ?? 15_000,
+		/** Most endpoints answer `{ok: true, …}`; the two that do not are checked by shape instead. */
+		validate: (body: Record<string, unknown>) => boolean = (body) => body.ok === true,
 	): Promise<DaemonResult<T>> {
 		const controller = new AbortController()
 		const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -311,6 +313,15 @@ export function createDaemonClient(options: DaemonClientOptions) {
 				// is a wrong-port problem. Reporting success with `{}` would let `claim`/`ack`/`send`
 				// "succeed" without the daemon having done anything; reporting "network" would point
 				// the user at `pi update` while the daemon is up.
+				return { ok: false, status: response.status, code: "bad_response" }
+			}
+			if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+				// A JSON scalar or array is not a reply of ours either.
+				return { ok: false, status: response.status, code: "bad_response" }
+			}
+			if (!validate(parsed as Record<string, unknown>)) {
+				// Valid JSON, wrong envelope: a squatter that answers `{}` to everything would make
+				// `claim`/`ack` look confirmed without the daemon having journaled anything.
 				return { ok: false, status: response.status, code: "bad_response" }
 			}
 			return { ok: true, data: parsed as T }
@@ -353,9 +364,17 @@ export function createDaemonClient(options: DaemonClientOptions) {
 			call<{ pending: PendingRecord[]; withheld?: number }>(
 				"GET",
 				`/pending?device=${encodeURIComponent(deviceName)}`,
+				undefined,
+				undefined,
+				(body) => Array.isArray(body.pending),
 			),
-		mode: () => call<{ mode: string }>("GET", "/mode"),
-		setMode: (mode: "on" | "off") => call<{ mode: string }>("POST", "/mode", { mode }),
+		// The endpoints whose contract has no `ok`: `/mode` answers `{ mode }`, `/pending` answers
+		// `{ pending, withheld }`. They are checked by shape, so a squatter's `{}` is not mistaken
+		// for either - `pending.data.pending.length` would otherwise throw.
+		mode: () =>
+			call<{ mode: string }>("GET", "/mode", undefined, undefined, (body) => typeof body.mode === "string"),
+		setMode: (mode: "on" | "off") =>
+			call<{ mode: string }>("POST", "/mode", { mode }, undefined, (body) => typeof body.mode === "string"),
 		claim: (uid: number, instanceId: string, uidValidity?: number) =>
 			call<{ ok: boolean }>("POST", "/claim", {
 				uid,

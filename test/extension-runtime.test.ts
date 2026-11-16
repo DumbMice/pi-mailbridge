@@ -1544,8 +1544,12 @@ test("when the respawn still speaks another protocol, stop replacing and say why
 		loadConfig: config,
 		secret: () => SECRET,
 		makeClient: () => daemon.client,
-		ensureDaemon: async () => true,
+		// The shape the real `ensureDaemon` returns for a daemon on another protocol: it refuses to
+		// reuse it, and it does not call it healthy. Stubbing `true` here is what let the latch be
+		// unreachable in production while this test stayed green.
+		ensureDaemon: async () => ({ healthy: false, incompatible: true, apiVersion: 2 }),
 		probeHealth: async () => false,
+		probeHealthDetail: async () => ({ ok: true, apiVersion: 2 }),
 		// The throttle is not what is under test here; the latch is.
 		versionCheckMs: 0,
 		timers: t.timers,
@@ -1571,6 +1575,9 @@ test("when the respawn still speaks another protocol, stop replacing and say why
 	second?.handler()
 	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
 	assert.equal(daemon.shutdowns, 1, "and does not keep trying")
+	// Knowing the daemon is newer must not strand the session: the tick re-arms itself, so a daemon
+	// that later becomes compatible is attached to without another kill.
+	assert.equal(t.queue.length, 1, "the latched session still re-arms its poll")
 })
 
 test("the replacement waits for the old listener to close before spawning", async () => {
@@ -2934,5 +2941,48 @@ test("status names a stranger on the port instead of calling it unreachable", as
 	const panel = notes.find((n) => /daemon:/.test(n)) ?? ""
 	assert.match(panel, /something else is answering/, `panel: ${panel}`)
 	assert.doesNotMatch(panel, /daemon: unreachable/, "the fix is not 'start the daemon'")
+})
+
+test("a tick against a stranger on the port neither shuts it down nor spawns onto it", async () => {
+	// `ensureDaemon` refuses to spawn when something else owns the port. The extension's own
+	// client-less replacement path must refuse too: `/shutdown` at a stranger is a request to kill
+	// somebody else's service.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on" })
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	let spawns = 0
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => {
+			spawns += 1
+			return { healthy: false, foreign: true }
+		},
+		probeHealth: async () => false,
+		probeHealthDetail: async () => ({ ok: false, foreign: true }),
+		versionCheckMs: 0,
+		respawnBackoffMs: 0,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
+
+	// Two ticks: the first replacement attempt and one respawn attempt after the backoff.
+	for (let round = 0; round < 2; round += 1) {
+		t.queue.shift()?.handler()
+		for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
+	}
+
+	assert.equal(daemon.shutdowns, 0, "never POST /shutdown at a stranger")
+	assert.ok(spawns > 0, "the tick still asks ensureDaemon, which is where the refusal lives")
+	assert.match(notes.join("\n"), /something else is answering on daemon\.port/, "and it was named once")
 })
 

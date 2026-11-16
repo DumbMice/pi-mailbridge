@@ -20,8 +20,9 @@
   "nothing answered", "our daemon, another protocol" and "something answered but it is not the
   daemon" — a body must carry `ok: true` *and* one of `mode`/`apiVersion`/`capabilities`, so a
   stranger's bare `{"ok":true}` is not mistaken for an old daemon; a non-2xx answer other than `500`
-  counts as a stranger too. The panel names it on startup, on respawn and on `/mailbridge restart`,
-  and no daemon is spawned onto an occupied port. **Known residue**: if the stranger's port is
+  counts as a stranger too. The panel names it on startup, on respawn and on `/mailbridge restart`, and no daemon is spawned
+  onto a port that answers as somebody else's service — with one deliberate exception: a `500` is
+  treated as our own failing handler, so a spawn is still attempted there. **Known residue**: if the stranger's port is
   `daemon.port` and it later disappears, the next probe finds nothing and spawning resumes (tested);
   changing `daemon.port` is still the fix.
 - **A non-JSON or empty `200` is `bad_response`, not `network`** — the previous wording pointed at

@@ -529,12 +529,33 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		const ensured = await ensureDaemonDetailed()
 		if (pollPaused) return false
 		if (!ensured.healthy || !(await replaceRuntime())) {
+			// Direction decides who is stale. A respawn that speaks a *newer* protocol means the
+			// package on disk is newer than this session, and replacing again would kill a daemon
+			// that newer sessions are using - once a minute, forever, while `/mailbridge restart`
+			// ends in the same mismatch. An *older* protocol is the opposite case: this session is
+			// current, the spawn should have brought the new code up, and retrying is right.
+			if (ensured.incompatible && (ensured.apiVersion ?? 0) > API_VERSION) {
+				protocolStuck = true
+				ctx?.ui.notify(
+					`mailbridge: this pi session speaks protocol ${API_VERSION} and the installed daemon speaks ` +
+						`${ensured.apiVersion ?? "0"} — restart pi to load the matching extension`,
+					"error",
+				)
+				// Only the *replacing* is latched off: the tick keeps running (its caller re-arms it),
+				// so a daemon that later becomes compatible is attached to without another kill.
+				return true
+			}
+			if (ensured.incompatible) {
+				ctx?.ui.notify(
+					`mailbridge: the daemon is still on protocol ${ensured.apiVersion ?? "0"} (this session: ${API_VERSION}) — /mailbridge restart forces it`,
+					"warning",
+				)
+				return true
+			}
 			ctx?.ui.notify(
 				ensured.foreign
 					? foreignMessage("")
-					: ensured.incompatible
-						? `mailbridge: the daemon is still on protocol ${ensured.apiVersion ?? "0"} (this session: ${API_VERSION}) — /mailbridge restart forces it`
-						: `mailbridge: the daemon did not come back after the update${ensured.error ? ` (${ensured.error})` : ""} — retrying, and /mailbridge restart forces it`,
+					: `mailbridge: the daemon did not come back after the update${ensured.error ? ` (${ensured.error})` : ""} — retrying, and /mailbridge restart forces it`,
 				"warning",
 			)
 			return true
@@ -640,7 +661,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		if (!initialMode.ok && initialMode.status === 401 && !tokenRejected) {
 			tokenRejected = true
 			ctx.ui.notify(
-				"mailbridge: the daemon rejected this session's bearer token — restart pi (or /mailbridge restart) to load the current secret",
+				// `/mailbridge restart` cannot fix this: it shuts the daemon down with the *current* key,
+				// which the daemon just rejected (the restart ladder says so in its own words).
+				"mailbridge: the daemon rejected this session's bearer token — stop it (or let it idle out) and start pi again",
 				"error",
 			)
 		}
@@ -1032,7 +1055,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					ui.notify(
 						ensured.foreign
 							? foreignMessage("; replies will not arrive")
-							: "mailbridge: daemon not reachable; replies will not arrive",
+							: ensured.incompatible
+								? `mailbridge: the running daemon speaks protocol ${ensured.apiVersion ?? "0"} and this session speaks ${API_VERSION} — close pi and start it again`
+								: "mailbridge: daemon not reachable; replies will not arrive",
 						"warning",
 					)
 					return false

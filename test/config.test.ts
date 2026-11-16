@@ -242,6 +242,9 @@ test("the loopback check is a value test, not a prefix test", () => {
 		"pi.localhost",
 		"127.0.0.256",
 		"127.0.0.1.5",
+		// inet_aton's single-part form is the whole 32-bit address: `127` is 0.0.0.127, so the
+		// client would dial 0.0.0.127 and `listen` would fail with EADDRNOTAVAIL.
+		"127",
 	]) {
 		assert.ok(
 			loadWith({ daemon: { host } }).warnings.some((w) => /daemon\.host/.test(w)),
@@ -250,7 +253,7 @@ test("the loopback check is a value test, not a prefix test", () => {
 	}
 	// `127.1`, `127.0.1` and bare `127` resolve to loopback on glibc and macOS; warning about them
 	// would fail `--check` for a setup that connects.
-	for (const host of ["127.0.0.1", "127.0.0.2", "127.1", "127.0.1", "127", "localhost", "::1", "[::1]", "::ffff:127.0.0.1", "0:0:0:0:0:0:0:1"]) {
+	for (const host of ["127.0.0.1", "127.0.0.2", "127.1", "127.0.1", "localhost", "::1", "[::1]", "::ffff:127.0.0.1", "0:0:0:0:0:0:0:1"]) {
 		assert.ok(
 			!loadWith({ daemon: { host } }).warnings.some((w) => /daemon\.host/.test(w)),
 			`${host} is loopback and must not warn`,

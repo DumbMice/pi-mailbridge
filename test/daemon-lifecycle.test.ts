@@ -511,12 +511,15 @@ test("a fork failure is reported, not thrown into pi's process", async () => {
 		fetchImpl: (async () => {
 			throw new Error("ECONNREFUSED")
 		}) as unknown as typeof fetch,
-		waitMs: 2_000,
-		sleep: async () => {},
+		waitMs: 500,
+		// A real yield, not a microtask: with `async () => {}` the timer below never runs inside the
+		// wait window, so `spawnError` stayed unset and this test passed with the error path deleted.
+		sleep: () => new Promise((resolve) => setTimeout(resolve, 5)),
 	})
 
 	assert.equal(result.started, true)
 	assert.equal(result.healthy, false, "reported as an unhealthy start, not an exception")
+	assert.equal(result.error, "spawn EAGAIN", "the fork failure is reported, not swallowed")
 })
 
 test("daemonBaseUrl brackets an IPv6 host so the URL parses", () => {
@@ -743,5 +746,23 @@ test("an unbuilt install reports a reinstall message instead of spawning a .ts i
 	})
 	assert.equal(result.started, false)
 	assert.match(result.error ?? "", /reinstall the package/)
+})
+
+test("a probe that times out is not reported as a stranger", () => {
+	// `{ok:false, foreign:true}` would tell the user to change daemon.port when the daemon is only
+	// slow or loaded - the wrong-advice class this probe exists to remove.
+	return (async () => {
+		const { probeHealthDetail } = await import("../src/daemon/spawn.ts")
+		const probe = await probeHealthDetail({
+			baseUrl: "http://127.0.0.1:1",
+			timeoutMs: 5,
+			// A slow daemon that never answers, honouring the abort like the real transport does.
+			fetchImpl: ((_url: string, init?: { signal?: AbortSignal }) =>
+				new Promise((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))
+				})) as unknown as typeof fetch,
+		})
+		assert.deepEqual(probe, { ok: false })
+	})()
 })
 

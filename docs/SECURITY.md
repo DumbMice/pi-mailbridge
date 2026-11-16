@@ -132,7 +132,7 @@ A legitimate email can still contain text that reads like instructions
   mistaken for the daemon.
 - Bearer token from `secret.key`, mode `0600`, created first-writer-wins,
   compared in constant time.
-- Body cap 1 MB; registry cap 10 000; SSE client cap 100; ten notifications a minute; ten notifications a minute.
+- Body cap 1 MB; registry cap 10 000; SSE client cap 100; ten notifications a minute.
 - `EADDRINUSE` on start is treated as "already running" — an attacker cannot
   displace a running daemon by racing the port, because the loser exits.
 - The token never appears in logs, error strings, or the notification email.
@@ -161,8 +161,8 @@ flip the mode, and shut the daemon down. Treat `secret.key` as equivalent to the
 
   Stop the daemon *before* deleting: a running one holds the port `and` the key it read at
   startup, so it keeps answering 401 to every call and the replacement cannot bind, no matter
-  how often a session retries. Sessions re-read `secret.key` on each call, but the client each
-  one already built carries the old token, so it 401s until its runtime is rebuilt.
+  how often a session retries. A session's client keeps the bearer it was built with, so it 401s
+  until its runtime is re-created (a restart of pi).
 
   Do **not** rotate for a *mail password* change: the daemon's `POST /reload` re-reads
   that (run it via `/mailbridge smoke`), so no restart is needed.
@@ -282,8 +282,8 @@ model output. The controls, all fail-closed:
 - **An extension allowlist** (`pdf txt log md csv tsv json yml yaml xml html zip gz tar docx xlsx
   pptx`, plus `png jpg jpeg gif webp svg` and `mp4 m4v mov webm` for links, and the sniffed image
   types inline). A video is attached as a file, so a mail client plays it from the attachment or
-  saves it; the 15 MB per-file cap applies to it like anything else
-  keeps the obvious key filenames out of an accidental attach. A linked file whose extension
+  saves it; the 15 MB per-file cap applies to it like anything else. The allowlist keeps the
+  obvious key filenames out of an accidental attach. A linked file whose extension
   claims a raster image must also **sniff** as one (a `.png` full of text is refused, and a real
   PNG misnamed `.jpg` is attached as `image/png`); SVG is the exception, since XML has no
   signature — it is an attachment, never inlined. It is not a content filter:
@@ -339,6 +339,6 @@ daemon writes it to disk and the message carries the path:
 ## 7. Reporting
 
 Email the maintainer at the address in `package.json`'s `author`
-(`yangbangcheng@bigai.ai`). If the package is published with a `repository`, a private
-security advisory on that repository is equally good. Do not file a public issue for anything
+(`yangbangcheng@bigai.ai`), or open a private security advisory on the `repository` that
+`package.json` names. Do not file a public issue for anything
 in this document.
