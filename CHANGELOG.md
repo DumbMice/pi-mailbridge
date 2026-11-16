@@ -8,11 +8,9 @@
   set - the default on many machines, and the one a live session had (`HTTP_PROXY=socks5://…`, no
   `NO_PROXY`) - every request from the extension, including `http://127.0.0.1:4177`, was tunnelled
   to the proxy and timed out. The panel said "daemon: unreachable" while the daemon answered in
-  half a millisecond, and every mailbox tool refused to work. The fix is the standard mechanism,
-  scoped by port: the daemon's own `host:port` is added to `no_proxy` / `NO_PROXY`, extending the
-  user's list. undici re-reads the variable on every dispatch, so the dispatcher pi already built
-  obeys it. Only the daemon endpoint is exempt - another local service on another port, and all
-  internet traffic, keep using the proxy.
+  half a millisecond, and every mailbox tool refused to work. The daemon client now uses its own
+  `node:http` transport, which has no proxy semantics, so the fix is scoped to this package: no
+  environment variable is written and no other extension or child process is affected.
 
 ### Two answers from one session's real mail
 

@@ -104,15 +104,14 @@ needs a real socket to prove a proxy would have swallowed it — it drives the s
 `undici.EnvHttpProxyAgent` pi installs). `undici` is a devDependency for that test alone; the
 shipped package has no runtime dependencies.
 
-## The daemon endpoint is never proxied
+## The daemon transport ignores proxies
 
 pi installs a global proxy dispatcher, so `HTTP_PROXY` without loopback in `NO_PROXY` makes the
-daemon look unreachable while it is up. `core/proxy.ts` adds **the daemon's own `host:port`** to
-`no_proxy`/`NO_PROXY` — not loopback at large — extending the user's list. Port-scoping is the
-point: another local service on another port must keep using the proxy, and a remote `daemon.host`
-must never be exempted. The probe and the client constructor both apply it, so neither relies on
-the extension having run first; nothing else in the package talks to loopback. Never solve this by
-adding a second HTTP client or by exempting all of loopback — `NO_PROXY` supports ports.
+daemon look unreachable while it is up. The client uses `daemon/loopback-http.ts` — `node:http`
+behind a `fetch` shape — so proxy configuration cannot reach it. Do **not** fix this by writing to
+`NO_PROXY`: that works, but it mutates the environment of the whole pi process, which every other
+extension and every child process inherits. Keep the fix package-scoped. If the daemon ever needs
+compression or redirects, add them here rather than switching back to `fetch`.
 
 ## Scope boundary
 

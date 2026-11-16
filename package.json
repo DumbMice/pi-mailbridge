@@ -74,8 +74,7 @@
     "@types/markdown-it": "^14.2.0",
     "@types/node": "^22.10.0",
     "@types/nodemailer": "^6.4.17",
-    "typescript": "^5.7.0",
-    "undici": "^8.12.3"
+    "typescript": "^5.7.0"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-ai": {

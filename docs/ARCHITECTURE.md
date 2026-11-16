@@ -95,17 +95,16 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 Bounds: body ≤ 1 MB, registry ≤ 10 000 entries, SSE clients ≤ 100. A second daemon start exits 0
 on `daemon.lock` (and, as a second guard, on `EADDRINUSE`) — quiet by design.
 
-**The daemon endpoint is never proxied — and nothing else changes.** pi installs `undici`'s
-`EnvHttpProxyAgent` as the global dispatcher, so with `HTTP_PROXY` set and loopback absent from
-`NO_PROXY`, every `fetch` — `http://127.0.0.1:4177` included — is tunnelled through the proxy and
-times out; the daemon reads as unreachable while it is answering in sub-millisecond time.
-`core/proxy.ts` adds the daemon's own `host:port` (`127.0.0.1:4177`, `[::1]:4177`,
-`127.0.0.2:<port>`) to whichever of `no_proxy` / `NO_PROXY` is live — extending, never replacing,
-the user's list. `NO_PROXY` entries take a port, so the exemption is exactly our endpoint: another
-local service on another port keeps going through the proxy, internet traffic is untouched, and a
-non-loopback `daemon.host` is never exempted. undici re-reads the variable on every dispatch, so
-this works on the dispatcher pi already built; the probe and client constructors apply it, so
-neither depends on the other having run. The client itself is an ordinary `fetch`.
+**The daemon transport ignores proxies entirely.** pi installs `undici`'s `EnvHttpProxyAgent` as
+the global dispatcher, so with `HTTP_PROXY` set and loopback absent from `NO_PROXY`, every `fetch` —
+`http://127.0.0.1:4177` included — is tunnelled through the proxy and times out; the daemon reads as
+unreachable while it answers in sub-millisecond time. `daemon/loopback-http.ts` is the client's
+transport instead: a `fetch`-shaped wrapper over `node:http`, which has no proxy semantics at all.
+The fix lives inside the package and writes no process state, which is why `NO_PROXY` is not used —
+appending there works, but it is process-global and every child process (the bash tool included)
+would inherit the entry. It follows no redirects, does no decompression (the daemon sends plain
+JSON) and opens one socket per request; it does honour the caller's abort signal and rejects if a
+response body is cut short.
 
 ## 4. Routing token
 
@@ -337,7 +336,6 @@ src/
     mailer.ts           nodemailer transport (password | XOAUTH2), headers
     mail-command.ts     a reply that is a command → the safe subset, else text
     prime.ts            "watch from now on" - first run only, guarded by the cursor
-    proxy.ts            loopback out of NO_PROXY, so a global proxy cannot swallow the daemon
     markdown.ts         notifications render as markdown
     oauth*.ts           device-code + OpenID flows, one-retry token provider
     reply-parse.ts      quote stripping, address + AR-header pinning
@@ -352,6 +350,7 @@ src/
   daemon/
     api.ts              the wire contract: API_VERSION, capabilities, endpoint list
     imapflow.ts         imapflow adapter
+    loopback-http.ts    the daemon transport: node:http, no proxy semantics
     main.ts             CLI + lifecycle
     process.ts          UID-cursor scan → authorize → route → parse → persist
     scan-queue.ts       one scan at a time; bursts coalesce into a follow-up
