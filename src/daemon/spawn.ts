@@ -15,6 +15,7 @@ import { dirname } from "node:path"
 
 import type { PendingRecord } from "../store/pending-store.ts"
 import { loopbackFetch } from "./loopback-http.ts"
+import { isUnrunnableScript } from "./script.ts"
 import { API_VERSION, apiCompatible } from "./api.ts"
 import { statePath } from "../store/paths.ts"
 
@@ -152,6 +153,11 @@ export async function ensureDaemon(options: EnsureDaemonOptions): Promise<Ensure
 		// Answering, but not us: a different service owns daemon.port. Spawning would collide with
 		// it and the "protocol mismatch" story would send the user to `/mailbridge restart` forever.
 		return { started: false, healthy: false, foreign: true }
+	}
+
+	if (isUnrunnableScript(options.scriptPath) && (options.spawnImpl ?? nodeSpawn) === nodeSpawn) {
+		// Nothing to spawn, and spawning it anyway would only produce a Node error in a log file.
+		return { started: false, healthy: false, error: "this install has no compiled build (dist/); reinstall the package" }
 	}
 
 	const spawn = options.spawnImpl ?? nodeSpawn

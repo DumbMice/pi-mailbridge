@@ -59,3 +59,16 @@ export function resolveDaemonScript(moduleUrl: string | URL, exists: (path: stri
 	// Nothing exists: name the source path, so the failure mentions what the caller expected.
 	return join(dir, "daemon", "main.ts")
 }
+
+/**
+ * TypeScript that Node cannot run: a `.ts` inside `node_modules`.
+ *
+ * Node refuses type stripping there (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING), so a published
+ * install without a `dist/` build would spawn a process that dies before it prints anything useful.
+ * `bin/pi-mailbridge.mjs` already refuses with a reinstall message; the extension resolves the same
+ * path and needs the same refusal, or the two entry points disagree about a broken install.
+ */
+export function isUnrunnableScript(scriptPath: string): boolean {
+	return scriptPath.endsWith(".ts") && scriptPath.split(sep).includes("node_modules")
+}
+

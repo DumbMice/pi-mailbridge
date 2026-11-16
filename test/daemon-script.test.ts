@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { resolveDaemonScript } from "../src/daemon/script.ts"
+import { isUnrunnableScript, resolveDaemonScript } from "../src/daemon/script.ts"
 
 /** Only these paths exist, like a real tree. */
 const existsOnly = (...paths: string[]) => (path: string) => paths.includes(path)
@@ -59,3 +59,13 @@ test("a compiled module resolves its sibling", () => {
 		"/pkg/dist/daemon/main.js",
 	)
 })
+
+test("an install without a compiled build is refused, not spawned", () => {
+	// `bin/pi-mailbridge.mjs` refuses this with a reinstall message; the extension resolves the same
+	// path, so it must refuse too rather than spawn Node onto a `.ts` inside node_modules.
+	const install = "/p/node_modules/@dumbmice/pi-mailbridge"
+	assert.equal(isUnrunnableScript(`${install}/src/daemon/main.ts`), true)
+	assert.equal(isUnrunnableScript(`${install}/dist/daemon/main.js`), false)
+	assert.equal(isUnrunnableScript("/p/pi-mailbridge/src/daemon/main.ts"), false, "a checkout is runnable with the flag")
+})
+

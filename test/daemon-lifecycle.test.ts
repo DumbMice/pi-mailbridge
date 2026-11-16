@@ -730,3 +730,18 @@ test("our own daemon shapes are never foreign, including an old protocol", async
 	}
 })
 
+test("an unbuilt install reports a reinstall message instead of spawning a .ts in node_modules", async () => {
+	// The real spawn is what fails there (Node refuses type stripping under node_modules), and the
+	// daemon's stderr is in a log file the user will not read.
+	const { ensureDaemon } = await import("../src/daemon/spawn.ts")
+	const port = await freePort()
+	const result = await ensureDaemon({
+		baseUrl: daemonBaseUrl(port),
+		scriptPath: "/p/node_modules/@dumbmice/pi-mailbridge/src/daemon/main.ts",
+		waitMs: 10,
+		sleep: async () => {},
+	})
+	assert.equal(result.started, false)
+	assert.match(result.error ?? "", /reinstall the package/)
+})
+
