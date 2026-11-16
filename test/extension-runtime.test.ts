@@ -487,6 +487,84 @@ function ctxWithBranch(messages: { role: string; content: unknown }[]): Extensio
 	}
 }
 
+test("a real turn that repeats the same sentence is still mailed", async () => {
+	// The dedupe keys on turns *and* text: "Done." after every turn is ordinary, and a human who
+	// replies "again" is waiting for the next mail, not for the one they already got.
+	const t = fakeTimers()
+	const daemon = fakeDaemon()
+	const branch: { role: string; content: { type: string; text: string }[] }[] = [
+		{ role: "user", content: [{ type: "text", text: "go" }] },
+		{ role: "assistant", content: [{ type: "text", text: "Done." }] },
+	]
+	const pi = fakePi(ctxWithBranch(branch))
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.filter((q) => q.ms === 10_000).at(-1)!.handler()
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	assert.equal(daemon.sent.length, 1)
+
+	// A second real turn, same words: the branch grows, so `turns` changes.
+	branch.push({ role: "assistant", content: [{ type: "text", text: "Done." }] })
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.filter((q) => q.ms === 10_000).at(-1)!.handler()
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	assert.equal(daemon.sent.length, 2, `a repeated-but-real answer is mailed: ${JSON.stringify(daemon.sent.map((m) => m.subject))}`)
+})
+
+test("a failed settle send does not stop the next one from being mailed", async () => {
+	// The record is written only after `sent.ok`, so a transient failure leaves the answer eligible.
+	// Mutating that assignment above the check silences the notification for good.
+	const t = fakeTimers()
+	const daemon = fakeDaemon()
+	let failNext = true
+	const fail = async () => ({ ok: false as const, status: 502, code: "send_failed" })
+	const ok = daemon.client.send.bind(daemon.client)
+	type SendArg = Parameters<typeof daemon.client.send>[0]
+	daemon.client.send = async (message: SendArg) => {
+		if (failNext) {
+			failNext = false
+			return fail()
+		}
+		return ok(message)
+	}
+	const branch: { role: string; content: { type: string; text: string }[] }[] = [
+		{ role: "user", content: [{ type: "text", text: "go" }] },
+		{ role: "assistant", content: [{ type: "text", text: "the answer" }] },
+	]
+	const pi = fakePi(ctxWithBranch(branch))
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.filter((q) => q.ms === 10_000).at(-1)!.handler()
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	assert.equal(daemon.sent.length, 0, "the first send failed")
+
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.filter((q) => q.ms === 10_000).at(-1)!.handler()
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	assert.equal(daemon.sent.length, 1, "and the retry is not suppressed")
+})
+
 test("a turn that produced no new answer does not re-mail the last one", async () => {
 	// `lastAssistantText` is the last assistant message in the branch, so a turn that died without
 	// writing anything (a dropped model stream, the user stopping it) settles with the *previous*

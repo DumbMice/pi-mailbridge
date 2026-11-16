@@ -272,6 +272,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 	// Attachments are encoded ~4/3, and an over-limit send fails at the provider with the whole
 	// notification lost. Keep the default under the 25 MB Gmail/Outlook ceiling; cap the ceiling
 	// at what the largest common provider (QQ: 50 MB) accepts.
+	// The ceiling is a mail-transport fact, not a taste: base64 inflates by ~4/3, so 45 MB of files
+	// is ~60 MB on the wire - past QQ's 50 MB and far past Gmail's 25 MB. The cap exists so a
+	// mis-set value fails here, with a warning, rather than at the provider with the mail lost whole.
 	const rawMaxMb: unknown = resolved.notify.maxAttachmentMb
 	if (rawMaxMb !== undefined) {
 		const mb = typeof rawMaxMb === "number" ? rawMaxMb : Number.NaN

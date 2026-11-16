@@ -150,6 +150,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	const REQUIRED_CAPABILITIES: readonly { id: Capability; what: string }[] = [
 		{ id: "files", what: "document replies (it cannot deliver a PDF or a deck)" },
 		{ id: "attachments", what: "the current attachment rules (mail rendering and the project boundary)" },
+		{ id: "video", what: "video attachments (a linked clip is refused as \"this file type is not attached\")" },
 	]
 	/** One notice per session: a context so stale the settle could not even be routed. */
 	let staleContextWarned = false
@@ -161,7 +162,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 * answer, and the user gets the same mail again. Live case: a settle at 08:14 and the identical
 	 * 2915-character one at 09:52 after a connection error.
 	 */
-	let lastSettledAnswer: { sessionId: string; text: string } | undefined
+	let lastSettledAnswer: { sessionId: string; turns?: number; text: string } | undefined
 	/** Set by stopPolling(): a tick already in flight must not touch the daemon. */
 	let pollPaused = false
 	/** The tick that may be inside an await right now; see trackTick/settleTick. */
@@ -633,7 +634,11 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				if (sent.ok) {
 					// Recorded only on success: a send that failed must stay eligible for the next
 					// settle, or a transient network error would silence the notification for good.
-					lastSettledAnswer = { sessionId: settled.sessionId, text: settled.lastAssistantText?.trim() ?? "" }
+					lastSettledAnswer = {
+						sessionId: settled.sessionId,
+						...(typeof settled.turns === "number" ? { turns: settled.turns } : {}),
+						text: settled.lastAssistantText?.trim() ?? "",
+					}
 				}
 				if (!sent.ok) {
 					throw new Error(
@@ -878,11 +883,21 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	// The ONLY settle signal. `agent_end` is deliberately not registered: pi may
 	// still retry, compact or run queued follow-ups after it.
 	pi.on("agent_settled", (event) => {
-		// A settle with the answer we already mailed is not news: it is a turn that produced no
-		// text of its own. Skip on a non-empty match, which is what the branch always holds.
+		// A settle with the answer we already mailed is not news: it is a turn that produced no text
+		// of its own. Skipped only on a *non-empty* match - an empty branch still settles, and the
+		// placeholder text says so.
 		const context = sessionContext()
 		const text = context?.lastAssistantText?.trim() ?? ""
-		if (text && context && lastSettledAnswer?.sessionId === context.sessionId && lastSettledAnswer.text === text) {
+		// `turns` is in the key, not just the text: a turn that wrote nothing does not increment it,
+		// while a real turn that happens to repeat the same sentence ("Done.") does. Without it, a
+		// genuine second turn would be silenced along with the duplicates.
+		if (
+			text &&
+			context &&
+			lastSettledAnswer?.sessionId === context.sessionId &&
+			lastSettledAnswer.turns === context.turns &&
+			lastSettledAnswer.text === text
+		) {
 			return
 		}
 		notifier?.settled({ aborted: event["aborted"] === true })
@@ -894,6 +909,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		// outlives us for the idle timeout, so the send can still land.
 		await notifier?.flush().catch(() => undefined)
 		notifier?.cancel()
+		// One object; dropping it can only cause a re-mail, never a silence.
+		lastSettledAnswer = undefined
 		// Release our liveness slot so an idle daemon can exit promptly rather than
 		// waiting out the grace period.
 		void client?.bye(instanceId)

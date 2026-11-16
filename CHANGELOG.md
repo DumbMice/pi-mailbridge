@@ -9,12 +9,16 @@
   not attached". `mp4 m4v mov webm` are now attached as files under the same 15 MB per-file and
   `notify.maxAttachmentMb` total as everything else - a mail client plays or saves them; it does not
   inline them.
+- **Video attachments need the new daemon, and the release says so.** The allowlist is read inside
+  the daemon, so `CAPABILITIES` gains `video` and a session that finds a daemon from before it warns
+  once and names `/mailbridge restart` - the same treatment `files` and `attachments` get.
 - **A settlement could re-mail the previous answer.** The notification quotes the last assistant
   message in the branch, so a turn that ended without producing text - a dropped model stream, the
   user stopping it - settled with the answer that had already been mailed. Observed live: 2915
   characters at 08:14 and the identical 2915 at 09:52 after a connection error. A settle whose
-  answer has already been sent is now skipped; the record of what was sent is only updated on a
-  successful send, so a transient failure still lets the next settle through.
+  answer has already been sent is now skipped, keyed on the answer *and* the turn count - so a real
+  turn that happens to repeat the same sentence ("Done.") is still mailed. The record is updated
+  only after a successful send, so a transient failure still lets the next settle through.
 
 ## 0.1.7 — 2026-11-14
 
