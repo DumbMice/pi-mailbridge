@@ -1046,8 +1046,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			const statusReport = async () => {
 				const secret = secretFn()
 				const health = client ? await client.health() : undefined
-				// No client in *this* session is not the same as no daemon on the port. A squatter is
-				// neither: it answers, so `probe` alone would call it alive.
+				// Three different answers, because they need three different fixes: no client here but
+				// one on the port; nothing answering; and something answering that is not the daemon.
 				const detail = health?.ok ? undefined : await probeDetail({ baseUrl: clientBase ?? currentBaseUrl() })
 				const alive = health?.ok ? true : detail?.ok === true
 				const pending = client ? await client.pending() : undefined
@@ -1062,7 +1062,15 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					: ""
 				c.ui.notify(
 					[
-						`daemon: ${health?.ok ? "healthy" : alive ? "running, but not attached to this session" : "unreachable"} (${clientBase ?? currentBaseUrl()})${build}`,
+						`daemon: ${
+							health?.ok
+								? "healthy"
+								: detail?.foreign
+									? "something else is answering on this port"
+									: alive
+										? "running, but not attached to this session"
+										: "unreachable"
+						} (${clientBase ?? currentBaseUrl()})${build}`,
 						`device: ${config.device.name}`,
 						`mode: ${health?.ok ? health.data.mode : "(unknown)"}`,
 						`imap: ${health?.ok ? (health.data as { imap?: string }).imap ?? "unknown" : "(unknown)"}`,

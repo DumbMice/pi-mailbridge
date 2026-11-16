@@ -16,7 +16,7 @@ import type { ResolvedConfig } from "../core/config.ts"
 import type { ScanSummary } from "../core/status.ts"
 
 type ScanSummaryLike = ScanSummary
-import { CAPABILITIES } from "./api.ts"
+import { CAPABILITIES, type HealthPayload } from "./api.ts"
 import { createSendBudget } from "./send-budget.ts"
 import type { MailSource } from "./process.ts"
 import { ackPending, claimPending, listPending } from "../store/pending-store.ts"
@@ -215,7 +215,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 			// RangeError (and kills the daemon) long before the map is "large".
 			let newestPing = 0
 			for (const at of pings.values()) if (at > newestPing) newestPing = at
-			return send(200, {
+			const payload: HealthPayload = {
 				ok: true,
 				mode: readMode(env),
 				pending: listPending(env).length,
@@ -236,7 +236,10 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 				capabilities: CAPABILITIES,
 				configLoadedAt: deps.configLoadedAt?.() ?? null,
 				imap: deps.imapHealthy ? (deps.imapHealthy() ? "connected" : "disconnected") : "unknown",
-			})
+			}
+			// Typed on purpose: `ok` and `mode` are what the client's discriminator reads, so dropping
+			// either must fail to compile here rather than silently change how sessions identify us.
+			return send(200, payload)
 		}
 
 		const header = req.headers.authorization ?? ""

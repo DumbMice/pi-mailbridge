@@ -1040,6 +1040,13 @@ test("/health carries the protocol, its capabilities, and the build", async () =
 		assert.equal(body.apiVersion, 1)
 		assert.ok(Array.isArray(body.capabilities) && body.capabilities.includes("health"))
 		assert.equal(body.version, "0.1.0-test")
+
+		// The payload and the discriminator must agree in reality, not only in the lifecycle tests'
+		// handwritten bodies: this is the assertion that fails if `/health` ever stops carrying
+		// `ok`/`mode`, which would make every session call the real daemon "something else answering"
+		// and never attach.
+		const { probeHealthDetail } = await import("../src/daemon/spawn.ts")
+		assert.deepEqual(await probeHealthDetail({ baseUrl: h.base }), { ok: true, apiVersion: 1 })
 	} finally {
 		await h.close()
 	}

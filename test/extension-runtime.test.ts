@@ -2906,3 +2906,33 @@ test("/mailbridge restart names a foreign service instead of advising another re
 	assert.ok(!/run \/mailbridge restart again/.test(said), `contradictory advice: ${said}`)
 })
 
+test("status names a stranger on the port instead of calling it unreachable", async () => {
+	// `daemon: unreachable` is the wrong fix ("start the daemon") when the port is held by something
+	// that answers: the user needs to change daemon.port or stop that service.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const daemon = fakeDaemon({ mode: "on" })
+	daemon.client.health = async () => ({ ok: false as const, status: 200, code: "bad_response" })
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		probeHealth: async () => false,
+		probeHealthDetail: async () => ({ ok: false, foreign: true }),
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	await captured.get("mailbridge")!("status", ctx(notes))
+	const panel = notes.find((n) => /daemon:/.test(n)) ?? ""
+	assert.match(panel, /something else is answering/, `panel: ${panel}`)
+	assert.doesNotMatch(panel, /daemon: unreachable/, "the fix is not 'start the daemon'")
+})
+
