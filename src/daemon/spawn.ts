@@ -14,6 +14,7 @@ import { chmodSync, closeSync, mkdirSync, openSync, renameSync, statSync } from 
 import { dirname } from "node:path"
 
 import type { PendingRecord } from "../store/pending-store.ts"
+import { ensureLoopbackExemptFromProxy, isLoopbackHost } from "../core/proxy.ts"
 import { API_VERSION, apiCompatible } from "./api.ts"
 import { statePath } from "../store/paths.ts"
 
@@ -37,8 +38,24 @@ export async function probeHealth(options: ProbeOptions): Promise<boolean> {
  * from another protocol is alive but unusable, and reusing it would make a replacement look
  * successful while the mismatch stayed.
  */
+/**
+ * `daemon.host` may be a loopback address other than 127.0.0.1 (`127.0.0.2` to dodge a port
+ * clash, `[::1]`, `something.localhost`). Those are not covered by the three well-known names, and
+ * a proxy would swallow them exactly the same way, so the configured host is exempted too. A
+ * remote host is left alone: it is meant to go through the proxy.
+ */
+function exemptBaseUrlFromProxy(baseUrl: string): void {
+	try {
+		const host = new URL(baseUrl).hostname
+		ensureLoopbackExemptFromProxy(process.env, isLoopbackHost(host) ? [host] : [])
+	} catch {
+		// An unparseable base URL is reported by the request itself.
+	}
+}
+
 export async function probeHealthDetail(options: ProbeOptions): Promise<{ ok: boolean; apiVersion?: number }> {
 	const doFetch = options.fetchImpl ?? fetch
+	exemptBaseUrlFromProxy(options.baseUrl)
 	const controller = new AbortController()
 	const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 750)
 	try {
@@ -230,6 +247,7 @@ export interface DaemonClientOptions {
 export type DaemonResult<T> = { ok: true; data: T } | { ok: false; status: number; code?: string }
 
 export function createDaemonClient(options: DaemonClientOptions) {
+	exemptBaseUrlFromProxy(options.baseUrl)
 	const doFetch = options.fetchImpl ?? fetch
 	const deviceName = options.device ?? ""
 	const headers = { authorization: `Bearer ${options.token}`, "content-type": "application/json" }

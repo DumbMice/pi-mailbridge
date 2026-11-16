@@ -13,7 +13,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import { createServer } from "node:http"
 
-import { ensureLoopbackExemptFromProxy } from "../src/core/proxy.ts"
+import { ensureLoopbackExemptFromProxy, isLoopbackHost } from "../src/core/proxy.ts"
 
 /** A pristine env: two keys, nothing inherited from the developer's shell. */
 function freshEnv(): NodeJS.ProcessEnv {
@@ -64,7 +64,7 @@ test("writes to no_proxy when that is the variable in use", () => {
 	assert.equal(env.NO_PROXY, undefined)
 })
 
-test("a proxied loopback call fails until loopback is exempt, then succeeds", async () => {
+test("a proxy swallows a healthy loopback daemon until loopback is exempt", async () => {
 	// The real thing: `undici`'s env dispatcher with HTTP_PROXY pointing at a closed port, which is
 	// what pi builds. Nothing here is mocked.
 	const undici = await import("undici")
@@ -91,19 +91,15 @@ test("a proxied loopback call fails until loopback is exempt, then succeeds", as
 		delete process.env.NO_PROXY
 		delete process.env.no_proxy
 		undici.setGlobalDispatcher(new undici.EnvHttpProxyAgent({ proxyTunnel: true }))
-		// `configureHttpDispatcher` does this too: pi keeps `fetch` and the dispatcher on the same
-		// undici implementation, so Node's built-in fetch is replaced as well.
 		undici.install?.()
-		if (undici.fetch === undefined) assert.fail("undici exposed no install(), test would prove nothing")
 
-		// The reason the fix exists: a proxy swallows a healthy loopback daemon, and the probe
-		// reports it as unreachable - which is exactly what a live session showed.
-		assert.deepEqual(await probeHealthDetail({ baseUrl }), { ok: false })
+		// The bug, reproduced: a healthy daemon is unreachable through a proxy.
+		await assert.rejects(fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(2_000) }))
 
-		assert.equal(ensureLoopbackExemptFromProxy(), true)
-		// The dispatcher was built before this call, and undici re-reads NO_PROXY per dispatch, so
-		// no rebuild is needed - the same reason the fix works inside a running pi session.
+		// The client exempts the host it is configured for, so the probe gets through - and it does
+		// so without the extension having run, which is what makes a stale dispatcher harmless.
 		assert.deepEqual(await probeHealthDetail({ baseUrl }), { ok: true, apiVersion: 1 })
+		assert.ok((process.env.NO_PROXY ?? "").split(",").includes("127.0.0.1"), "and it recorded the exemption")
 	} finally {
 		undici.setGlobalDispatcher(savedDispatcher)
 		globalThis.fetch = savedFetch
@@ -114,3 +110,133 @@ test("a proxied loopback call fails until loopback is exempt, then succeeds", as
 		server.close()
 	}
 })
+
+test("recognises every form of loopback, and nothing else", () => {
+	const loopback = ["localhost", "LOCALHOST.", "[::1]", "::1", "127.0.0.1", "127.0.0.2", "127.255.255.254", "pi.localhost"]
+	const remote = ["example.com", "10.1.2.3", "192.168.0.1", "[2001:db8::1]", "127.0.0.256", "127.0.0", "loopback", ""]
+	for (const host of loopback) assert.equal(isLoopbackHost(host), true, `${host} is loopback`)
+	for (const host of remote) assert.equal(isLoopbackHost(host), false, `${host} is not loopback`)
+})
+
+test("exempts a loopback host that is not one of the three default names", () => {
+	// `daemon.host: 127.0.0.2` dodges a port clash and must not be tunnelled through the proxy.
+	const env = freshEnv()
+	assert.equal(ensureLoopbackExemptFromProxy(env, ["127.0.0.2"]), true)
+	assert.deepEqual(env.NO_PROXY?.split(","), ["localhost", "127.0.0.1", "::1", "127.0.0.2"])
+})
+
+test("never exempts a remote daemon host, which is meant to use the proxy", () => {
+	const env = freshEnv()
+	ensureLoopbackExemptFromProxy(env, ["daemon.example.com", "10.1.2.3", "192.168.0.1"])
+	assert.deepEqual(env.NO_PROXY?.split(","), ["localhost", "127.0.0.1", "::1"], "no remote host is exempted")
+})
+
+test("a real proxy is still used for everything that is not loopback", async () => {
+	// The whole point of the fix is that it only removes loopback from the proxy. Assert both
+	// halves against a proxy that really receives the traffic.
+	const undici = await import("undici")
+	const { probeHealthDetail } = await import("../src/daemon/spawn.ts")
+
+	const seen: string[] = []
+	const proxy = createServer((req, res) => {
+		seen.push(`plain ${req.url ?? ""}`)
+		res.writeHead(502).end()
+	})
+	proxy.on("connect", (req: { url?: string }, socket: { destroy: () => void }) => {
+		seen.push(req.url ?? "")
+		socket.destroy() // refuse the tunnel: the request must fail, but it must have arrived
+	})
+	await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", () => resolve()))
+
+	const local = createServer((_req, res) => {
+		res.writeHead(200, { "content-type": "application/json" })
+		res.end(JSON.stringify({ ok: true, apiVersion: 1 }))
+	})
+	await new Promise<void>((resolve) => local.listen(0, "127.0.0.1", () => resolve()))
+
+	const savedEnv = { HTTP_PROXY: process.env.HTTP_PROXY, NO_PROXY: process.env.NO_PROXY, no_proxy: process.env.no_proxy }
+	const savedDispatcher = undici.getGlobalDispatcher()
+	const savedFetch = globalThis.fetch
+	try {
+		process.env.HTTP_PROXY = `http://127.0.0.1:${(proxy.address() as { port: number }).port}`
+		delete process.env.NO_PROXY
+		delete process.env.no_proxy
+		undici.setGlobalDispatcher(new undici.EnvHttpProxyAgent({ proxyTunnel: true }))
+		undici.install?.()
+
+		ensureLoopbackExemptFromProxy()
+
+		const localPort = (local.address() as { port: number }).port
+		assert.deepEqual(await probeHealthDetail({ baseUrl: `http://127.0.0.1:${localPort}` }), { ok: true, apiVersion: 1 })
+		assert.deepEqual(seen, [], "loopback went direct")
+
+		// A host on the internet: the proxy must be consulted, and the request must not succeed.
+		await assert.rejects(fetch("http://example.invalid/", { signal: AbortSignal.timeout(2_000) }))
+		assert.deepEqual(seen, ["example.invalid:80"], "the proxy still carries non-loopback traffic")
+	} finally {
+		undici.setGlobalDispatcher(savedDispatcher)
+		globalThis.fetch = savedFetch
+		for (const [key, value] of Object.entries(savedEnv)) {
+			if (value === undefined) delete process.env[key]
+			else process.env[key] = value
+		}
+		local.close()
+		proxy.close()
+	}
+})
+
+test("a daemon on 127.0.0.2 is reachable through a proxy environment", async () => {
+	// The narrow version of the original bug: loopback that is not one of the three default names.
+	const undici = await import("undici")
+	const { probeHealthDetail, createDaemonClient } = await import("../src/daemon/spawn.ts")
+
+	const server = createServer((req, res) => {
+		res.writeHead(200, { "content-type": "application/json" })
+		res.end(JSON.stringify(req.url === "/mode" ? { mode: "on" } : { ok: true, apiVersion: 1 }))
+	})
+	const bound = await new Promise<boolean>((resolve) => {
+		server.once("error", () => resolve(false))
+		server.listen(0, "127.0.0.2", () => resolve(true))
+	})
+	if (!bound) return // a host without the wider 127/8 range
+
+	const seen: string[] = []
+	const proxy = createServer((_req, res) => res.writeHead(502).end())
+	proxy.on("connect", (req: { url?: string }, socket: { destroy: () => void }) => {
+		seen.push(req.url ?? "")
+		socket.destroy()
+	})
+	await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", () => resolve()))
+
+	const savedEnv = { HTTP_PROXY: process.env.HTTP_PROXY, NO_PROXY: process.env.NO_PROXY, no_proxy: process.env.no_proxy }
+	const savedDispatcher = undici.getGlobalDispatcher()
+	const savedFetch = globalThis.fetch
+	try {
+		process.env.HTTP_PROXY = `http://127.0.0.1:${(proxy.address() as { port: number }).port}`
+		delete process.env.NO_PROXY
+		delete process.env.no_proxy
+		undici.setGlobalDispatcher(new undici.EnvHttpProxyAgent({ proxyTunnel: true }))
+		undici.install?.()
+
+		const baseUrl = `http://127.0.0.2:${(server.address() as { port: number }).port}`
+
+		// Each entry point is checked from a clean slate, so neither can lean on the other.
+		const client = createDaemonClient({ baseUrl, token: "t" })
+		assert.equal((await client.mode()).ok, true, "the typed client exempts the host it is configured for")
+
+		delete process.env.NO_PROXY
+		assert.deepEqual(await probeHealthDetail({ baseUrl }), { ok: true, apiVersion: 1 }, "and so does the probe")
+
+		assert.deepEqual(seen, [], "the proxy never saw either")
+	} finally {
+		undici.setGlobalDispatcher(savedDispatcher)
+		globalThis.fetch = savedFetch
+		for (const [key, value] of Object.entries(savedEnv)) {
+			if (value === undefined) delete process.env[key]
+			else process.env[key] = value
+		}
+		server.close()
+		proxy.close()
+	}
+})
+

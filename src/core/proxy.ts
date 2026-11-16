@@ -19,6 +19,28 @@
 
 const LOOPBACK = ["localhost", "127.0.0.1", "::1"] as const
 
+/** `[::1]` → `::1`, `LOCALHOST.` → `localhost`: the form undici compares against. */
+function normalizeHost(host: string): string {
+	return host
+		.trim()
+		.replace(/^\[|\]$/g, "")
+		.replace(/\.+$/, "")
+		.toLowerCase()
+}
+
+/**
+ * Loopback in any of its forms: `localhost` and its subdomains, `::1`, and the whole of
+ * 127.0.0.0/8 - `daemon.host` may be `127.0.0.2` to dodge a port clash, and that must not be
+ * proxied either.
+ */
+export function isLoopbackHost(host: string): boolean {
+	const name = normalizeHost(host)
+	if (name === "localhost" || name.endsWith(".localhost")) return true
+	if (name === "::1" || name === "0:0:0:0:0:0:0:1") return true
+	const quad = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(name)
+	return quad !== null && quad.slice(1).every((octet) => Number(octet) <= 255)
+}
+
 /** The variable undici reads first: lowercase `no_proxy` wins over `NO_PROXY`. */
 function proxyVariableName(env: NodeJS.ProcessEnv): "no_proxy" | "NO_PROXY" {
 	if (env.no_proxy !== undefined) return "no_proxy"
@@ -41,11 +63,16 @@ function entries(value: string): string[] {
  *
  * `*:*` is a host:port pair for a specific port; we only add bare hosts, which match any port.
  */
-export function ensureLoopbackExemptFromProxy(env: NodeJS.ProcessEnv = process.env): boolean {
+export function ensureLoopbackExemptFromProxy(
+	env: NodeJS.ProcessEnv = process.env,
+	/** The host the client is actually configured for; ignored unless it is loopback. */
+	extraHosts: readonly string[] = [],
+): boolean {
 	const name = proxyVariableName(env)
 	const current = env[name] ?? ""
 	const present = new Set(entries(current))
-	const missing = LOOPBACK.filter((host) => !present.has(host))
+	const wanted = [...LOOPBACK, ...extraHosts.filter(isLoopbackHost).map(normalizeHost)]
+	const missing = wanted.filter((host) => !present.has(host))
 	if (missing.length === 0) return false
 	const existing = current.trim() === "" ? [] : [current.trim()]
 	env[name] = [...existing, ...missing].join(",")
