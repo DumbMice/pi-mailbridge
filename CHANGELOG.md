@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.8 — 2026-11-16
 
 ### The daemon was unreachable from any session with `HTTP_PROXY` set
 
