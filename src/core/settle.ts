@@ -21,6 +21,11 @@ export interface SettleContext {
 	cwd: string
 	/** Completed turns in this session, when known. */
 	turns?: number
+	/**
+	 * Assistant messages that contained text, when known. The settle dedupe keys on it: it does not
+	 * move when a turn was interrupted before writing anything, including a tool-call-only round.
+	 */
+	answered?: number
 	/** The assistant's last text, when known. */
 	lastAssistantText?: string
 }

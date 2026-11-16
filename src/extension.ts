@@ -162,7 +162,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 * answer, and the user gets the same mail again. Live case: a settle at 08:14 and the identical
 	 * 2915-character one at 09:52 after a connection error.
 	 */
-	let lastSettledAnswer: { sessionId: string; turns?: number; text: string } | undefined
+	let lastSettledAnswer: { sessionId: string; answered?: number; text: string } | undefined
 	/** Set by stopPolling(): a tick already in flight must not touch the daemon. */
 	let pollPaused = false
 	/** The tick that may be inside an await right now; see trackTick/settleTick. */
@@ -201,24 +201,21 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	function readSessionSnapshot(manager: ExtensionCtxLike["sessionManager"]): {
 		lastAssistantText?: string
 		turns?: number
+		/** Assistant messages that actually contained text - see the settle dedupe. */
+		answered?: number
 	} {
 		const branch = manager.getBranch?.() ?? []
 		let lastAssistantText: string | undefined
 		let turns = 0
+		let answered = 0
 
-		for (let i = branch.length - 1; i >= 0; i--) {
-			const entry = branch[i] as { type?: string; message?: { role?: string; content?: unknown } } | undefined
-			if (entry?.type !== "message" || entry.message?.role !== "assistant") continue
-			turns++
-			if (lastAssistantText) continue
-
-			const content = entry.message.content
-			if (typeof content === "string" && content.trim()) {
-				lastAssistantText = content.trim()
-				continue
-			}
-			if (!Array.isArray(content)) continue
-			const text = content
+		// Every assistant entry, newest first. `answered` counts the ones with text, so it moves for
+		// a real answer and stays put for a turn that was interrupted before writing anything -
+		// including a tool-call-only round, which still increments `turns`.
+		const textOf = (content: unknown): string => {
+			if (typeof content === "string") return content.trim()
+			if (!Array.isArray(content)) return ""
+			return content
 				.filter((part): part is { type: "text"; text: string } => {
 					const p = part as { type?: unknown; text?: unknown }
 					return p?.type === "text" && typeof p.text === "string"
@@ -226,10 +223,23 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				.map((part) => part.text)
 				.join("\n")
 				.trim()
-			if (text) lastAssistantText = text
 		}
 
-		return { ...(lastAssistantText ? { lastAssistantText } : {}), ...(turns > 0 ? { turns } : {}) }
+		for (let i = branch.length - 1; i >= 0; i--) {
+			const entry = branch[i] as { type?: string; message?: { role?: string; content?: unknown } } | undefined
+			if (entry?.type !== "message" || entry.message?.role !== "assistant") continue
+			turns++
+			const text = textOf(entry.message.content)
+			if (!text) continue
+			answered++
+			if (!lastAssistantText) lastAssistantText = text
+		}
+
+		return {
+			...(lastAssistantText ? { lastAssistantText } : {}),
+			...(turns > 0 ? { turns } : {}),
+			...(answered > 0 ? { answered } : {}),
+		}
 	}
 
 	/**
@@ -636,7 +646,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 					// settle, or a transient network error would silence the notification for good.
 					lastSettledAnswer = {
 						sessionId: settled.sessionId,
-						...(typeof settled.turns === "number" ? { turns: settled.turns } : {}),
+						...(typeof settled.answered === "number" ? { answered: settled.answered } : {}),
 						text: settled.lastAssistantText?.trim() ?? "",
 					}
 				}
@@ -888,14 +898,15 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		// placeholder text says so.
 		const context = sessionContext()
 		const text = context?.lastAssistantText?.trim() ?? ""
-		// `turns` is in the key, not just the text: a turn that wrote nothing does not increment it,
-		// while a real turn that happens to repeat the same sentence ("Done.") does. Without it, a
-		// genuine second turn would be silenced along with the duplicates.
+		// `answered` - the count of assistant messages that actually contained text - is in the key:
+		// a turn that wrote nothing does not increment it (a tool-call-only round does not either,
+		// and that round *does* increment `turns`), while a real turn that repeats the same sentence
+		// ("Done.") does. Keying on `turns` alone let a tool-call round re-mail a stale answer.
 		if (
 			text &&
 			context &&
 			lastSettledAnswer?.sessionId === context.sessionId &&
-			lastSettledAnswer.turns === context.turns &&
+			lastSettledAnswer.answered === context.answered &&
 			lastSettledAnswer.text === text
 		) {
 			return

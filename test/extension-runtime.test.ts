@@ -487,6 +487,90 @@ function ctxWithBranch(messages: { role: string; content: unknown }[]): Extensio
 	}
 }
 
+test("a tool-call-only round does not re-mail the answer it never rewrote", async () => {
+	// The variant that `turns` alone missed: an assistant entry with only a tool call increments
+	// `turns` but writes no text, so the settle would quote the previous answer again. `answered`
+	// counts only assistant messages that contained text, which is what the dedupe keys on.
+	const t = fakeTimers()
+	const daemon = fakeDaemon()
+	const branch: { role: string; content: { type: string; text?: string; name?: string }[] }[] = [
+		{ role: "user", content: [{ type: "text", text: "go" }] },
+		{ role: "assistant", content: [{ type: "text", text: "the answer" }] },
+	]
+	const pi = fakePi(ctxWithBranch(branch))
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.filter((q) => q.ms === 10_000).at(-1)!.handler()
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	assert.equal(daemon.sent.length, 1)
+
+	// A turn that only called a tool: the branch grows, but there is no new text.
+	branch.push({ role: "assistant", content: [{ type: "toolCall", name: "bash" }] })
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.filter((q) => q.ms === 10_000).at(-1)!.handler()
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	assert.equal(daemon.sent.length, 1, `the stale answer is not re-mailed: ${JSON.stringify(daemon.sent.map((m) => m.subject))}`)
+})
+
+test("a settle after a restart is still mailed", async () => {
+	// The dedupe record is dropped on shutdown; keeping it would silence the first settle of the
+	// next session that happens to end with the same text.
+	const t = fakeTimers()
+	const daemon = fakeDaemon()
+	const branch = [
+		{ role: "user", content: [{ type: "text", text: "go" }] },
+		{ role: "assistant", content: [{ type: "text", text: "the answer" }] },
+	]
+	const c = ctxWithBranch(branch)
+	const pi = fakePi(c)
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.filter((q) => q.ms === 10_000).at(-1)!.handler()
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	assert.equal(daemon.sent.length, 1)
+
+	await pi.fire("session_shutdown")
+	await pi.fire("session_start")
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	await pi.fire("agent_settled", { aborted: false })
+	t.queue.filter((q) => q.ms === 10_000).at(-1)?.handler()
+	for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
+	assert.equal(daemon.sent.length, 2, "a new session is not suppressed by the old record")
+})
+
+test("a daemon missing the video capability is told to restart", async () => {
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on", capabilities: CAPABILITIES.filter((c) => c !== "video") })
+	const pi = boot(daemon, t.timers, ctx(notes))
+	await pi.fire("session_start")
+	for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
+	const said = notes.filter((n) => /predates/.test(n))
+	assert.equal(said.length, 1, `exactly one notice: ${JSON.stringify(notes)}`)
+	assert.match(said[0]!, /video attachments/)
+	assert.match(said[0]!, /\/mailbridge restart/)
+})
+
 test("a real turn that repeats the same sentence is still mailed", async () => {
 	// The dedupe keys on turns *and* text: "Done." after every turn is ordinary, and a human who
 	// replies "again" is waiting for the next mail, not for the one they already got.

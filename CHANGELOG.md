@@ -16,9 +16,11 @@
   message in the branch, so a turn that ended without producing text - a dropped model stream, the
   user stopping it - settled with the answer that had already been mailed. Observed live: 2915
   characters at 08:14 and the identical 2915 at 09:52 after a connection error. A settle whose
-  answer has already been sent is now skipped, keyed on the answer *and* the turn count - so a real
-  turn that happens to repeat the same sentence ("Done.") is still mailed. The record is updated
-  only after a successful send, so a transient failure still lets the next settle through.
+  answer has already been sent is now skipped, keyed on the answer *and* the count of assistant
+  messages that actually contained text - so a real turn that repeats the same sentence ("Done.") is
+  still mailed, while a turn that only called a tool is not. The record is updated only after a
+  successful send, so a transient failure still lets the next settle through, and dropped on
+  shutdown, so a restarted session is never silenced by it.
 
 ## 0.1.7 — 2026-11-14
 
