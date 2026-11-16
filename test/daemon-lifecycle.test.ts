@@ -637,3 +637,37 @@ test("something else on the port is reported as foreign, not as an old protocol"
 	})()
 })
 
+test("a foreign service blocks spawning only while it is there", () => {
+	// The refusal must not be sticky: if the squatter goes away, the next probe finds nothing
+	// listening and the daemon is spawned as usual. Otherwise one stray service on the port would
+	// disable the bridge until pi restarted.
+	return (async () => {
+		const { createServer } = await import("node:http")
+		const { ensureDaemon } = await import("../src/daemon/spawn.ts")
+		const squatter = createServer((_req, res) => {
+			res.writeHead(200, { "content-type": "text/html" })
+			res.end("<!doctype html><title>dev</title>")
+		})
+		await new Promise<void>((resolve) => squatter.listen(0, "127.0.0.1", () => resolve()))
+		const baseUrl = `http://127.0.0.1:${(squatter.address() as { port: number }).port}`
+
+		let spawned = 0
+		const spawnImpl = (() => {
+			spawned += 1
+			return { unref() {} }
+		}) as never
+		try {
+			const blocked = await ensureDaemon({ baseUrl, scriptPath: "/tmp/x.ts", spawnImpl, waitMs: 10, sleep: async () => {} })
+			assert.deepEqual({ healthy: blocked.healthy, foreign: blocked.foreign, spawned }, { healthy: false, foreign: true, spawned: 0 })
+		} finally {
+			squatter.close()
+		}
+
+		// Port free again: nothing answers, so the normal spawn path runs (and this stub fails the
+		// post-spawn probe, which is fine - what matters is that it was attempted).
+		const after = await ensureDaemon({ baseUrl, scriptPath: "/tmp/x.ts", spawnImpl, waitMs: 10, sleep: async () => {} })
+		assert.equal(spawned, 1, "the refusal was not sticky: a spawn was attempted once the squatter left")
+		assert.equal(after.foreign, undefined)
+	})()
+})
+
