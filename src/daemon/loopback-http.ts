@@ -24,9 +24,12 @@
 // What this transport deliberately does not do, because the daemon never needs it:
 //
 //   * no redirects — a 3xx surfaces as `ok: false` rather than being followed to another host;
-//   * no content decompression — the daemon sends plain JSON with no `content-encoding`
-//     (see `daemon/api.ts`); a compressed response would be returned as raw bytes, so if the daemon
-//     ever starts compressing, add `node:zlib` here rather than switching back to `fetch`;
+//   * no content decompression — the JSON endpoints send no `content-encoding`; a compressed reply
+//     would be returned as raw bytes, so if the daemon ever starts compressing, add `node:zlib` here
+//     rather than switching back to `fetch`;
+//   * no streaming — the body is buffered until `end`. `/events` is SSE and is deliberately not
+//     consumed by this client (sessions poll `/pending`); wiring a push client through it would
+//     hang until the caller's abort fires;
 //   * no connection pooling — `agent: false` asks for a one-shot agent per request. Node's global
 //     agent has `keepAlive: true`, so omitting the option would silently pool sockets to the daemon;
 //     a socket the daemon closed on `/mailbridge restart` would then fail the next request with
@@ -39,6 +42,13 @@
 // usual casualty); the daemon emits plain JSON only, so this is a documented limit, not a gap.
 
 import { request as httpRequest, type IncomingMessage } from "node:http"
+
+/**
+ * Ceiling on a buffered response body. Every real reply is small — `/pending` is bounded by the
+ * store's own 8 MB cap — while a squatter on the port that answers `200` and then streams would
+ * otherwise grow the pi process until the caller's abort fires.
+ */
+export const MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 
 /** `fetch` accepts three header shapes; `node:http` wants the record one. */
 type HeaderInit = Record<string, string> | Headers | ReadonlyArray<readonly [string, string]> | undefined
@@ -112,7 +122,17 @@ export const loopbackFetch: typeof fetch = (input, init) =>
 			},
 			(response: IncomingMessage) => {
 				const chunks: Buffer[] = []
-				response.on("data", (chunk: Buffer) => chunks.push(chunk))
+				let size = 0
+				response.on("data", (chunk: Buffer) => {
+					if (settled) return
+					size += chunk.length
+					if (size > MAX_RESPONSE_BYTES) {
+						finish(() => reject(new TypeError(`response body larger than ${MAX_RESPONSE_BYTES} bytes`)))
+						response.destroy()
+						return
+					}
+					chunks.push(chunk)
+				})
 				response.on("end", () =>
 					finish(() => {
 						const status = response.statusCode ?? 502
@@ -154,8 +174,14 @@ export const loopbackFetch: typeof fetch = (input, init) =>
 		}
 
 		const body = init?.body
-		if (typeof body === "string") request.write(body)
-		else if (body !== undefined && body !== null) {
+		if (typeof body === "string") {
+			try {
+				request.write(body)
+			} catch (error) {
+				finish(() => reject(error))
+				return
+			}
+		} else if (body !== undefined && body !== null) {
 			// Streams, buffers and FormData are not needed by any caller. Refuse rather than
 			// serialise something the daemon would misread - and go through `finish`, so the abort
 			// listener does not outlive the call.
@@ -163,5 +189,9 @@ export const loopbackFetch: typeof fetch = (input, init) =>
 			finish(() => reject(new TypeError("loopbackFetch accepts string bodies only")))
 			return
 		}
-		request.end()
+		try {
+			request.end()
+		} catch (error) {
+			finish(() => reject(error))
+		}
 	})

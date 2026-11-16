@@ -520,12 +520,14 @@ test("daemonBaseUrl brackets an IPv6 host so the URL parses", () => {
 	assert.equal(daemonBaseUrl(4177, "::1"), "http://[::1]:4177")
 	assert.equal(daemonBaseUrl(4177, "[::1]"), "http://[::1]:4177", "already-bracketed input is not doubled")
 	assert.equal(daemonBaseUrl(4177, "127.0.0.1"), "http://127.0.0.1:4177")
+	assert.equal(daemonBaseUrl(4177, ""), "http://127.0.0.1:4177", "an empty host falls back rather than building http://:4177")
+	assert.equal(daemonBaseUrl(4177, " 127.0.0.1 "), "http://127.0.0.1:4177")
 	assert.doesNotThrow(() => new URL(`${daemonBaseUrl(4177, "::1")}/health`))
 })
 
 test("a daemon on [::1] answers through the transport", () => {
-	// The two halves of IPv6 support meeting: daemonBaseUrl brackets, `listen` strips, the transport
-	// unbrackets. Each was fixed separately; this is the path that proves they compose.
+	// daemonBaseUrl brackets and the transport unbrackets; `service.listen`'s strip has its own test
+	// in daemon-service.test.ts (this one binds a bare server, so `listen` is not in the path).
 	return (async () => {
 		const { createServer } = await import("node:http")
 		const { probeHealthDetail } = await import("../src/daemon/spawn.ts")
@@ -543,6 +545,42 @@ test("a daemon on [::1] answers through the transport", () => {
 			assert.deepEqual(await probeHealthDetail({ baseUrl: daemonBaseUrl(port, "::1") }), { ok: true, apiVersion: 1 })
 		} finally {
 			server.close()
+		}
+	})()
+})
+
+test("something that is not our daemon answering 200 is bad_response, not success or network", () => {
+	// A dev server squatting `daemon.port` answers 200 to anything. Reporting `ok: true, data: {}`
+	// would let `claim`/`ack`/`send` "succeed" with no daemon; reporting `network` points the user at
+	// `pi update` for a daemon that is up. Both hide the real cause, which is a wrong port.
+	return (async () => {
+		const { createServer } = await import("node:http")
+		const { createDaemonClient } = await import("../src/daemon/spawn.ts")
+
+		const cases: Array<{ name: string; body: string; type: string }> = [
+			{ name: "empty 200", body: "", type: "text/plain" },
+			{ name: "html 200", body: "<!doctype html><title>dev</title>", type: "text/html" },
+		]
+		for (const c of cases) {
+			const server = createServer((_req, res) => {
+				res.writeHead(200, { "content-type": c.type })
+				res.end(c.body)
+			})
+			await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()))
+			const baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+			try {
+				const client = createDaemonClient({ baseUrl, token: "t" })
+				const claim = await client.claim(1, "i")
+				assert.deepEqual(
+					{ ok: claim.ok, code: claim.ok ? undefined : claim.code },
+					{ ok: false, code: "bad_response" },
+					`${c.name}: claim must not report success`,
+				)
+				const mode = await client.mode()
+				assert.equal(mode.ok || mode.code !== "network", true, `${c.name}: not a network failure`)
+			} finally {
+				server.close()
+			}
 		}
 	})()
 })

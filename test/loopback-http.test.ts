@@ -190,9 +190,10 @@ test("does not leave an abort listener on the caller's signal", async () => {
 	// Every call registers a listener on a signal the caller may reuse; leaking it would keep the
 	// transport alive inside the caller's controller.
 	const { getEventListeners } = await import("node:events") as unknown as { getEventListeners: (t: unknown, e: string) => unknown[] }
-	await assert.rejects(() => loopbackFetch("http://127.0.0.1:1/health"), /ECONNREFUSED|connect/)
+	const refused = new AbortController()
+	await assert.rejects(() => loopbackFetch("http://127.0.0.1:1/health", { signal: refused.signal }), /ECONNREFUSED|connect/)
+	assert.equal(getEventListeners(refused.signal, "abort").length, 0, "no listener left on the refused call")
 	const controller = new AbortController()
-	assert.equal(getEventListeners(controller.signal, "abort").length, 0)
 
 	// and on the refusal path that does not use `finish`: a non-string body.
 	const s = await serve((_req, res) => res.writeHead(200).end("ok"))
@@ -330,6 +331,25 @@ test("the client and probe use this transport, not the ambient fetch", async () 
 			if (value === undefined) delete process.env[key]
 			else process.env[key] = value
 		}
+		s.close()
+	}
+})
+
+test("a reply that streams forever is cut off, not buffered without bound", async () => {
+	// A squatter on the port that answers 200 and never ends would otherwise grow the pi process
+	// until the caller's abort fired - the body cap is the only bound on bytes.
+	const s = await serve((_req, res) => {
+		res.writeHead(200)
+		const chunk = "x".repeat(64 * 1024)
+		const pump = (): void => {
+			if (res.write(chunk)) setImmediate(pump)
+			else res.once("drain", pump)
+		}
+		pump()
+	})
+	try {
+		await assert.rejects(() => loopbackFetch(s.url), /larger than/)
+	} finally {
 		s.close()
 	}
 })

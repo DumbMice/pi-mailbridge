@@ -8,6 +8,14 @@ import { loadConfig } from "../src/core/config.ts"
 import { checkProblems } from "../src/daemon/main.ts"
 import { configPath } from "../src/store/paths.ts"
 
+function loadWith(config: Record<string, unknown>) {
+		const dir = mkdtempSync(join(tmpdir(), "cfg-load-"))
+		const env = { XDG_CONFIG_HOME: dir }
+		mkdirSync(join(dir, "pi-mailbridge"), { recursive: true })
+		writeFileSync(configPath(env), JSON.stringify(config))
+		return loadConfig(env)
+	}
+
 
 test("a string allowFrom is rejected at load instead of killing the scan per message", () => {
 	// A string satisfies the .length check below, so this passed validation and then threw
@@ -211,3 +219,31 @@ test("a hand-edited mail.to that is not an address is reported", () => {
 	writeFileSync(configPath(env), JSON.stringify({ mail: { to: "you-at-example.com" } }))
 	assert.ok(loadConfig(env).warnings.some((w) => /mail\.to does not look like/.test(w)))
 })
+
+test("a padded or empty daemon.host is normalised, not just warned about", () => {
+	// The raw value used to travel into `http://${host}:4177` and into `server.listen`: `""` built an
+	// unparseable URL while the daemon bound 127.0.0.1, and `" 127.0.0.1"` failed on both sides -
+	// a bridge that is permanently unreachable with `--check` green.
+	assert.equal(loadWith({ daemon: { host: "" } }).daemon.host, "127.0.0.1")
+	assert.equal(loadWith({ daemon: { host: " 127.0.0.1 " } }).daemon.host, "127.0.0.1")
+	assert.equal(loadWith({ daemon: { host: "[::1]" } }).daemon.host, "::1", "URL brackets are stripped for listen()")
+	assert.equal(loadWith({ daemon: { host: "   " } }).daemon.host, "127.0.0.1")
+})
+
+test("the loopback check is a value test, not a prefix test", () => {
+	// `startsWith("127.")` accepted a DNS name that resolves anywhere (bearer token in cleartext)
+	// and a path-looking value whose URL sends the token to port 80.
+	for (const host of ["127.0.0.1.attacker.example", "127.0.0.1/x", "127.0.0.1:4177", "127.0.0.1#x"]) {
+		assert.ok(
+			loadWith({ daemon: { host } }).warnings.some((w) => /daemon\.host/.test(w)),
+			`${host} must warn: it is not loopback`,
+		)
+	}
+	for (const host of ["127.0.0.1", "127.0.0.2", "localhost", "::1", "[::1]", "::ffff:127.0.0.1", "0:0:0:0:0:0:0:1", "pi.localhost"]) {
+		assert.ok(
+			!loadWith({ daemon: { host } }).warnings.some((w) => /daemon\.host/.test(w)),
+			`${host} is loopback and must not warn`,
+		)
+	}
+})
+

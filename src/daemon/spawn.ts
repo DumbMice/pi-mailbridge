@@ -21,7 +21,7 @@ import { statePath } from "../store/paths.ts"
 export interface ProbeOptions {
 	baseUrl: string
 	timeoutMs?: number
-	/** Injected for tests. Defaults to global fetch. */
+	/** Injected for tests. Defaults to `loopbackFetch`, never the ambient `fetch`. */
 	fetchImpl?: typeof fetch
 }
 
@@ -193,24 +193,15 @@ export async function ensureDaemon(options: EnsureDaemonOptions): Promise<Ensure
 	return { started: true, healthy: false }
 }
 
-/** Default loopback base URL for the configured port. */
-/**
- * `fetch` for the loopback daemon, over `node:http`.
- *
- * Not the ambient `fetch`: pi installs `undici.EnvHttpProxyAgent` as the global dispatcher
- * (`dist/core/http-dispatcher.js`), so with `HTTP_PROXY` set every request - including
- * `http://127.0.0.1:4177` - is tunnelled to the proxy. Measured: a loopback `/health` through that
- * dispatcher times out, the session reports "daemon: unreachable", and nothing works while the
- * daemon itself answers in half a millisecond. `node:http` has no proxy semantics, so a loopback
- * request can never be redirected.
- */
 /**
  * `http://host:port`, bracket-ready. An IPv6 literal must be bracketed to parse at all
  * (`new URL("http://::1:4177")` throws), and `daemon.host` accepts the bare form, so the bracket
  * belongs here rather than in every caller.
  */
 export function daemonBaseUrl(port: number, host = "127.0.0.1"): string {
-	const bare = host.replace(/^\[|]$/g, "")
+	// `host` reaches here from config, but also from a caller that read it elsewhere; an empty value
+	// used to build `http://:4177`, which does not parse.
+	const bare = (host || "127.0.0.1").trim().replace(/^\[|]$/g, "")
 	return bare.includes(":") ? `http://[${bare}]:${port}` : `http://${bare}:${port}`
 }
 
@@ -266,7 +257,18 @@ export function createDaemonClient(options: DaemonClientOptions) {
 				}
 				return { ok: false, status: response.status, ...(code ? { code } : {}) }
 			}
-			return { ok: true, data: (text ? JSON.parse(text) : {}) as T }
+			let parsed: unknown
+			try {
+				parsed = JSON.parse(text)
+			} catch {
+				// Not JSON - and every daemon reply is JSON, including `{}`. An empty body lands
+				// here too: it means something else is answering on the port (a dev server), which
+				// is a wrong-port problem. Reporting success with `{}` would let `claim`/`ack`/`send`
+				// "succeed" without the daemon having done anything; reporting "network" would point
+				// the user at `pi update` while the daemon is up.
+				return { ok: false, status: response.status, code: "bad_response" }
+			}
+			return { ok: true, data: parsed as T }
 		} catch (error) {
 			// A timeout is reported distinctly: the outcome is unknown, so callers must
 			// treat it like a network failure (retry later) rather than a definite "no".

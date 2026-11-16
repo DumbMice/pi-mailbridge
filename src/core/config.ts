@@ -196,6 +196,19 @@ function envOverrides(env: NodeJS.ProcessEnv): Record<string, unknown> {
 	return o
 }
 
+/**
+ * Loopback in each form `daemon.host` accepts. Deliberately not a prefix test: `startsWith("127.")`
+ * accepts `127.0.0.1.attacker.example` (a DNS name that resolves anywhere, with the bearer token in
+ * cleartext) and `127.0.0.1/x`, whose URL puts the port in the path and sends the token to port 80.
+ */
+export function isLoopbackHost(host: string): boolean {
+	const name = String(host).trim().replace(/^\[|]$/g, "").toLowerCase()
+	if (name === "localhost" || name.endsWith(".localhost")) return true
+	if (name === "::1" || name === "0:0:0:0:0:0:0:1" || name === "::ffff:127.0.0.1") return true
+	const quad = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(name)
+	return quad !== null && quad.slice(1).every((octet) => Number(octet) <= 255)
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig {
 	const warnings: string[] = []
 	let cfg: any = DEFAULTS
@@ -322,8 +335,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 
 	// The one setting that removes the loopback assumption. SECURITY.md says "do not"; saying it
 	// only in the docs means a hand-edited config gets no feedback at all.
-	const host = String(resolved.daemon.host ?? "").trim().toLowerCase()
-	if (host && !(host === "localhost" || host === "::1" || host === "[::1]" || host === "127.0.0.1" || host.startsWith("127."))) {
+	//
+	// Normalised, not just warned about: `""` passes the old check untouched and `" 127.0.0.1"`
+	// trims clean, yet the *raw* value builds an unparseable URL and an address that cannot bind -
+	// a daemon that is up, a client that can never reach it, and `--check` green. Brackets are
+	// stripped here because `[::1]` is URL syntax; `daemonBaseUrl` re-adds them where they belong.
+	const host = String(resolved.daemon.host ?? "").trim().replace(/^\[|]$/g, "").toLowerCase()
+	if (host === "") {
+		resolved.daemon = { ...resolved.daemon, host: "127.0.0.1" }
+	} else if (host !== resolved.daemon.host) {
+		resolved.daemon = { ...resolved.daemon, host }
+	}
+	if (!isLoopbackHost(host === "" ? "127.0.0.1" : host)) {
 		warnings.push(
 			`daemon.host is "${resolved.daemon.host}", not loopback — there is no TLS and the bearer token is the only guard; leave it at 127.0.0.1 unless you know why`,
 		)
