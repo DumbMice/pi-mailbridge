@@ -552,3 +552,25 @@ test("the daemon client ignores a proxy installed on the global fetch", () => {
 	})()
 })
 
+test("loopbackFetch handles an IPv6 literal", () => {
+	// `daemon.host` may be `[::1]`; the URL keeps the brackets and getaddrinfo does not accept them.
+	return (async () => {
+		const { createServer } = await import("node:http")
+		const { loopbackFetch } = await import("../src/daemon/spawn.ts")
+		const server = createServer((_req, res) => res.writeHead(200).end("ok"))
+		const listening = await new Promise<boolean>((resolve) => {
+			server.once("error", () => resolve(false))
+			server.listen(0, "::1", () => resolve(true))
+		})
+		if (!listening) return // a host without IPv6 loopback
+		const port = (server.address() as { port: number }).port
+		try {
+			const response = await loopbackFetch(`http://[::1]:${port}/health`)
+			assert.equal(response.status, 200)
+			assert.equal(await response.text(), "ok")
+		} finally {
+			server.close()
+		}
+	})()
+})
+

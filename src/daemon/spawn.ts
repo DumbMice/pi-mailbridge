@@ -215,7 +215,9 @@ export const loopbackFetch: typeof fetch = (input, init) =>
 		for (const [key, value] of Object.entries((init?.headers ?? {}) as Record<string, string>)) headers[key] = value
 		const request = httpRequest(
 			{
-				hostname: url.hostname,
+				// `new URL` keeps the brackets on an IPv6 literal (`[::1]`), and getaddrinfo does not
+				// want them.
+				hostname: url.hostname.replace(/^\[|\]$/g, ""),
 				port: url.port === "" ? 80 : Number(url.port),
 				path: `${url.pathname}${url.search}`,
 				method: init?.method ?? "GET",
