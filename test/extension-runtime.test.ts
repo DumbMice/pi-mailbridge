@@ -2986,3 +2986,39 @@ test("a tick against a stranger on the port neither shuts it down nor spawns ont
 	assert.match(notes.join("\n"), /something else is answering on daemon\.port/, "and it was named once")
 })
 
+test("an older daemon that rejects our key is reported, not killed in a loop", async () => {
+	// Incompatible + 401: `/shutdown` is refused, so the port stays occupied and every retry repeats
+	// the same two toasts and the same five-second wait. Nothing about replacing can fix a key
+	// mismatch, and the restart ladder already words this case correctly.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on", apiVersion: 0 })
+	daemon.client.shutdown = async () => ({ ok: false as const, status: 401, code: "unauthorized" })
+	const pi = fakePi(ctx(notes))
+	let shutdowns = 0
+	const counted = daemon.client.shutdown
+	daemon.client.shutdown = async () => {
+		shutdowns += 1
+		return counted()
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => ({ healthy: false, incompatible: true, apiVersion: 0 }),
+		probeHealth: async () => false,
+		probeHealthDetail: async () => ({ ok: true, apiVersion: 0 }),
+		stopWaitMs: 0,
+		versionCheckMs: 0,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 14; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.equal(shutdowns, 1, "one refused shutdown, then stop")
+	assert.match(notes.join("\n"), /rejected this session's key, so it could not be stopped/)
+	assert.doesNotMatch(notes.join("\n"), /still on protocol 0/, `no futile retry wording: ${JSON.stringify(notes)}`)
+})
+

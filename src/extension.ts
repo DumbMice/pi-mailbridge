@@ -512,7 +512,18 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		)
 		// To stop it we need a client, even if this session has no runtime yet.
 		const stopping = client ?? buildClient()
-		await stopping?.shutdown().catch(() => undefined)
+		const stopped = await stopping?.shutdown().catch(() => undefined)
+		if (stopped && !stopped.ok && stopped.code === "unauthorized") {
+			// Our key is not the daemon's: the shutdown was refused, so the port will stay occupied and
+			// every retry would repeat this. That is the one case the restart ladder already words
+			// correctly, and no amount of replacing fixes it.
+			protocolStuck = true
+			ctx?.ui.notify(
+				"mailbridge: the daemon rejected this session's key, so it could not be stopped — stop it (or let it idle out) and start pi again",
+				"error",
+			)
+			return true
+		}
 		client = undefined
 		runner = undefined
 
