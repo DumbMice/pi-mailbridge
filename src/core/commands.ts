@@ -94,11 +94,19 @@ export interface ArgCompletion {
 export function completeSubcommand(prefix: string): ArgCompletion[] | null {
 	const typed = prefix.trimStart()
 	// `on`/`off` take exactly one flag, and it is the one the user is most likely to half-type.
-	const flag = /^(on|off)\s+(--?\w*)$/i.exec(typed)
+	//
+	// The `value` is the WHOLE argument, not the flag: pi replaces the argument text with it, so
+	// returning "--all" for a prefix of "on --" turned a valid command into `/mailbridge --all`, which
+	// parses as help. Same reason the single-word completions below return the subcommand itself.
+	const flag = /^(on|off)\s+(--?\w*)?$/i.exec(typed)
 	if (flag) {
+		const sub = (flag[1] ?? "").toLowerCase()
 		const needle = (flag[2] ?? "").toLowerCase()
-		const matches = ["--all"].filter((f) => f.startsWith(needle === "-" ? "--" : needle))
-		return matches.length === 0 ? null : matches.map((value) => ({ value, label: value, description: "every session, not just this one" }))
+		// No flag typed yet, or one half-typed: offer the only flag there is, completed as a whole command.
+		const matches = ["--all"].filter((f) => needle === "" || f.startsWith(needle === "-" ? "--" : needle))
+		return matches.length === 0
+			? null
+			: matches.map((f) => ({ value: `${sub} ${f}`, label: f, description: "every session, not just this one" }))
 	}
 	if (/\s/.test(typed)) return null
 	const needle = typed.toLowerCase()

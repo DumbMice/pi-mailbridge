@@ -98,8 +98,9 @@ test("Tab offers the subcommands, filtered by what has been typed", () => {
 	assert.deepEqual(completeSubcommand("  of")?.map((i) => i.value), ["off"])
 	assert.deepEqual(completeSubcommand("\tof")?.map((i) => i.value), ["off"])
 
-	// After a space the user is typing an argument, not a subcommand: no suggestions.
-	assert.equal(completeSubcommand("off "), null)
+	// After a space the user is typing an argument, not a subcommand: only `on`/`off`, which take a
+	// flag, get a suggestion there - and it is the whole command, not the bare flag.
+	assert.deepEqual(completeSubcommand("off ")?.map((i) => i.value), ["off --all"])
 	assert.equal(completeSubcommand("setup me@example.com"), null)
 	assert.equal(completeSubcommand("frobnicate"), null, "nothing matches")
 })
@@ -156,19 +157,37 @@ test("--all is scoped to on/off, and does not leak into other subcommands", () =
 	assert.equal(parseMailbridgeCommand("setup pi@x.example --all").all, false)
 })
 
-test("completion offers --all exactly where it applies", () => {
-	// Only `on`/`off` take it, and only as the second word: a flag completed after `status` would
-	// invite a command that silently ignores it.
+test("completion offers --all exactly where it applies, as the whole argument", () => {
+	// pi replaces the argument text with the completion's `value`, so a value of "--all" for a prefix of
+	// "on --" turned a valid command into `/mailbridge --all`, which parses as help. And Tab must never
+	// upgrade a bare `on` (this session) into `on --all` (every session).
 	const values = (input: string): string[] | null => {
 		const result = completeSubcommand(input)
 		return result === null ? null : result.map((c) => c.value)
 	}
-	assert.deepEqual(values("off -"), ["--all"])
-	assert.deepEqual(values("off --a"), ["--all"])
-	assert.deepEqual(values("on --"), ["--all"])
+	assert.deepEqual(values("on "), ["on --all"])
+	assert.deepEqual(values("off -"), ["off --all"])
+	assert.deepEqual(values("on --a"), ["on --all"])
+	assert.deepEqual(values("off --"), ["off --all"])
 	assert.equal(values("off --nope"), null, "no suggestion when nothing matches")
 	assert.equal(values("status -"), null, "status takes no flag")
 	assert.equal(values("setup pi@x"), null)
 	assert.deepEqual(values("of"), ["off"], "the first word still completes subcommands")
+	assert.deepEqual(values("on"), ["on"], "and a bare on stays a bare on")
 })
 
+test("no completion can ever change which subcommand ran", () => {
+	// The invariant behind the bug above: whatever Tab inserts must still be the command the user was
+	// typing. `on --` completing to `--all` parsed as help - a silently different command.
+	for (const typed of ["on", "on ", "on -", "on --", "on --a", "off", "off ", "off --", "of", "st"]) {
+		const wanted = typed.trim().split(/\s+/)[0] ?? ""
+		for (const item of completeSubcommand(typed) ?? []) {
+			const parsed = parseMailbridgeCommand(item.value)
+			assert.equal(
+				parsed.sub,
+				wanted === "of" ? "off" : wanted === "st" ? "status" : wanted,
+				`"${typed}" completed to "${item.value}", which parses as ${parsed.sub}`,
+			)
+		}
+	}
+})
