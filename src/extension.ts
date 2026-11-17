@@ -195,7 +195,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 * `/mailbridge restart`) re-applies it: the daemon keeps overrides in memory, so losing it there
 	 * would silently let mail back in.
 	 */
-	let sessionMode: "on" | "off" | undefined
+	let sessionMode: { mode: "on" | "off"; globalAt: number } | undefined
 	/** Stable id for this pi process, used for claims and for liveness pings. */
 	const instanceId = `pi-${process.pid}`
 	/** Throttle for respawning a daemon that exited for idleness. */
@@ -682,13 +682,18 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		if (!client) return false
 		const active = client
 
-		// A rebuilt runtime must not silently inherit the global switch: the daemon holds overrides in
-		// memory, so a restart would otherwise let mail back into a session that turned itself off.
-		if (sessionMode) {
-			await active.setMode(sessionMode, { scope: "session", instanceId }).catch(() => undefined)
-		}
-
 		const initialMode = await active.mode(instanceId)
+		if (sessionMode) {
+			// Re-apply only if the persisted switch has not moved since this session decided. A global
+			// write - ours or another session's `--all` - supersedes every override, and resurrecting
+			// one here would reopen a channel a human shut, including the daemon's scan gate.
+			const current = initialMode.ok ? ((initialMode.data as { globalUpdatedAt?: number }).globalUpdatedAt ?? 0) : undefined
+			if (current === sessionMode.globalAt) {
+				await active.setMode(sessionMode.mode, { scope: "session", instanceId }).catch(() => undefined)
+			} else {
+				sessionMode = undefined
+			}
+		}
 		// A session_shutdown can land during that await. Without this the runtime is rebuilt
 		// around a dead ctx: the poll keeps pinging and the daemon's idle exit can never fire.
 		if (!ctx) {
@@ -1041,7 +1046,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		// Asked per command, not cached: a daemon replacement mid-session must change the answer
 		// immediately, and an explicit user command can afford one request.
 		const advertised = client ? await client.health() : undefined
-		if (advertised && !advertised.ok) {
+		if (advertised && !advertised.ok && scope === "session") {
 			// Could not confirm what the daemon supports. Changing nothing is the only safe answer:
 			// guessing "global" would silently disarm every other agent because of one timeout.
 			c.ui.notify(
@@ -1065,7 +1070,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		if (viaDaemon?.ok) {
 			// `--all` means every session, this one included: a stale local override would otherwise
 			// keep this session quiet after the user explicitly switched the machine on.
-			sessionMode = effectiveScope === "session" ? mode : undefined
+			sessionMode =
+				effectiveScope === "session"
+					? { mode, globalAt: (viaDaemon.data as { globalUpdatedAt?: number }).globalUpdatedAt ?? 0 }
+					: undefined
 			emailMode = viaDaemon.data.mode === "on" ? "on" : "off"
 			const where = effectiveScope === "global" ? " (all sessions)" : ""
 			const fellBack = scope === "session" && effectiveScope === "global"
@@ -1077,7 +1085,18 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			c.ui.notify(`mailbridge: email mode ${effective}${where}${fellBack}`, fellBack ? "warning" : "info")
 			return
 		}
-		// No daemon: fall back to the local file so the mode change is never a silent no-op.
+		if (client && effectiveScope === "session") {
+			// A session override lives in the daemon and nowhere else, so there is nothing to fall back
+			// to. Writing the persisted switch here would turn a deliberate "just me" into "everybody" -
+			// the inversion this scope split exists to prevent.
+			c.ui.notify(
+				`mailbridge: the daemon did not accept the change (${viaDaemon && "code" in viaDaemon ? viaDaemon.code : "no reply"}) — nothing was changed`,
+				"warning",
+			)
+			return
+		}
+
+		// No daemon at all: fall back to the local file so the mode change is never a silent no-op.
 		const { writeMode } = await import("./store/mode-store.ts")
 		writeMode(env, mode)
 		// The settle notifier reads this mirror, not the file. Without it the command reports

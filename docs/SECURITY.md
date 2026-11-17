@@ -190,7 +190,8 @@ flip the mode, and shut the daemon down. Treat `secret.key` as equivalent to the
 - Turn it off with `/mailbridge off` when you will be at the desk: while this session's mode is off
   it does not claim or inject, so the mailbox is not a listening control channel for it.
   `/mailbridge off --all` is the machine-wide form: the daemon stops scanning too, once no attached
-  session has overridden itself on. Replies that arrive meanwhile stay in the
+  session has overridden itself on. It is also terminal-only by mail: a reply has to be one command
+  word, so `--all` in a reply is delivered to the agent as text instead of running. Replies that arrive meanwhile stay in the
   mailbox and are processed when you `/mailbridge on` again — which also means turning it back on can
   deliver a burst. To stop entirely, close pi and let the daemon exit (~120 s after the last ping),
   or stop it however you started it - with a session still open, the poll tick respawns a daemon it
@@ -236,7 +237,7 @@ forge the allowlisted `From` *and* carries a live route id or token — i.e. the
 your notifications:
 
 - `/mailbridge off` is a denial of the channel **for the session that ran it**: it is neither
-  persisted nor global, and it lasts until that session turns itself back on or exits. The
+  persisted nor global, and it lasts until that session turns itself back on, exits, or stops pinging for a day. The
   machine-wide form is `/mailbridge off --all` — **persisted**, and it overrides every session,
   including ones that had turned themselves on — so the whole channel stays shut, and scanning
   stops, until a human turns it back on at a terminal. Mail is not lost (the cursor does not move),

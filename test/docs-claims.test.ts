@@ -1333,7 +1333,7 @@ test("the docs state that a bare on/off is per session, and --all is the global 
 	// `on` asserts this session now; it does not inherit the global switch. Tied to the code, so
 	// rewording one without the other fails.
 	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
-	if (!/scope: "session", instanceId/.test(extension) || /clear: true/.test(extension)) return
+	assert.ok(!/clear: true/.test(extension), "a `clear` write means bare `on` inherits again - the docs below say it does not")
 	assert.doesNotMatch(
 		flat(doc("README.md")),
 		/gives it back to the global switch/i,

@@ -29,6 +29,20 @@ export function isMode(value: unknown): value is Mode {
 	return value === "on" || value === "off"
 }
 
+/**
+ * When the persisted switch last changed. Sessions use it to tell whether a decision they made is
+ * still current: a global write moves the stamp, so a session that reconnects afterwards knows its
+ * own override was superseded - by another session's `--all`, or by its own.
+ */
+export function readModeStamp(env: NodeJS.ProcessEnv = process.env): number {
+	try {
+		const parsed = JSON.parse(readFileSync(path(env), "utf8")) as Partial<ModeFile>
+		return typeof parsed?.updatedAt === "number" ? parsed.updatedAt : 0
+	} catch {
+		return 0
+	}
+}
+
 /** Current mode; a missing or corrupt file means off. */
 export function readMode(env: NodeJS.ProcessEnv = process.env): Mode {
 	const p = path(env)

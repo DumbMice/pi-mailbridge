@@ -1367,10 +1367,13 @@ test("a mode change that cannot reach the daemon still updates this session's mi
 	})
 	await pi.fire("session_start")
 
-	// The daemon becomes unreachable exactly for the mode change.
-	const client = daemon.client as unknown as { setMode: unknown }
+	// The daemon becomes unreachable: no health answer either. (A daemon that answers and then refuses
+	// the change is a different case - this session stays unchanged, see below.)
+	const client = daemon.client as unknown as { setMode: unknown; health: unknown }
+	client.health = async () => ({ ok: false as const, status: 0, code: "network" })
 	client.setMode = async () => ({ ok: false as const, status: 0, code: "network" })
-	await captured.get("mailbridge")!("on", ctx(notes))
+	// `--all` is the form that can be stored without the daemon: it is a file.
+	await captured.get("mailbridge")!("on --all", ctx(notes))
 	assert.ok(notes.some((n) => /stored locally/.test(n)), `the fallback ran (notes: ${JSON.stringify(notes)})`)
 
 	// A settle now must be considered ON: the notifier should try to send.
@@ -3300,5 +3303,41 @@ test("a failed capability probe changes nothing instead of falling back to globa
 	assert.deepEqual(daemon.modes, [], "no global write")
 	assert.equal(daemon.modeScopes.length, 0, "no session write either")
 	assert.ok(notes.some((n) => /could not confirm/.test(n)), `must say why: ${JSON.stringify(notes)}`)
+})
+
+test("a live daemon that refuses the change leaves this session unchanged, not machine-wide", async () => {
+	// The probe answered, so the daemon is up; it just would not take the change (timeout, 500, 401).
+	// Writing the persisted switch here would turn a deliberate "just me" into "everybody".
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on" })
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-mode-refuse-")) }
+	const captured = new Map<string, (args: string, ctx: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		if (spec?.handler) captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env,
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	;(daemon.client as unknown as { setMode: unknown }).setMode = async () => ({
+		ok: false as const,
+		status: 0,
+		code: "timeout",
+	})
+
+	await captured.get("mailbridge")!("off", ctx(notes))
+
+	assert.ok(notes.some((n) => /did not accept the change/.test(n)), `said why: ${JSON.stringify(notes)}`)
+	assert.doesNotMatch(notes.join("\n"), /stored locally/, "no local write for a live daemon")
+	const { readMode } = await import("../src/store/mode-store.ts")
+	assert.equal(readMode(env), "off", "the persisted switch was not touched")
 })
 

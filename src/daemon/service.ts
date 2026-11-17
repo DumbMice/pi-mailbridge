@@ -23,7 +23,7 @@ import { ackPending, claimPending, listPending } from "../store/pending-store.ts
 import { journal } from "../store/journal.ts"
 import { recordOutbound, removeOutbound, sessionThread } from "../store/threads.ts"
 import { generateMessageId } from "../core/mailer.ts"
-import { readMode, writeMode, isMode, type Mode } from "../store/mode-store.ts"
+import { readMode, readModeStamp, writeMode, isMode, type Mode } from "../store/mode-store.ts"
 import { createRegistry, type Registry } from "../store/registry.ts"
 
 export const MAX_BODY_BYTES = 1_000_000
@@ -310,7 +310,12 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					const instanceId = url.searchParams.get("instanceId") ?? undefined
 					const glob = readMode(env)
 					const over = overrideFor(instanceId, now())
-					return send(200, { mode: over ?? glob, global: glob, ...(over ? { session: over } : {}) })
+					return send(200, {
+						mode: over ?? glob,
+						global: glob,
+						globalUpdatedAt: readModeStamp(env),
+						...(over ? { session: over } : {}),
+					})
 				}
 
 				case "POST /claim": {
@@ -389,6 +394,10 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					const instanceId = typeof body?.instanceId === "string" ? body.instanceId : ""
 					if (!instanceId) return fail(400, "bad_request")
 					pings.set(instanceId, now())
+					// The TTL exists for a session that died without /bye. Refresh it while the session
+					// is alive, or an all-day session quietly resumes mailing at the 24 h mark.
+					const live = sessionModes.get(instanceId)
+					if (live) sessionModes.set(instanceId, { ...live, at: now() })
 					// Bounded: a client that keeps changing its id must not grow this map without
 					// limit. Oldest entries are dropped first.
 					while (pings.size > MAX_PINGS) {
@@ -449,7 +458,15 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 						else return fail(400, "bad_request")
 						const glob = readMode(env)
 						const over = overrideFor(instanceId, now())
-						return send(200, { mode: over ?? glob, global: glob, ...(over ? { session: over } : {}) })
+						// A session turning itself on is a reason to sweep now, exactly like the global
+						// switch: IDLE will not fire for mail that is already sitting in the mailbox.
+						if (over === "on") deps.onModeChange?.("on")
+						return send(200, {
+							mode: over ?? glob,
+							global: glob,
+							globalUpdatedAt: readModeStamp(env),
+							...(over ? { session: over } : {}),
+						})
 					}
 					if (!isMode(body?.mode)) return fail(400, "bad_request")
 					const mode = writeMode(env, body.mode, now())
@@ -458,7 +475,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					sessionModes.clear()
 					broadcast({ type: "mode", mode })
 					deps.onModeChange?.(mode)
-					return send(200, { mode, global: mode })
+					return send(200, { mode, global: mode, globalUpdatedAt: readModeStamp(env) })
 				}
 
 				case "POST /send": {

@@ -243,9 +243,16 @@ test("POST /mode persists and broadcasts to connected SSE clients", async () => 
 test("GET /mode reflects the persisted value", async () => {
 	const h = await boot()
 	try {
-		assert.deepEqual(await (await fetch(`${h.base}/mode`, { headers: auth() })).json(), { mode: "off", global: "off" })
+		const first = (await (await fetch(`${h.base}/mode`, { headers: auth() })).json()) as { mode: string; global: string }
+		assert.deepEqual({ mode: first.mode, global: first.global }, { mode: "off", global: "off" })
 		await post(h, "/mode", { mode: "on" })
-		assert.deepEqual(await (await fetch(`${h.base}/mode`, { headers: auth() })).json(), { mode: "on", global: "on" })
+		const second = (await (await fetch(`${h.base}/mode`, { headers: auth() })).json()) as {
+			mode: string
+			global: string
+			globalUpdatedAt: number
+		}
+		assert.deepEqual({ mode: second.mode, global: second.global }, { mode: "on", global: "on" })
+		assert.ok(second.globalUpdatedAt > 0, "the persisted switch carries the stamp a session compares")
 	} finally {
 		await h.close()
 	}
@@ -1314,24 +1321,33 @@ test("every accepted loopback form actually binds on this host", async () => {
 	}
 })
 
+/** The mode payload without its stamp, which has no stable value. */
+async function modeOf(response: Response): Promise<Record<string, unknown>> {
+	const body = (await response.json()) as Record<string, unknown>
+	const { globalUpdatedAt: _stamp, ...rest } = body
+	return rest
+}
+
 test("a session-only off does not touch the global switch, and the override wins", async () => {
 	// The whole point: silencing one noisy agent must not disarm the others.
 	const h = await boot()
 	try {
 		await post(h, "/mode", { mode: "on", scope: "global" })
 		const quiet = await post(h, "/mode", { mode: "off", scope: "session", instanceId: "inst-a" })
-		assert.deepEqual(await quiet.json(), { mode: "off", global: "on", session: "off" })
+		assert.deepEqual(await modeOf(quiet), { mode: "off", global: "on", session: "off" })
 
 		// This session is off; the global switch and another session are untouched.
-		const mine = await (await fetch(`${h.base}/mode?instanceId=inst-a`, { headers: auth() })).json()
-		assert.deepEqual(mine, { mode: "off", global: "on", session: "off" })
-		const other = await (await fetch(`${h.base}/mode?instanceId=inst-b`, { headers: auth() })).json()
-		assert.deepEqual(other, { mode: "on", global: "on" })
+		const mine = await fetch(`${h.base}/mode?instanceId=inst-a`, { headers: auth() })
+		assert.deepEqual(await modeOf(mine), { mode: "off", global: "on", session: "off" })
+		const other = await fetch(`${h.base}/mode?instanceId=inst-b`, { headers: auth() })
+		assert.deepEqual(await modeOf(other), { mode: "on", global: "on" })
 
 		// A global write is "every session", so it clears the override rather than leaving it behind.
 		const all = await post(h, "/mode", { mode: "on", scope: "global" })
-		assert.deepEqual(await all.json(), { mode: "on", global: "on" })
-		assert.deepEqual(await (await fetch(`${h.base}/mode?instanceId=inst-a`, { headers: auth() })).json(), {
+		assert.deepEqual(await modeOf(all), { mode: "on", global: "on" })
+		const r = (await (await fetch(`${h.base}/mode?instanceId=inst-a`, { headers: auth() })).json()) as Record<string, unknown>
+		assert.deepEqual({ mode: r.mode,
+		global: r.global }, {
 			mode: "on",
 			global: "on",
 		})
@@ -1353,7 +1369,9 @@ test("a session override needs an instance id, and dies with the session", async
 		await post(h, "/bye", { instanceId: "inst-x" })
 		// A session that left cannot hold the mailbox quiet: a later process reusing the id starts
 		// from the global switch.
-		assert.deepEqual(await (await fetch(`${h.base}/mode?instanceId=inst-x`, { headers: auth() })).json(), {
+		const r = (await (await fetch(`${h.base}/mode?instanceId=inst-x`, { headers: auth() })).json()) as Record<string, unknown>
+		assert.deepEqual({ mode: r.mode,
+		global: r.global }, {
 			mode: "off",
 			global: "off",
 		})
@@ -1393,7 +1411,9 @@ test("a global write beats a session override, in both directions", async () => 
 		assert.equal(h.service.scanEnabled(), true)
 		await post(h, "/mode", { mode: "off", scope: "global" })
 		assert.equal(h.service.scanEnabled(), false, "off --all stopped the session that turned itself on")
-		assert.deepEqual(await (await fetch(`${h.base}/mode?instanceId=inst-on`, { headers: auth() })).json(), {
+		const r = (await (await fetch(`${h.base}/mode?instanceId=inst-on`, { headers: auth() })).json()) as Record<string, unknown>
+		assert.deepEqual({ mode: r.mode,
+		global: r.global }, {
 			mode: "off",
 			global: "off",
 		})
@@ -1419,8 +1439,8 @@ test("a session override expires on its own, so a crash cannot hold the mailbox 
 		}
 		assert.equal(before.mode, "on")
 		h.advanceHours(25)
-		const after = await (await fetch(`${h.base}/mode?instanceId=inst-ttl`, { headers: auth() })).json()
-		assert.deepEqual(after, { mode: "off", global: "off" }, "past the TTL the override is gone")
+		const after = await fetch(`${h.base}/mode?instanceId=inst-ttl`, { headers: auth() })
+		assert.deepEqual(await modeOf(after), { mode: "off", global: "off" }, "past the TTL the override is gone")
 	} finally {
 		await h.close()
 	}
