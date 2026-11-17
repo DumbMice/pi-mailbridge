@@ -30,6 +30,9 @@ const HANDLED = new Set([
 	"journaled",
 	"vanished",
 	"route-miss",
+	// A renumbering detected and recovered from: the cursor was reset and the batch re-read.
+	"uidvalidity-reset",
+	"uidvalidity-dropped",
 	// In single-mailbox mode our own notifications come back on every send. Rejecting them is
 	// the system working, so counting them as rejections made a healthy install look broken.
 	"self-echo",

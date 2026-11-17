@@ -49,17 +49,18 @@ export interface UidValidityOutcome {
  * Compare the mailbox's UIDVALIDITY with the recorded one, and reset what a renumbering
  * invalidates.
  *
- * Called on every successful connect. A renumbering cannot be detected by the cursor alone,
- * so this is the only place it is noticed - and the only place its consequences are undone.
+ * Called on every successful connect *and* on every scan (the daemon injects it into
+ * `scanAndProcess`): a renumbering cannot be detected by the cursor alone, and a provider can renumber
+ * the folder while the connection stays up.
  */
 export function applyUidValidity(
 	env: NodeJS.ProcessEnv,
-	watcher: ProxyTarget | undefined,
+	watcher: Pick<ProxyTarget, "uidValidity"> & { uidNext?: () => number | undefined } | undefined,
 	onDropped?: (sessionId: string) => void,
 ): UidValidityOutcome {
 	const validity = watcher?.uidValidity()
 	if (validity === undefined) return { reset: false, validity, dropped: 0 }
-	const reset = syncUidValidity(env, validity, watcher?.uidNext())
+	const reset = syncUidValidity(env, validity, watcher?.uidNext?.())
 
 	// Drop on EVERY connect, not only on a reset: a crash between the cursor write and the
 	// drop leaves records from another space that nothing can claim (the guard refuses them)

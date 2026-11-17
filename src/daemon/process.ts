@@ -95,6 +95,12 @@ export interface ScanDeps {
 	onDropped?: (sessionId: string) => void
 	/** Injected by tests: the document writer, so a failed write can be exercised. */
 	saveFiles?: typeof saveInboundFiles
+	/**
+	 * Injected by the daemon: the UIDVALIDITY check (`source-proxy.applyUidValidity`). It lives there
+	 * because that module drops records from the old space and releases their slots; `process.ts` may
+	 * not import it (they import each other). Absent in tests that do not care.
+	 */
+	applyUidValidity?: UidValidityCheck
 }
 
 export interface ScanResult {
@@ -124,10 +130,19 @@ function bump(reasons: Record<string, number>, key: string): void {
  * pending store stops the scan with the cursor left before the offending UID, so
  * the next scan retries it.
  */
+/** Injected by the daemon so `process.ts` need not import the proxy (they would import each other). */
+export type UidValidityCheck = (env: NodeJS.ProcessEnv, source: MailSource) => { reset: boolean; dropped: number }
+
 export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Promise<ScanResult> {
 	const env = deps.env ?? process.env
 	const now = deps.now ?? (() => Date.now())
 	const saveFiles = deps.saveFiles ?? saveInboundFiles
+
+	// Checked on every scan, not only on connect: a provider can renumber the folder on a live
+	// connection, and the stale high-water cursor then filters out every message ("examined 0" for
+	// ever) while the reset machinery sits unused. Idempotent, and it reads the watcher's cached value.
+	// It runs before the cursor is read: a reset inside it must be what this batch searches from.
+	const validity = deps.applyUidValidity?.(env, deps.source) ?? { reset: false, dropped: 0 }
 
 	const startCursor = readCursor(env)
 	const uidValidity = deps.source.uidValidity?.()
@@ -140,6 +155,10 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		skipped: 0,
 		reasons: {},
 		cursor: startCursor,
+	}
+	if (validity.reset) {
+		bump(result.reasons, "uidvalidity-reset")
+		if (validity.dropped > 0) bump(result.reasons, "uidvalidity-dropped")
 	}
 
 	/**

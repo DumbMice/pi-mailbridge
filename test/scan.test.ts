@@ -947,3 +947,29 @@ test("a dropped attachment is named in the message even when the reply has prose
 	assert.equal(record!.attachments?.length ?? 0, 0, "the clip itself is still not attached")
 })
 
+test("a renumbering is noticed on a normal scan, not only on reconnect", async () => {
+	// A provider can renumber the folder on a live connection. The stale high-water cursor then filters
+	// out every message and the sweep reports `examined 0` for ever, while the reset machinery sat in
+	// the connect callback, unused. The check now rides in the scan itself.
+	const e = env()
+	// A cursor from the old numbering, well past the UIDs this fake source will return, and *recorded*
+	// against the old UIDVALIDITY: the first observation of a space is an adoption, not a reset.
+	const { advanceCursor } = await import("../src/store/uid-cursor.ts")
+	const { syncUidValidity } = await import("../src/store/uid-cursor.ts")
+	advanceCursor(e, 9)
+	syncUidValidity(e, 1111)
+	const { applyUidValidity } = await import("../src/daemon/source-proxy.ts")
+
+	const renumbered = { ...source([msg(1, { text: "after the renumber" })]), uidValidity: () => 2222 }
+	const r = await scanAndProcess(config(), {
+		source: renumbered,
+		secret: SECRET,
+		env: e,
+		// The daemon injects the proxy's own helper; the wiring under test is that the scan asks.
+		applyUidValidity: (env, src) => applyUidValidity(env, src),
+	})
+	assert.ok(r.reasons["uidvalidity-reset"] === 1, `the reset should be reported: ${JSON.stringify(r.reasons)}`)
+	assert.equal(r.persisted, 1, "and the re-read batch is delivered")
+	assert.equal(listPending(e)[0]?.body, "after the renumber")
+})
+
