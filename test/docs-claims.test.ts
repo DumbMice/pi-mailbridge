@@ -1309,20 +1309,25 @@ test("the docs state the protocol direction rule, not a blanket replacement", ()
 })
 
 test("the docs state that a bare on/off is per session, and --all is the global switch", () => {
-	// The meaning of a bare `off` changed; a doc that still describes the old machine-wide behaviour
-	// would be worse than no doc, because it is the sentence someone reads before typing it.
+	// The meaning of a bare `off` changed. A doc sentence that calls it machine-wide is worse than
+	// no doc: it is what someone reads before typing it.
 	for (const file of ["README.md", "docs/ARCHITECTURE.md"]) {
 		const text = flat(doc(file))
 		assert.match(text, /--all/, `${file} must document --all`)
-		assert.match(
-			text,
-			/this session|per session|per-session/i,
-			`${file} must say a bare on/off is scoped to one session`,
-		)
+		for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+			// Only sentences about the *bare* command: a sentence that mentions `--all` is allowed
+			// to say it affects every session.
+			if (/--all/.test(sentence)) continue
+			if (!/`?\/mailbridge off`?/.test(sentence)) continue
+			assert.doesNotMatch(
+				sentence,
+				/every (attached )?session|machine-wide|all (of them|sessions|your sessions)/i,
+				`${file}: "${sentence.trim()}" calls a bare off machine-wide`,
+			)
+		}
+		assert.match(text, /this session|per session|per-session/i, `${file} must scope a bare on/off to one session`)
 	}
-	// And the command's own help must not promise machine-wide behaviour for the bare form.
 	const table = SUBCOMMAND_INFO.find((c) => c.name === "off")
 	assert.ok(table, "off is in the table")
 	assert.match(table.hint + (table.args ?? ""), /session|--all/i, "the completion hint must name the scope")
 })
-
