@@ -160,6 +160,8 @@ function fakeDaemon(
 	let currentMode = over.mode ?? "on"
 	/** Per-session overrides, the daemon's in-memory map in miniature. */
 	const sessionOverrides = new Map<string, "on" | "off">()
+	/** The persisted switch's stamp: every global write moves it, and sessions compare against it. */
+	let globalStamp = 1
 	let daemonUp = true
 	let shutdowns = 0
 	const pendingRecords = over.pending ?? []
@@ -181,7 +183,11 @@ function fakeDaemon(
 			// Scope-aware, like the daemon: without an id the answer is the global switch, with an id
 			// it is that session's override. A scope-blind fake is what hid the tick bug.
 			const own = instanceId ? sessionOverrides.get(instanceId) : undefined
-			return ok(own ? { mode: own, global: currentMode, session: own } : { mode: currentMode, global: currentMode })
+			return ok(
+				own
+					? { mode: own, global: currentMode, session: own, globalUpdatedAt: globalStamp }
+					: { mode: currentMode, global: currentMode, globalUpdatedAt: globalStamp },
+			)
 		},
 		setMode: async (
 			mode: "on" | "off",
@@ -191,11 +197,12 @@ function fakeDaemon(
 			if ((options.scope ?? "global") === "global") {
 				currentMode = mode
 				sessionOverrides.clear()
+				globalStamp += 1
 				modes.push(mode)
-				return ok({ mode, global: mode })
+				return ok({ mode, global: mode, globalUpdatedAt: globalStamp })
 			}
 			if (options.instanceId) sessionOverrides.set(options.instanceId, mode)
-			return ok({ mode, global: currentMode, session: mode })
+			return ok({ mode, global: currentMode, session: mode, globalUpdatedAt: globalStamp })
 		},
 		// The tick's first call. Without it the whole tick threw and the swallow-all catch
 		// hid it, so gate tests passed for the wrong reason.
@@ -3339,5 +3346,48 @@ test("a live daemon that refuses the change leaves this session unchanged, not m
 	assert.doesNotMatch(notes.join("\n"), /stored locally/, "no local write for a live daemon")
 	const { readMode } = await import("../src/store/mode-store.ts")
 	assert.equal(readMode(env), "off", "the persisted switch was not touched")
+})
+
+test("a foreign --all supersedes this session's override, and a rebuild does not resurrect it", async () => {
+	// The override lives in the daemon's memory, so the extension remembers it to re-apply after a
+	// rebuild. Another session's `--all A` clears the daemon's copy - and re-applying the stale value
+	// would reopen a channel a human shut, for this session and for the daemon's scan gate.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "off" })
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		probeHealth: async () => true,
+		stopWaitMs: 0,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	await captured.get("mailbridge")!("on", ctx(notes))
+	const before = daemon.modeScopes.length
+
+	// Another session flips the machine-wide switch off: the daemon clears every override, and the
+	// persisted stamp moves.
+	await daemon.client.setMode("off", { scope: "global" })
+
+	// This session rebuilds (a restart, a replacement, an idle respawn) - and must not re-push.
+	await captured.get("mailbridge")!("restart", ctx(notes))
+	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
+
+	const after = daemon.modeScopes.slice(before)
+	assert.equal(
+		after.some((m) => m.scope === "session" && m.mode === "on"),
+		false,
+		`the superseded override must not be re-applied: ${JSON.stringify(after)}`,
+	)
 })
 

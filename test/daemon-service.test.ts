@@ -1446,3 +1446,32 @@ test("a session override expires on its own, so a crash cannot hold the mailbox 
 	}
 })
 
+test("a session turning itself on sweeps now, like the global switch", async () => {
+	// IDLE does not fire for mail that is already in the mailbox, so without this the reply a user is
+	// waiting for waits for the interval sweep - up to `daemon.scanIntervalSecs`.
+	const seen: string[] = []
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-mode-sweep-")) }
+	const service = createDaemonService({
+		config: config(),
+		token: TOKEN,
+		env,
+		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
+		send: async () => {},
+		onModeChange: (mode: "on" | "off") => seen.push(mode),
+	})
+	const { port } = await service.listen(0, "127.0.0.1")
+	try {
+		const post = (body: unknown) =>
+			fetch(`http://127.0.0.1:${port}/mode`, {
+				method: "POST",
+				headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+				body: JSON.stringify(body),
+			})
+		await post({ mode: "off", scope: "global" })
+		seen.length = 0
+		await post({ mode: "on", scope: "session", instanceId: "inst-sweep" })
+		assert.deepEqual(seen, ["on"], "the session's on must trigger the scan hook")
+	} finally {
+		await service.close()
+	}
+})
