@@ -1053,7 +1053,13 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				})
 			: undefined
 		if (viaDaemon?.ok) {
+			// `--all` means every session, this one included: a stale local override would otherwise
+			// keep this session quiet after the user explicitly switched the machine on.
+			const hadOverride = sessionMode !== undefined
 			sessionMode = effectiveScope === "session" ? (clearing ? undefined : mode) : undefined
+			if (effectiveScope === "global" && hadOverride && client) {
+				await client.setMode(mode, { scope: "session", instanceId, clear: true }).catch(() => undefined)
+			}
 			emailMode = viaDaemon.data.mode === "on" ? "on" : "off"
 			const where = effectiveScope === "global" ? " (all sessions)" : ""
 			const fellBack = scope === "session" && effectiveScope === "global"

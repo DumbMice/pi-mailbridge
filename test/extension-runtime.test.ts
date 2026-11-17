@@ -3163,3 +3163,35 @@ test("a rebuilt runtime re-applies this session's override", async () => {
 	)
 })
 
+test("--all also clears this session's own override", async () => {
+	// `--all` is "every session", this one included. Leaving a local override behind would keep the
+	// session quiet after the user explicitly switched the machine on.
+	const daemon = fakeDaemon({ mode: "on" })
+	const notes: string[] = []
+	const captured = new Map<string, (args: string, ctx: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: fakeTimers().timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	await captured.get("mailbridge")!("off", ctx(notes))
+	const beforeAll = daemon.modeScopes.length
+	await captured.get("mailbridge")!("on --all", ctx(notes))
+	const after = daemon.modeScopes.slice(beforeAll)
+
+	assert.deepEqual(daemon.modes.at(-1), "on", "the global switch went on")
+	assert.ok(
+		after.some((m) => m.scope === "session" && m.clear === true),
+		`this session's override must be dropped: ${JSON.stringify(after)}`,
+	)
+})
+
