@@ -468,7 +468,8 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 			// the failure would be swallowed by the scan queue with no log line at all.
 			const before = new Set(listPending().map((r) => r.uid))
 			const result = await scanAndProcess(currentConfig, {
-				applyUidValidity: (env, source) => applyUidValidity(env, currentWatcher, (sessionId) => registry.release(sessionId)),
+				applyUidValidity: (env) =>
+					applyUidValidity(env, currentWatcher, (sessionId) => registry.release(sessionId)),
 				source: sourceProxy,
 				secret: ensureSecret(),
 				onDropped: (sessionId) => registry.release(sessionId),

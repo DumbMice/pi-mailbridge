@@ -203,10 +203,12 @@ UIDs are only meaningful within one `UIDVALIDITY`. If a provider recreates, migr
 future message, with `examined 0` as the only symptom.
 
 The daemon records the mailbox's `UIDVALIDITY` beside the cursor and compares it on every
-connect. On a change it resets the cursor (except the first observation after an upgrade, unless the
+**scan**, not only on connect: a provider can renumber the folder while the connection stays up, and a
+stale high-water cursor would then filter out every message (`examined 0`) while the reset machinery
+sat unused in the connect callback. On a change it resets the cursor (except the first observation after an upgrade, unless the
 cursor has fallen outside the new range) and ignores `journal.json` entries from the old
 numbering (they describe a space that no longer exists). Queued records tagged with another numbering are dropped
-on **every** connect, not only on a change - a crash between the cursor write and the drop
+on **every** check, not only on a change - a crash between the cursor write and the drop
 would otherwise leave a record that nothing can claim and nothing ever removes. Records with
 *no* space tag predate that field: an ordinary connect keeps them (an upgrade must not discard
 a queued reply), but a detected renumbering drops them too, because they cannot be shown to

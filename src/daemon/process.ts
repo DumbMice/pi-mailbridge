@@ -85,6 +85,13 @@ export interface MailSource {
 	markSeen?(uid: number): Promise<void>
 }
 
+/**
+ * The UIDVALIDITY check, injected by the daemon so `process.ts` need not import the proxy (they would
+ * import each other). It takes only the env: the caller closes over the live watcher, which carries the
+ * `uidNext` this needs and a `MailSource` does not.
+ */
+export type UidValidityCheck = (env: NodeJS.ProcessEnv) => { reset: boolean; dropped: number }
+
 export interface ScanDeps {
 	source: MailSource
 	/** HMAC key for routing-token verification. */
@@ -130,9 +137,10 @@ function bump(reasons: Record<string, number>, key: string): void {
  * pending store stops the scan with the cursor left before the offending UID, so
  * the next scan retries it.
  */
-/** Injected by the daemon so `process.ts` need not import the proxy (they would import each other). */
-export type UidValidityCheck = (env: NodeJS.ProcessEnv, source: MailSource) => { reset: boolean; dropped: number }
-
+/**
+ * One incremental scan: search after the cursor, authorize, persist, advance. Pure in its deps, so the
+ * whole pipeline - including a renumbering - can be driven from a fake source.
+ */
 export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Promise<ScanResult> {
 	const env = deps.env ?? process.env
 	const now = deps.now ?? (() => Date.now())
@@ -142,7 +150,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 	// connection, and the stale high-water cursor then filters out every message ("examined 0" for
 	// ever) while the reset machinery sits unused. Idempotent, and it reads the watcher's cached value.
 	// It runs before the cursor is read: a reset inside it must be what this batch searches from.
-	const validity = deps.applyUidValidity?.(env, deps.source) ?? { reset: false, dropped: 0 }
+	const validity = deps.applyUidValidity?.(env) ?? { reset: false, dropped: 0 }
 
 	const startCursor = readCursor(env)
 	const uidValidity = deps.source.uidValidity?.()
@@ -156,10 +164,10 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		reasons: {},
 		cursor: startCursor,
 	}
-	if (validity.reset) {
-		bump(result.reasons, "uidvalidity-reset")
-		if (validity.dropped > 0) bump(result.reasons, "uidvalidity-dropped")
-	}
+	if (validity.reset) bump(result.reasons, "uidvalidity-reset")
+	// Dropped on every call, reset or not (records from another space nothing could claim): report it
+	// the same way, or a sweep that drops orphans while the folder is empty logs nothing at all.
+	if (validity.dropped > 0) bump(result.reasons, "uidvalidity-dropped")
 
 	/**
 	 * Persist, and if the queue is full make room by expiring records nothing can deliver any more.
@@ -367,9 +375,12 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		// A drop must reach the agent even when the reply has prose: "here is the screen recording"
 		// with the clip silently missing reads as success. The note is appended to the body, which is
 		// the one channel the agent is guaranteed to read - the stub below covers the no-text case.
-		if (dropped.length > 0 && body) {
+		if (dropped.length > 0 && (body || accepted.length > 0 || files.length > 0)) {
+			// Not `&& body`: a phone reply of a screenshot plus a rejected clip has no prose, and the
+			// surviving image was delivered with no indication that anything else was lost.
 			const reasons = [...new Set(dropped.map((d) => d.reason))].join(", ")
-			body = `${body}\n\n[pi-mailbridge: ${dropped.length} attachment(s) dropped (${reasons}); ask for them again or send as a file]`
+			const note = `[pi-mailbridge: ${dropped.length} attachment(s) dropped (${reasons}); ask for them again or send as a file]`
+			body = body ? `${body}\n\n${note}` : note
 		}
 
 		// Written before the record, so the path in `pending.json` always points at a real file.
@@ -419,7 +430,8 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			// so would processing a later UID (the cursor is monotonic, so it would jump
 			// over this one). The mail stays unread and the whole batch is retried once
 			// space appears.
-			result.rejected++
+			// Deferred, not refused: the mail is not lost and the batch is retried. Counting it as
+			// `rejected` made the panel say "rejected 1" beside "rejections: none".
 			bump(result.reasons, "pending-full")
 			break
 		}

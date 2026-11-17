@@ -41,10 +41,13 @@ const HANDLED = new Set([
 /** Deferred, not dropped: the queue was full and the same UID is retried. */
 const DEFERRED = new Set(["pending-full"])
 
-/** Reasons the panel treats as a refusal: everything else is a successful or deferred path. */
+/**
+ * Is this reason a refusal? Everything else is a successful path, a deferral, an expiry or a partial
+ * attachment loss - and the panel, the docs guard and the troubleshooting table must agree about it.
+ */
 export function isRefusalReason(reason: string): boolean {
-	const base = reason.startsWith("attachment-") ? "attachment-" : reason
-	return !HANDLED.has(reason) && !DEFERRED.has(reason) && !EXPIRED.has(reason) && !HANDLED.has(base)
+	if (reason.startsWith("attachment-")) return false
+	return !HANDLED.has(reason) && !DEFERRED.has(reason) && !EXPIRED.has(reason)
 }
 
 /**
@@ -83,7 +86,7 @@ export function formatScan(summary: ScanSummary | null | undefined): string[] {
 			.map(([reason, n]) => `${reason} ${n}`)
 			.join(", ")
 
-	const refused = list((r) => !HANDLED.has(r) && !DEFERRED.has(r) && !EXPIRED.has(r) && !r.startsWith("attachment-"))
+	const refused = list(isRefusalReason)
 	const expired = list((r) => EXPIRED.has(r))
 	const handled = list((r) => HANDLED.has(r))
 	const dropped = list((r) => r.startsWith("attachment-"))

@@ -966,10 +966,54 @@ test("a renumbering is noticed on a normal scan, not only on reconnect", async (
 		secret: SECRET,
 		env: e,
 		// The daemon injects the proxy's own helper; the wiring under test is that the scan asks.
-		applyUidValidity: (env, src) => applyUidValidity(env, src),
+		applyUidValidity: (env) => applyUidValidity(env, renumbered),
 	})
 	assert.ok(r.reasons["uidvalidity-reset"] === 1, `the reset should be reported: ${JSON.stringify(r.reasons)}`)
 	assert.equal(r.persisted, 1, "and the re-read batch is delivered")
 	assert.equal(listPending(e)[0]?.body, "after the renumber")
+})
+
+test("a drop is named even when no prose survived, as long as something was delivered", async () => {
+	// A phone reply of a screenshot plus a refused clip: no text at all, the image is delivered, and the
+	// clip vanished with no word to the agent. The note used to require prose.
+	const e = env()
+	const png = {
+		filename: "shot.png",
+		contentType: "image/png",
+		content: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+	}
+	const clip = { filename: "clip.mov", contentType: "video/quicktime", content: Buffer.from("xxxx") }
+	const r = await scanAndProcess(config(), {
+		source: source([msg(13, { text: "", attachments: [png, clip] })]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.persisted, 1)
+	const [record] = listPending(e)
+	assert.equal(record!.attachments?.length, 1, "the image is delivered")
+	assert.match(
+		record!.body,
+		/dropped \(mime-not-allowed\)/,
+		`the agent must be told the clip was lost: ${JSON.stringify(record!.body)}`,
+	)
+})
+
+test("a deferred batch is not counted as a rejection", async () => {
+	// `pending-full` defers: the mail is not lost and the same UIDs are retried. Counting it as
+	// `rejected` made the panel print "rejected 1" beside "rejections: none".
+	const e = env()
+	const { PENDING_CAP } = await import("../src/store/pending-store.ts")
+	// Exactly at the cap: `addPending` refuses *at* the limit, so fill it and then let the scan try.
+	const { addPending } = await import("../src/store/pending-store.ts")
+	let added = 0
+	for (let i = 0; i < PENDING_CAP; i++) {
+		const result = addPending(e, { uid: 1000 + i, sessionId: "s", from: "a@b.c", subject: "x", body: "y", receivedAt: Date.now() })
+		if (!result.ok) break
+		added++
+	}
+	assert.equal(added, PENDING_CAP, "the queue is full")
+	const r = await scanAndProcess(config(), { source: source([msg(20, { text: "one more" })]), secret: SECRET, env: e })
+	assert.equal(r.reasons["pending-full"], 1, "the batch is deferred")
+	assert.equal(r.rejected, 0, "and nothing was refused")
 })
 
