@@ -236,8 +236,9 @@ What this costs, in the one-mailbox layout (DMARC is off there by design) and if
 forge the allowlisted `From` *and* carries a live route id or token — i.e. they have read one of
 your notifications:
 
-- `/mailbridge off` is a denial of the channel **for the session that ran it**: it is neither
-  persisted nor global, and it lasts until that session turns itself back on, exits, or stops pinging for a day. The
+- `/mailbridge off` is a denial of the channel **for the session that ran it**: while a daemon is
+  reachable it is neither persisted nor global (with no daemon, the command falls back to the file
+  and says so), and it lasts until that session turns itself back on, exits, or stops pinging for a day. The
   machine-wide form is `/mailbridge off --all` — **persisted**, and it overrides every session,
   including ones that had turned themselves on — so the whole channel stays shut, and scanning
   stops, until a human turns it back on at a terminal. Mail is not lost (the cursor does not move),

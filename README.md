@@ -79,10 +79,11 @@ off does not stop it from answering `/health`.
 
 **The switch has two scopes.** A bare `/mailbridge off` quiets *this* session only — the other
 agents you are running keep mailing you — and a bare `on` puts this session back on **even while the
-machine switch is off**. Neither touches the persisted switch. `--all` is the machine-wide one and
+machine switch is off**. Neither touches the persisted switch — while a daemon is running to hold them; with no daemon at all,
+a bare command falls back to the file and says so. `--all` is the machine-wide one and
 it is the only form that does two things at once: it writes the persisted state *and* overrides every
-session, both directions. So `/mailbridge off --all` stops every session now and every session you
-start later, and `/mailbridge on --all` revives one that had silenced itself. The persisted default is
+session, both directions. So `/mailbridge off --all` stops every session — within a poll tick, the
+interval at which each session re-reads its mode — and every session you start later, and `/mailbridge on --all` revives one that had silenced itself. The persisted default is
 off, so installing never mails you unprompted. `/mailbridge status` shows both when they differ:
 `mode: off (this session) · global on`.
 

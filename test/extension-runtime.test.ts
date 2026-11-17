@@ -3439,3 +3439,43 @@ test("a rebuilt runtime with an off override does not claim or mail on the pre-a
 	assert.equal(pi.sent.length, 0, "and nothing was injected")
 })
 
+test("a session's override does not follow it into the next session in the same process", async () => {
+	// The daemon drops the override on `/bye`; the extension's memory is the other half. Without it a
+	// successor session inherits a decision it never made - the docs say the override dies with the
+	// session, and this is where that is true or not.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on" })
+	const captured = new Map<string, (args: string, ctx: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		probeHealth: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	await captured.get("mailbridge")!("off", ctx(notes))
+	await pi.fire("session_shutdown")
+	daemon.forgetSessionOverrides()
+	const before = daemon.modeScopes.length
+
+	// The successor session starts in the same process.
+	await pi.fire("session_start")
+	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
+
+	const after = daemon.modeScopes.slice(before)
+	assert.equal(
+		after.some((m) => m.scope === "session" && m.mode === "off"),
+		false,
+		`the shutdown must clear the override, not hand it on: ${JSON.stringify(after)}`,
+	)
+})
+

@@ -693,8 +693,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				// leave sessionMode alone
 			} else if ((initialMode.data.globalUpdatedAt ?? 0) === sessionMode.globalAt) {
 				const applied = await active.setMode(sessionMode.mode, { scope: "session", instanceId }).catch(() => undefined)
-				// The re-apply's own answer is the freshest truth about this session.
+				// The re-apply's own answer is the freshest truth about this session. If it could not be
+				// confirmed, bias towards quiet: a withheld reply stays pending, a claimed one is consumed.
 				if (applied?.ok) effectiveMode = applied.data.mode === "on" ? "on" : "off"
+				else if (sessionMode.mode === "off") effectiveMode = "off"
 			} else {
 				sessionMode = undefined
 			}
@@ -1024,6 +1026,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		notifier?.cancel()
 		// One object; dropping it can only cause a re-mail, never a silence.
 		lastSettledAnswer = undefined
+		// The daemon drops this session's override on `/bye` below; the matching half is here, or a
+		// successor session in the same pi process would inherit a decision it never made.
+		sessionMode = undefined
 		// Release our liveness slot so an idle daemon can exit promptly rather than
 		// waiting out the grace period.
 		void client?.bye(instanceId)
