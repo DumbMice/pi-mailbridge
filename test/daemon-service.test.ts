@@ -1500,3 +1500,23 @@ test("a live session keeps its override past the TTL; only a silent one expires"
 	}
 })
 
+test("/health still answers when the pending queue cannot be read", async () => {
+	// A queue read fault used to escape as a 500, and the client reports a 5xx as "nothing usable" - so a
+	// daemon that was fine would look down, and every session would try to replace it.
+	const { mkdirSync, rmSync } = await import("node:fs")
+	const h = await boot()
+	try {
+		const dir = join(h.env.XDG_STATE_HOME as string, "pi-mailbridge")
+		mkdirSync(dir, { recursive: true })
+		const file = join(dir, "pending.json")
+		rmSync(file, { force: true })
+		mkdirSync(file)
+		const response = await fetch(`${h.base}/health`)
+		assert.equal(response.status, 200, "liveness does not depend on the queue being readable")
+		const body = (await response.json()) as { ok?: boolean }
+		assert.equal(body.ok, true)
+	} finally {
+		await h.close()
+	}
+})
+

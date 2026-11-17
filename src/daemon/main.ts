@@ -463,8 +463,10 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 			return
 		}
 		reportedModeOff = false
-		const before = new Set(listPending().map((r) => r.uid))
 		try {
+			// Inside the try: since the stores rethrow a read fault, this line can fail, and outside it
+			// the failure would be swallowed by the scan queue with no log line at all.
+			const before = new Set(listPending().map((r) => r.uid))
 			const result = await scanAndProcess(currentConfig, {
 				source: sourceProxy,
 				secret: ensureSecret(),
@@ -573,6 +575,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 			factory: createImapflowFactory({ getAccessToken: tokenProvider ? getAccessToken : undefined }),
 			callbacks: {
 				onReady: () => {
+					try {
 					// UIDs are only meaningful within one UIDVALIDITY. A recreated or migrated
 					// folder renumbers from 1; without this the high-water cursor would skip
 					// every future message, with "examined 0" as the only symptom.
@@ -589,6 +592,11 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 					}
 					log("imap ready; running catch-up scan")
 					void scanOnce("catch-up")
+					} catch (error) {
+						// A store fault is not a mail-server fault: logging it keeps the connection (the watcher
+						// would otherwise tear down and re-dial every backoff step, blaming IMAP).
+						log(`cursor bookkeeping failed: ${(error as Error).message}`)
+					}
 				},
 				onMail: () => {
 					void scanOnce("idle")

@@ -69,8 +69,7 @@ const inFlightByInstance = new Map<string, Promise<DeliveryOutcome[]>>()
  * UIDs already injected, per instance.
  *
  * Per instance, not per runner object: a re-created runtime (a respawn, or a new session in
- * the same pi process after session_shutdown) constructs a new runner while the claim key -
- * the pid - stays the same. A per-runner set let the re-created runner re-inject a reply whose
+ * the same pi process after session_shutdown) constructs a new runner while this process's instance id stays the same. A per-runner set let the re-created runner re-inject a reply whose
  * ack had failed, which is the one failure this design cannot undo.
  */
 const injectedByInstance = new Map<string, Set<string>>()
@@ -202,11 +201,11 @@ export function createDeliveryRunner(deps: DeliveryRunnerDeps): DeliveryRunner {
 		injectedUids: () => [...injected()].map((key) => Number(key.split(":")[1])),
 
 		async drain() {
-			// One drain at a time. The claim registry is keyed per pid, so two overlapping
+			// One drain at a time. The claim registry is keyed per instance id, so two overlapping
 			// drains in this process would both be granted the same uid and inject twice -
 			// and a duplicate injection cannot be undone.
 			// Keyed by instanceId, not by this runner object: a respawn builds a new runner
-			// while the claim key (the pid) stays the same, so a per-object flag would let an
+			// while the claim key (this process's instance id) stays the same, so a per-object flag would let an
 			// old runner's drain overlap a new one's.
 			const running = inFlightByInstance.get(deps.instanceId)
 			if (running) return running

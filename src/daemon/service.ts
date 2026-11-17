@@ -242,7 +242,16 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 			const payload: HealthPayload = {
 				ok: true,
 				mode: readMode(env),
-				pending: listPending(env).length,
+				// A queue read fault must not turn liveness into a 500: the probe reports a 5xx as "nothing
+				// usable", so a daemon that is answering perfectly well would read as down. Nothing
+				// depends on the exact count here (`/pending` is the delivery channel).
+				pending: (() => {
+					try {
+						return listPending(env).length
+					} catch {
+						return 0
+					}
+				})(),
 				// `sessions` is the decision registry (sessions that were told about a
 				// notification), not connected clients — a raw payload showed `sessions: 0`
 				// next to `clients: 2`. Both keys, so neither reading is wrong.

@@ -274,6 +274,14 @@ test("a JSON syntax error does not echo the file's contents into a warning", asy
 	const cfg = loadConfig(env)
 	const said = cfg.warnings.join("\n")
 	assert.match(said, /not valid JSON/, "the fact is reported")
+	assert.match(said, /position \d+/, "and the position survives - it is what makes the file fixable")
 	assert.doesNotMatch(said, /hunter2/, `the bytes must not be: ${said}`)
+
+	// A non-parse failure is not a JSON problem, and its message carries no file content.
+	const dir2 = mkdtempSync(join(tmpdir(), "cfg-eisdir-"))
+	const env2 = { XDG_CONFIG_HOME: dir2 }
+	mkdirSync(join(dir2, "pi-mailbridge", "config.json"), { recursive: true })
+	const read = loadConfig(env2).warnings.join("\n")
+	assert.doesNotMatch(read, /not valid JSON/, `a read error must not be called a syntax error: ${read}`)
 })
 

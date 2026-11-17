@@ -1395,3 +1395,13 @@ test("source comments obey the vocabulary rule too, not only prose", () => {
 	}
 })
 
+test("the scan's only throwing prologue sits inside the handler that logs it", () => {
+	// `listPending` rethrows a read fault now; the scan queue swallows a rejected scan on the
+	// documented assumption that the caller logged it. One line above the try would fail silently.
+	const main = readFileSync(join(root, "src/daemon/main.ts"), "utf8")
+	const tryAt = main.indexOf("\t\ttry {\n\t\t\t// Inside the try: since the stores rethrow")
+	const pendingAt = main.indexOf("const before = new Set(listPending()")
+	assert.ok(tryAt > -1 && pendingAt > -1, "both the try and the queue read should exist")
+	assert.ok(pendingAt > tryAt, "the queue read must be inside the try")
+})
+

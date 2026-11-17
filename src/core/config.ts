@@ -166,8 +166,15 @@ function readJson(path: string, warnings: string[]): Record<string, unknown> {
 		return isRecord(parsed) ? parsed : {}
 	} catch (error) {
 		// V8's JSON.parse message embeds a window of the input - which in this file is a password.
-		// Report the fact, not the bytes: AGENTS.md invariant 8 is "never log the password".
-		warnings.push(`${path}: not valid JSON`)
+		// Report the fact and the offset (what makes the file fixable), never the bytes:
+		// AGENTS.md invariant 8 is "never log the password".
+		if (!(error instanceof SyntaxError)) {
+			// Not a JSON problem at all (EACCES, EISDIR): that message carries no file content.
+			warnings.push(`${path}: ${(error as Error).message}`)
+		} else {
+			const at = /position (\d+)/.exec((error as Error).message)?.[1]
+			warnings.push(`${path}: not valid JSON${at ? ` (at position ${at})` : ""}`)
+		}
 		return {}
 	}
 }

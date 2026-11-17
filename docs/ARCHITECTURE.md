@@ -84,7 +84,7 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 | POST | `/claim` | `{uid, instanceId, uidValidity?}` — atomic claim; refused as `stale-space` for another UID space and `foreign-device` for a record another device scanned |
 | POST | `/ack` | `{uid, instanceId, uidValidity?}` — claimant-only; refused as `stale-space` when the record (or the caller) belongs to another UID space; journals in the **record's** space, then `\Seen` + prune |
 | POST | `/register` | reserve a session's single outstanding decision |
-| POST | `/bye` | a session is leaving; the daemon exits when the last one goes |
+| POST | `/bye` | a session is leaving; the daemon exits once no session has pinged for `idleTimeoutSecs` |
 | POST | `/ping` | heartbeat, the other half of the idle exit |
 | DELETE | `/register` | release the reservation |
 | GET/POST | `/mode` | **email mode, in two scopes.** GET returns `mode` (effective for the asking `?instanceId`), `global` (the persisted switch) and `session` (the override, when there is one). POST takes `{mode, scope}` — `global` writes the persisted switch and broadcasts; `session` sets an in-memory override for one attached session (dropped by `/bye`, refreshed on every ping, and expired after 24 h without one — the crash case). The payload carries `globalUpdatedAt`, the persisted switch's timestamp, so a session that reconnects can tell whether a decision it made was superseded by a global write. The daemon scans when the global switch is on **or** any attached session overrode itself on. A bare `/mailbridge off` is per session; `--all` is the persisted global switch |
