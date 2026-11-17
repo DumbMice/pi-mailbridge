@@ -414,7 +414,7 @@ minute (see Lifecycle); one on a *newer* protocol is not killed — it belongs t
 session stops consuming it and asks you to restart pi. A different package version on the same
 protocol is fine.
 
-A non-zero `rejected` count means mail was refused. A reply delivered only as an attachment-drop
+A non-zero `rejected` count means mail was not persisted — including our own echo, which is the guard working; the `rejections:` line lists what was actually refused. A reply delivered only as an attachment-drop
 notice counts as **kept**; `attachments dropped:` names its loss separately. `handled:` lines are the
 accepted paths, `attachments dropped:` is a partial loss, and a full queue defers rather than
 discards. Counters of zero are omitted, so a quiet scan prints no scan line; while mode is off
@@ -446,11 +446,10 @@ Where to look:
 
 | Path | What it holds |
 | --- | --- |
-| `$XDG_STATE_HOME/pi-mailbridge/daemon.log` (default `~/.local/state/…`) | scan summaries, connect errors, refusal reasons |
 | `…/uid-cursor.json` | last seen UID + the mailbox UIDVALIDITY |
 | `…/daemon.lock` | the running daemon's pid — the file to look at when a start says another daemon is already running |
 | `…/routes.lock` | held for the instant a routing id is minted |
-| `…/daemon.log` | the daemon's own log (0600, rotates once at 5 MB) |
+| `…/daemon.log` | the daemon's own log (0600, rotates once at 5 MB): scan summaries, connect errors, refusal reasons |
 | `…/mode.json` | the persisted global switch — written by `/mailbridge on --all` and `off --all`; a bare `on`/`off` lives in the daemon's memory, and only falls back to this file when no daemon is running |
 | `…/pending.json` | accepted replies waiting for a session (each stamped with the device that scanned it; `held for another device` counts the ones this device will not claim) |
 | `…/routes.json` | short routing ids (`security.tokenTtlHours`) |

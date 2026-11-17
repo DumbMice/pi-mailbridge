@@ -318,6 +318,9 @@ Presets (`core/discover.ts`, where `setup` reads them):
 | **Microsoft 365** | `https://login.microsoftonline.com/organizations/v2.0` | same as above |
 | **Google** | `https://accounts.google.com` | `https://mail.google.com/ offline_access` |
 
+The Google row is **hand-written only**: `setup` picks `LOGIN` for Gmail and emits no `oauth` block,
+so those values never reach a generated config — copy them in yourself if you use XOAUTH2. 
+
 `offline_access` is not optional — without it the provider returns no refresh
 token and you would re-approve every hour. `--check` reports it as a problem, with a non-zero exit.
 

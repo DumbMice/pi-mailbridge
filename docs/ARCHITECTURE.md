@@ -352,6 +352,7 @@ src/
     header-encoding.ts  RFC 2047 decode/encode
     html.ts             text → HTML with quoted-history folding
     inline-images.ts    local images → cid: parts; linked files → attachments (inside the project)
+    instance.ts         this run's daemon-facing identity (pid + random, never the pid alone)
     mailer.ts           nodemailer transport (password | XOAUTH2), headers
     mail-command.ts     a reply that is a command → the safe subset, else text
     prime.ts            "watch from now on" - first run only, guarded by the cursor

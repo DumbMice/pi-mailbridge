@@ -165,7 +165,9 @@ function readJson(path: string, warnings: string[]): Record<string, unknown> {
 		const parsed = JSON.parse(readFileSync(path, "utf8"))
 		return isRecord(parsed) ? parsed : {}
 	} catch (error) {
-		warnings.push(`${path}: ${(error as Error).message}`)
+		// V8's JSON.parse message embeds a window of the input - which in this file is a password.
+		// Report the fact, not the bytes: AGENTS.md invariant 8 is "never log the password".
+		warnings.push(`${path}: not valid JSON`)
 		return {}
 	}
 }

@@ -30,9 +30,8 @@ import { buildTokenProvider } from "./core/token-source.ts"
 import { createOpenidClient } from "./core/oauth-openid.ts"
 import { createDeviceCodeProvider } from "./core/oauth-device.ts"
 import { fileTokenStore } from "./store/oauth-store.ts"
-import { ensureRouteForSession, registerRoute } from "./store/routes.ts"
-import { existsSync } from "node:fs"
-import { fileURLToPath } from "node:url"
+import { ensureRouteForSession } from "./store/routes.ts"
+import { sessionInstanceId } from "./core/instance.ts"
 
 
 
@@ -197,7 +196,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 */
 	let sessionMode: { mode: "on" | "off"; globalAt: number } | undefined
 	/** Stable id for this pi process, used for claims and for liveness pings. */
-	const instanceId = `pi-${process.pid}`
+	const instanceId = sessionInstanceId()
 	/** Throttle for respawning a daemon that exited for idleness. */
 	let lastRespawnAttempt = 0
 	/** Throttles the post-update daemon replacement; a failed respawn must not loop. */
@@ -426,7 +425,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						if (pollPaused) return
 						if (healthy) {
 							// A settle waiting on its debounce is the one mail this product exists
-							// to send. startRuntime() rebuilds the notifier, so flush the old one
+							// to send. startRuntime() wires a fresh notifier, so flush the old one
 							// after the client is live again - never cancel it.
 							await replaceRuntime()
 						}
@@ -647,7 +646,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 * if the poll tick finds the daemon gone, so a session recovers without a reload.
 	 */
 	/**
-	 * Rebuild the runtime, carrying a debounced settle across the gap.
+	 * Re-create the runtime, carrying a debounced settle across the gap.
 	 *
 	 * Every replacement path (dead daemon, version mismatch, /mailbridge restart) needs the same
 	 * three steps, and each used to do them itself - which is why the same dropped-notification
@@ -701,7 +700,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				sessionMode = undefined
 			}
 		}
-		// A session_shutdown can land during that await. Without this the runtime is rebuilt
+		// A session_shutdown can land during that await. Without this the runtime is re-created
 		// around a dead ctx: the poll keeps pinging and the daemon's idle exit can never fire.
 		if (!ctx) {
 			client = undefined
@@ -1505,14 +1504,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						: false
 					const ensured = await ensureDaemonDetailed()
 					if (ensured.healthy) {
-						// Cleared before the rebuild: the rebuild is what reads the key again, so a
+						// Cleared before the re-creation: that is what reads the key again, so a
 						// rejection after it must be able to say so. A daemon that still cannot be
 						// reached never gets here, and keeps both latches.
 						tokenRejected = false
 						protocolStuck = false
 						lastRespawnAttempt = 0
-						// One rebuild, through the helper: it captures the notifier that holds a
-						// debounced settle, rebuilds, and flushes. Calling ensureRuntime first would
+						// One re-creation, through the helper: it captures the notifier that holds a
+						// debounced settle, re-creates it, and flushes. Calling ensureRuntime first would
 						// overwrite that notifier and lose the settle.
 						if (!secretFn()) {
 							try {

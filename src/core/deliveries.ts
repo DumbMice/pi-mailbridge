@@ -68,9 +68,9 @@ const inFlightByInstance = new Map<string, Promise<DeliveryOutcome[]>>()
 /**
  * UIDs already injected, per instance.
  *
- * Per instance, not per runner object: a rebuilt runtime (a respawn, or a new session in
+ * Per instance, not per runner object: a re-created runtime (a respawn, or a new session in
  * the same pi process after session_shutdown) constructs a new runner while the claim key -
- * the pid - stays the same. A per-runner set let the rebuilt runner re-inject a reply whose
+ * the pid - stays the same. A per-runner set let the re-created runner re-inject a reply whose
  * ack had failed, which is the one failure this design cannot undo.
  */
 const injectedByInstance = new Map<string, Set<string>>()

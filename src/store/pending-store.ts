@@ -99,6 +99,10 @@ function load(env: NodeJS.ProcessEnv): PendingRecord[] {
 		return items
 	} catch (error) {
 		if (error instanceof StateVersionError) throw error
+		// Only unparsable content is "corrupt". EACCES, EMFILE and EIO are transient failures of the
+		// *read*, and renaming the file aside on one of those discards a queue the cursor has already
+		// passed - the loss this whole branch exists to prevent. Rethrow so the scan stops instead.
+		if (!(error instanceof SyntaxError)) throw error
 		// Unparsable is not empty. Returning [] lets the next addPending rewrite the file with a
 		// single record, discarding a queue whose replies the cursor has already passed. Keep the
 		// bytes where a human can recover them and start clean.

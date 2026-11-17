@@ -1356,3 +1356,42 @@ test("the panel's mode line names the scope it is reporting", () => {
 		assert.match(match[1] ?? "", /\(this session\)|\(global\)/, `README example prints a shape the product cannot emit: ${match[0]}`)
 	}
 })
+
+test("no document calls a bare on/off persisted, and the store header says which half it is", () => {
+	// MAPPING and the mode-store header both still described the pre-0.2.0 single, persisted switch.
+	for (const { file, text } of [...allProse(), { file: "docs/MAPPING.md", text: doc("docs/MAPPING.md") }]) {
+		for (const sentence of flat(text).split(/(?<=[.!?])\s+/)) {
+			if (/--all/.test(sentence)) continue
+			if (!/`?\/mailbridge (on|off)`?/i.test(sentence)) continue
+			// A negation is the correct statement, not the wrong one.
+			if (/\bneither\b|\bnot persisted\b|\bno daemon\b/i.test(sentence)) continue
+			assert.doesNotMatch(
+				sentence,
+				/persisted|survives? a restart/i,
+				`${file}: "${sentence.trim()}" calls a bare on/off persisted`,
+			)
+		}
+	}
+	const header = readFileSync(join(root, "src/store/mode-store.ts"), "utf8")
+	assert.doesNotMatch(header, /deliberately global rather than\s+\/\/ per-session/i, "the header must not claim one global switch")
+	assert.match(header, /per-session|session can override/i, "it must name the session override")
+})
+
+test("source comments obey the vocabulary rule too, not only prose", () => {
+	// AGENTS.md says the session's in-process objects are re-created; the enforcement test used to scan
+	// only Markdown, so "a rebuilt runtime" survived in the very files an agent reads first.
+	const files = ["src/extension.ts", "src/core/deliveries.ts"]
+	for (const file of files) {
+		const text = readFileSync(join(root, file), "utf8").replace(/\s+/g, " ")
+		for (const match of text.matchAll(/\b(?:rebuilt|rebuild|rebuilds|rebuilding)\b/gi)) {
+			const at = match.index ?? 0
+			const around = (text.slice(Math.max(0, at - 40), at) + " " + text.slice(at + match[0].length, at + match[0].length + 40)).trim()
+			assert.match(
+				around,
+				/\bdaemon|\bpackage\b|\bdist\b|\btsc\b|\bcompile|\bpretest|\bprepublish/,
+				`${file}: …${around}… uses "${match[0]}" for an in-process object`,
+			)
+		}
+	}
+})
+

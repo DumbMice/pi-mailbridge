@@ -166,8 +166,8 @@ pi.registerCommand("mailbridge", {
    unreadable (a 39-character token, in a subject over 80 characters). HMAC tokens still
    verify for mail already in flight, and
    authorization never depended on the token either way.
-5. **Global mode store.** `/mailbridge on` and `/mailbridge off` are explicit, persisted, and
-   independent of focus heuristics.
+5. **Mode store.** `/mailbridge on` and `/mailbridge off` are explicit and per session; `--all` is
+   the persisted, machine-wide switch. Both are independent of focus heuristics.
 6. **Backoff + IDLE renew.** Renew well under the ~29-minute server timeout;
    exponential reconnect 1 s → 60 s.
 7. **Bounded resources.** Registry cap, SSE client cap, request body cap,

@@ -1,11 +1,13 @@
-// Global email mode: "am I away from the keyboard?"
+// The persisted email-mode switch: the machine-wide default, and the only part of email mode that
+// survives a restart.
 //
-// One human, one mailbox, one switch. It is deliberately global rather than
-// per-session: you are either at the desk or you are not, and pretending
-// otherwise makes the agent guess.
+// It is deliberately not the whole story. A session can override it in either direction
+// (`/mailbridge off|on` without `--all`), so one noisy agent can be silenced without disarming the
+// others; those overrides live in the daemon's memory (`daemon/service.ts`) and die with the
+// session. `--all` writes this file and clears every override, and a write here is what a
+// reconnecting session compares against (`readModeStamp`) before re-asserting an override of its own.
 //
-// Persisted so a daemon restart cannot silently re-enable emailing, and default
-// OFF so installing the package never starts mailing you unprompted.
+// Default OFF, so installing never starts mailing you unprompted.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"

@@ -408,3 +408,20 @@ test("a body of CJK characters is counted in UTF-8 bytes, not code units", () =>
 	const cjk = { uid: 1, sessionId: "s1", from: "y@e.com", subject: "x", body: "汉".repeat(300_000), receivedAt: 1 }
 	assert.ok(recordBytes(cjk) > 800_000, `counted ${recordBytes(cjk)} bytes for 300k ideographs`)
 })
+
+test("an unreadable queue is not corruption: the file stays, and the read fails loudly", async () => {
+	// The recovery path renames the file aside and returns an empty queue; the next write then rewrites
+	// it with one record. For a *parse* failure that is right (the bytes are kept for a human). For a
+	// read failure - EACCES, EMFILE, EIO - it is silent loss of replies the cursor has already passed.
+	// `chmod 000` cannot express that as root, so the failure is an EISDIR: a non-parse error all the same.
+	const { existsSync, mkdirSync, rmSync, statSync } = await import("node:fs")
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-pending-io-")) }
+	addPending(env, { uid: 1, sessionId: "s", from: "a@b.c", subject: "x", body: "one", receivedAt: 1 })
+	const file = join(env.XDG_STATE_HOME as string, "pi-mailbridge", "pending.json")
+	rmSync(file)
+	mkdirSync(file)
+
+	assert.throws(() => listPending(env), /EISDIR|illegal operation/i, "a read failure must not be reported as an empty queue")
+	assert.equal(statSync(file).isDirectory(), true, "and must not be moved aside as 'corrupt'")
+	assert.equal(existsSync(`${file}.corrupt`) || existsSync(file), true)
+})

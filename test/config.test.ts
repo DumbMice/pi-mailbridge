@@ -260,3 +260,20 @@ test("the loopback check is a value test, not a prefix test", () => {
 		)
 	}
 })
+
+test("a JSON syntax error does not echo the file's contents into a warning", async () => {
+	// V8's parse message quotes a window of the input, and the input here holds the password. The
+	// warning is logged to daemon.log and shown in the session UI: AGENTS.md says never log it.
+	const dir = mkdtempSync(join(tmpdir(), "cfg-redact-"))
+	const env = { XDG_CONFIG_HOME: dir }
+	mkdirSync(join(dir, "pi-mailbridge"), { recursive: true })
+	writeFileSync(
+		configPath(env),
+		'{ "mail": { "smtp": { "password": "hunter2-secret" "port": 465 } } }',
+	)
+	const cfg = loadConfig(env)
+	const said = cfg.warnings.join("\n")
+	assert.match(said, /not valid JSON/, "the fact is reported")
+	assert.doesNotMatch(said, /hunter2/, `the bytes must not be: ${said}`)
+})
+

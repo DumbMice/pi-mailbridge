@@ -76,6 +76,8 @@ function load(env: NodeJS.ProcessEnv): RouteRecord[] {
 		)
 	} catch (error) {
 		if (error instanceof StateVersionError) throw error
+		// A parse failure is recoverable state; a read failure is not the caller's to overwrite.
+		if (!(error instanceof SyntaxError)) throw error
 		return []
 	}
 }

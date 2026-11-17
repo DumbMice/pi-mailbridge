@@ -323,7 +323,11 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 					subject: persistedSubject(message.subject),
 					body: note,
 					receivedAt: message.receivedAt ?? now(),
-					...(uidValidity === undefined ? {} : { uidValidity }),
+					// Re-read, like the main record below: a renumber can land mid-scan, and the scan's
+					// opening space would leave this record unclaimable until the next connect.
+					...((deps.source.uidValidity?.() ?? uidValidity) === undefined
+						? {}
+						: { uidValidity: deps.source.uidValidity?.() ?? uidValidity }),
 					device: config.device.name,
 				}
 				if (!persistWithPressure(stub)) {
