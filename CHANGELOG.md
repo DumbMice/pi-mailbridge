@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.2.2 — 2026-11-17
+
+### Tab completion could rewrite the command
+
+- **`/mailbridge on` + Tab, after a dash, pasted `/mailbridge --all`** - a different command, which then
+  parsed as `help`. pi replaces the whole argument with a completion's value, so a completion has to
+  return the whole argument and not just the fragment. `on -`, `on --` and `on -a` now offer
+  `on --all`; a bare `on` still offers `on`, and nothing is offered before the dash, so a habitual Tab
+  cannot change a session command into a machine-wide one. A test now asserts that no completion can
+  change which subcommand runs.
+
+### A dropped attachment reached nobody
+
+- **"Here is the screen recording" plus a `.mov`** arrived as the sentence, with nothing attached and no
+  indication that anything was lost: the drop note only existed for replies with no text at all. The
+  note now rides in the body whenever something was delivered, including a textless reply whose only
+  surviving part was an image.
+- **An attachment drop is a partial loss, not a refusal** - one predicate now classifies reasons for the
+  panel, the docs guard and the troubleshooting table alike, and `pending-full` is no longer counted in
+  `rejected` (the panel printed `rejected 1` beside `rejections: none`).
+
+### A renumbering on a live connection was invisible
+
+- **`UIDVALIDITY` was compared only on connect**, so a provider that renumbered a folder without
+  dropping the session left a stale high-water cursor that filtered out every message - `examined 0` for
+  ever, with the reset machinery sitting unused one level up. The check now runs on every scan, through
+  a seam that a test can drive, and a scan that drops queued records from an old UID space says so even
+  when it saw no mail.
+
+### Documentation
+
+- The inbound document list names every type the code accepts (SVG, HEIC/HEIF were missing, and a test
+  now derives the list from the code); `setup`'s discovery claim is qualified for domains the autoconfig
+  database does not know; `/ack`'s order is written as it runs; `html.ts` is described as the HTML part
+  of `multipart/alternative` rather than as folding the quote; `send_budget` and `expired` are marked as
+  never appearing under `rejections:`; the MAPPING sample matches the shipped description; UIDVALIDITY
+  is documented as checked on every scan, not every connect.
+
 ## 0.2.1 — 2026-11-17
 
 ### Storage faults stopped costing mail, and one of them cost a notification
