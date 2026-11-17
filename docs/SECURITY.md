@@ -184,7 +184,7 @@ flip the mode, and shut the daemon down. Treat `secret.key` as equivalent to the
     mailbox.
   - `uid-cursor.json` — the last seen UID and the UIDVALIDITY it belongs to. A change of
     UIDVALIDITY (a rebuilt or migrated folder) resets it; queued records tagged with another numbering
-    are dropped on every connect (and untagged ones on a detected renumbering), so recent mail
+    are dropped on every check - connect and scan (and untagged ones on a detected renumbering), so recent mail
     can be delivered once more instead of being skipped.
   Secrets (`secret.key`, `oauth.json`) live beside them; rotating those is covered above.
 - Turn it off with `/mailbridge off` when you will be at the desk: while this session's mode is off
