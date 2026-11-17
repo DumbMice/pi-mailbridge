@@ -126,6 +126,11 @@ doc.
 
 ## Publishing
 
+**A tag is published by a human, not inferred.** Pushing a `v*` tag publishes irreversibly, so it needs
+an explicit go-ahead from the operator for *that* version - "build it" is not "release it", and an
+announced intention is not consent. Two rules learned the hard way: never release code that changed
+after the last review verdict (review the exact commit you tag), and never treat silence as approval.
+
 A tag publishes; nothing does it from a laptop any more. Bump `package.json`
 (and the two version mentions in the README, and `package-lock.json` — `npm version patch` does
 both lockfile fields for you), date the changelog, then:

@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.2.1 — 2026-11-17
+
+### Storage faults stopped costing mail, and one of them cost a notification
+
+- **A queue file that could not be read was treated as corrupt.** Every store renamed the file aside and
+  returned an empty state for *any* error, not only a parse failure - so a transient `EACCES`/`EMFILE`
+  on `pending.json` discarded a queue whose replies the cursor had already passed, and an unreadable
+  `uid-cursor.json` reset the cursor to UID 1. Only unparsable content takes the recovery path now;
+  anything else is reported, and the scan stops with the cursor where it was.
+- **A thread-store fault stopped the notification.** The send path looked up the thread and recorded
+  its id before sending, unguarded, so a fault in that file turned the one mail that says "the agent is
+  waiting" into a 500 and nothing was sent. Threading is an optimisation: it is logged and skipped.
+- **`/ack` reported failure for an ack that had succeeded**, when the journal could not be written
+  afterwards - and skipped releasing the session's decision slot, which then refused every later
+  `request_decision` for 24 hours. The journal write is logged; the slot is released.
+- **`/health` answered 500 when the queue could not be read**, which the client reports as "no daemon":
+  a session would refuse to change its mode ("could not confirm") and try to replace a daemon that was
+  fine. Liveness no longer depends on the queue being readable.
+- **A read fault in `config.json` echoed the file into the log.** V8's parse message quotes the input,
+  and that input holds the password. The warning now says `not valid JSON (at position N)` - the offset
+  survives, the bytes do not.
+
+### An override could outlive its session
+
+- **The session's daemon-facing id was the pid**, and a session's email-mode override is keyed on it. A
+  pid is recycled, and a session killed without `/bye` leaves its override for 24 hours - so a later
+  process handed that pid inherited a decision it never made (quiet without asking, or mailing without
+  asking). The id now carries four random bytes.
+- **An unknowable stamp no longer counts as evidence.** After a runtime is re-created the session
+  re-applies its override only if the persisted switch has not moved; a missing stamp on either side
+  was read as "it moved", which silently un-muted a session that had asked to be quiet.
+
+### Smaller
+
+- The attachment-only stub record re-reads the mailbox's UID space like every other record.
+- `/pending` uses the store's own device filter instead of a duplicated copy.
+- A store fault during connect is logged instead of tearing down a healthy IMAP connection.
+
 ## 0.2.0 — 2026-11-17
 
 ### `off` is now this session, and `--all` is the machine
