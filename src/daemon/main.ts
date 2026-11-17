@@ -464,6 +464,13 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		}
 		reportedModeOff = false
 		try {
+			// Also checked here, not only in `onReady`: a provider can renumber the folder without
+			// dropping the session, and the stale high-water cursor then filters out every message
+			// ("examined 0" for ever) while the reset machinery sits one level up, unused.
+			const validity = applyUidValidity(process.env, currentWatcher, (sessionId) => registry.release(sessionId))
+			if (validity.reset) {
+				log(`mailbox UIDVALIDITY changed to ${validity.validity}; cursor reset and ${validity.dropped} queued record(s) dropped`)
+			}
 			// Inside the try: since the stores rethrow a read fault, this line can fail, and outside it
 			// the failure would be swallowed by the scan queue with no log line at all.
 			const before = new Set(listPending().map((r) => r.uid))

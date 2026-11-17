@@ -127,7 +127,7 @@ test("defaults are sane", () => {
 })
 
 test("scanningEnabled: only 'on' lets the daemon touch the mailbox", () => {
-	// The rule /back rests on, in one place.
+	// The rule `/mailbridge off` rests on, in one place.
 	assert.equal(scanningEnabled("on"), true)
 	assert.equal(scanningEnabled("off"), false)
 })

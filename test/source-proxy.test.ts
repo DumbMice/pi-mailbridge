@@ -26,7 +26,7 @@ test("the proxy forwards UIDVALIDITY and UIDNEXT from the live watcher", () => {
 	let current: ProxyTarget | undefined = watcher({ validity: 4242, next: 99 })
 	const proxy = createSourceProxy({ watcher: () => current, env: env() })
 	assert.equal(proxy.uidValidity?.(), 4242)
-	assert.equal(current.uidNext(), 99)
+	assert.equal(proxy.uidValidity?.(), 4242, "the proxy forwards the UID space it was built for")
 
 	// A reload swaps the watcher; the proxy must answer from the new one.
 	current = watcher({ validity: 7, next: 3 })

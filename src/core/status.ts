@@ -38,6 +38,12 @@ const HANDLED = new Set([
 /** Deferred, not dropped: the queue was full and the same UID is retried. */
 const DEFERRED = new Set(["pending-full"])
 
+/** Reasons the panel treats as a refusal: everything else is a successful or deferred path. */
+export function isRefusalReason(reason: string): boolean {
+	const base = reason.startsWith("attachment-") ? "attachment-" : reason
+	return !HANDLED.has(reason) && !DEFERRED.has(reason) && !EXPIRED.has(reason) && !HANDLED.has(base)
+}
+
 /**
  * Aged out under queue pressure. Not a rejection of anything in *this* scan - the record was
  * already queued and undeliverable - so listing it under "rejections" beside `rejected 0` read

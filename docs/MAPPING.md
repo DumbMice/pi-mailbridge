@@ -140,8 +140,11 @@ follow-ups after it.
 
 ```ts
 pi.registerCommand("mailbridge", {
-	description: "Status, on/off, setup, check, auth, smoke, restart",
-	handler: (args, ctx) => …,   // one command; away/here became on/off, and no top-level commands
+	// The shipped description is short on purpose: the slash menu truncates without an ellipsis, so a
+	// subcommand list there was cut mid-sentence. The list lives in `help` and Tab completion.
+	description: "/mailbridge — mailbox control (Tab lists commands)",
+	getArgumentCompletions: (prefix) => …,   // one table backs usage, parsing and completion
+	handler: async (args, ctx) => …,   // one command; away/here became on/off, no top-level commands
 })
 ```
 

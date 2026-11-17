@@ -396,23 +396,38 @@ test("no document claims request_decision blocks the agent", () => {
 	}
 })
 
-test("the troubleshooting section names the reasons the scanner produces", () => {
+test("the troubleshooting section names the reasons the scanner produces", async () => {
 	const readme = doc("README.md")
 	const section = /## A reply did not arrive[\s\S]*?(?=\n## )/.exec(readme)?.[0]
 	assert.ok(section, "README should have a troubleshooting section")
 	// Every reason process.ts can emit should be answerable from that section.
 	// Reasons are emitted from process.ts and from authorize() in authz.ts.
 	const emitted = new Set<string>()
-	for (const file of ["src/daemon/process.ts", "src/core/authz.ts"]) {
+	for (const file of ["src/daemon/process.ts", "src/core/authz.ts", "src/daemon/source-proxy.ts"]) {
 		const text = readFileSync(join(root, file), "utf8")
-		for (const m of text.matchAll(/"(not-allowlisted|allowlist-empty|dmarc-[a-z]+|no-token|no-from|other-device|self-echo|self|empty-body|pending-full|auto-generated)"/g)) {
-			emitted.add(m[1]!)
+		// Three shapes only: `bump(result.reasons, "x")`, an attachment `reason: "x"`, and the denial
+		// codes authorize() returns or types.
+		for (const m of text.matchAll(/bump\(result\.reasons,\s*"([a-z][a-z-]+)"\)/g)) emitted.add(m[1]!)
+		for (const m of text.matchAll(/reason:\s*"(mime-not-allowed|too-many|too-large|empty|write-failed)"/g)) {
+			emitted.add(`attachment-${m[1]!}`)
+		}
+		for (const m of text.matchAll(/\|\s*"([a-z][a-z-]+)"/g)) {
+			const reason = m[1]!
+			if (/^(from|to|subject|text|html|inline)$/.test(reason)) continue
+			emitted.add(reason)
 		}
 	}
-	assert.ok(emitted.size >= 6, `expected the reason set, got ${emitted.size}`)
+	// Attachment reasons are emitted as `attachment-<suffix>`; the table documents the prefix.
+	for (const reason of [...emitted]) if (reason.startsWith("attachment-")) emitted.add("attachment-*")
+	// Only refusals belong in that table: `routed`/`journaled`/`self-echo` are the system working, and
+	// they are printed under `handled:`.
+	const { isRefusalReason } = await import("../src/core/status.ts")
+	assert.equal(typeof isRefusalReason, "function")
 	for (const reason of emitted) {
+		if (!isRefusalReason(reason)) continue
 		assert.ok(section.includes(reason), `the troubleshooting table omits ${reason}`)
 	}
+	assert.ok([...emitted].filter(isRefusalReason).length >= 6, "expected a refusal set")
 	assert.match(section, /daemon\.log/, "and must say where the log is")
 })
 
@@ -1403,7 +1418,7 @@ test("the scan's only throwing prologue sits inside the handler that logs it", (
 	// `listPending` rethrows a read fault now; the scan queue swallows a rejected scan on the
 	// documented assumption that the caller logged it. One line above the try would fail silently.
 	const main = readFileSync(join(root, "src/daemon/main.ts"), "utf8")
-	const tryAt = main.indexOf("\t\ttry {\n\t\t\t// Inside the try: since the stores rethrow")
+	const tryAt = main.indexOf("\t\treportedModeOff = false\n\t\ttry {")
 	const pendingAt = main.indexOf("const before = new Set(listPending()")
 	assert.ok(tryAt > -1 && pendingAt > -1, "both the try and the queue read should exist")
 	assert.ok(pendingAt > tryAt, "the queue read must be inside the try")
@@ -1432,5 +1447,23 @@ test("an unknowable mode stamp never counts as evidence that the switch moved", 
 	// The stored stamp is whatever the daemon reported - including nothing. A `?? 0` here compares
 	// unequal to a real stamp later and drops the override.
 	assert.doesNotMatch(extension, /globalUpdatedAt\s*\?\?\s*0/, "a fabricated 0 is not a stamp")
+})
+
+test("the inbound document list names every extension the code accepts", () => {
+	// README listed PDF/PPT/… but not SVG or HEIC/HEIF, which `attachments.ts` writes to disk as
+	// documents - a HEIC from a phone is not "an image too big to inline", so the row was wrong twice.
+	const source = readFileSync(join(root, "src/core/attachments.ts"), "utf8")
+	const block = /ALLOWED_FILE_EXTENSIONS[^=]*=\s*\{([\s\S]*?)\n\}/.exec(source)
+	assert.ok(block, "the allowlist should be a literal object")
+	const allowed = [...(block[1] ?? "").matchAll(/^\s*([a-z0-9]+):/gm)].map((m) => m[1] as string)
+	assert.ok(allowed.length > 5, "the scan should find the extensions")
+	const readme = flat(doc("README.md")).toLowerCase()
+	// The table writes families (`ppt/pptx`) and image *types* (`PNG / JPEG / GIF / WebP`), so a few
+	// extensions are named differently there.
+	const alias: Record<string, string> = { jpg: "jpeg", tif: "tiff", htm: "html" }
+	for (const ext of allowed) {
+		const needle = alias[ext] ?? ext
+		assert.match(readme, new RegExp(`(?<![a-z])${needle}(?![a-z])`), `README's inbound list omits .${ext}`)
+	}
 })
 

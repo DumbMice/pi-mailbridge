@@ -168,6 +168,8 @@ test("completion offers --all exactly where it applies, as the whole argument", 
 	assert.equal(values("on "), null, "a bare on with a trailing space offers nothing: Tab must not change scope")
 	assert.deepEqual(values("off -"), ["off --all"])
 	assert.deepEqual(values("on --a"), ["on --all"])
+	assert.deepEqual(values("on -a"), ["on --all"], "one dash is a half-typed two")
+	assert.deepEqual(values("on ---"), ["on --all"], "and so is three")
 	assert.deepEqual(values("off --"), ["off --all"])
 	assert.equal(values("off --nope"), null, "no suggestion when nothing matches")
 	assert.equal(values("status -"), null, "status takes no flag")

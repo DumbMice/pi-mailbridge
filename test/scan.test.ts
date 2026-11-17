@@ -923,3 +923,27 @@ test("an attachment-only stub is delivered, not counted as rejected", () => {
 		assert.equal(r.reasons["attachment-only-dropped"], 1, "but the loss is named")
 	})
 })
+
+test("a dropped attachment is named in the message even when the reply has prose", async () => {
+	// "here is the screen recording" plus a `.mov` that cannot be attached: the agent used to receive
+	// the sentence with nothing attached and no indication anything was lost, so it could not ask.
+	// Only `/mailbridge status` knew. The note has to ride in the body - the one channel it reads.
+	const e = env()
+	const clip = { filename: "clip.mov", contentType: "video/quicktime", content: Buffer.from("x".repeat(64)) }
+	const r = await scanAndProcess(config(), {
+		source: source([msg(12, { text: "see the appended clip", attachments: [clip] })]),
+		secret: SECRET,
+		env: e,
+	})
+	assert.equal(r.persisted, 1)
+	assert.equal(r.reasons["attachment-mime-not-allowed"], 1, "the drop is counted for the panel")
+	const [record] = listPending(e)
+	assert.match(record!.body, /see the appended clip/, "the human's text survives")
+	assert.match(
+		record!.body,
+		/dropped \(mime-not-allowed\)/,
+		`the agent must be told what was lost: ${JSON.stringify(record!.body)}`,
+	)
+	assert.equal(record!.attachments?.length ?? 0, 0, "the clip itself is still not attached")
+})
+

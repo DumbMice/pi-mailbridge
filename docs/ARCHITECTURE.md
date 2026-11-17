@@ -82,7 +82,7 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 | GET | `/events` | SSE: `delivery`, `mode` (no client uses it; sessions poll) |
 | GET | `/pending` | the delivery channel: polled every 10 s, replayed on reconnect; returns the daemon's own device's records plus untagged ones |
 | POST | `/claim` | `{uid, instanceId, uidValidity?}` — atomic claim; refused as `stale-space` for another UID space and `foreign-device` for a record another device scanned |
-| POST | `/ack` | `{uid, instanceId, uidValidity?}` — claimant-only; refused as `stale-space` when the record (or the caller) belongs to another UID space; journals in the **record's** space, then `\Seen` + prune |
+| POST | `/ack` | `{uid, instanceId, uidValidity?}` — claimant-only; refused as `stale-space` when the record (or the caller) belongs to another UID space. It **removes the record first** (a crash then cannot re-deliver it), then journals the UID in the **record's** space, releases the decision slot and marks `\Seen` |
 | POST | `/register` | reserve a session's single outstanding decision |
 | POST | `/bye` | a session is leaving; the daemon exits once no session has pinged for `idleTimeoutSecs` |
 | POST | `/ping` | heartbeat, the other half of the idle exit |
@@ -350,7 +350,7 @@ src/
     deliveries.ts       claim → inject → ack, serialized per process
     discover.ts         account autodiscovery
     header-encoding.ts  RFC 2047 decode/encode
-    html.ts             text → HTML with quoted-history folding
+    html.ts             text → the HTML part of multipart/alternative (the client folds the quoted history)
     inline-images.ts    local images → cid: parts; linked files → attachments (inside the project)
     instance.ts         this run's daemon-facing identity (pid + random, never the pid alone)
     mailer.ts           nodemailer transport (password | XOAUTH2), headers

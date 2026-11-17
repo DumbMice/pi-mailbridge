@@ -345,6 +345,14 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 			continue
 		}
 
+		// A drop must reach the agent even when the reply has prose: "here is the screen recording"
+		// with the clip silently missing reads as success. The note is appended to the body, which is
+		// the one channel the agent is guaranteed to read - the stub below covers the no-text case.
+		if (dropped.length > 0 && body) {
+			const reasons = [...new Set(dropped.map((d) => d.reason))].join(", ")
+			body = `${body}\n\n[pi-mailbridge: ${dropped.length} attachment(s) dropped (${reasons}); ask for them again or send as a file]`
+		}
+
 		// Written before the record, so the path in `pending.json` always points at a real file.
 		let saved: ReturnType<typeof saveInboundFiles> = []
 		if (files.length > 0) {
