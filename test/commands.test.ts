@@ -100,7 +100,7 @@ test("Tab offers the subcommands, filtered by what has been typed", () => {
 
 	// After a space the user is typing an argument, not a subcommand: only `on`/`off`, which take a
 	// flag, get a suggestion there - and it is the whole command, not the bare flag.
-	assert.deepEqual(completeSubcommand("off ")?.map((i) => i.value), ["off --all"])
+	assert.equal(completeSubcommand("off "), null, "no flag typed yet, so nothing to suggest")
 	assert.equal(completeSubcommand("setup me@example.com"), null)
 	assert.equal(completeSubcommand("frobnicate"), null, "nothing matches")
 })
@@ -165,7 +165,7 @@ test("completion offers --all exactly where it applies, as the whole argument", 
 		const result = completeSubcommand(input)
 		return result === null ? null : result.map((c) => c.value)
 	}
-	assert.deepEqual(values("on "), ["on --all"])
+	assert.equal(values("on "), null, "a bare on with a trailing space offers nothing: Tab must not change scope")
 	assert.deepEqual(values("off -"), ["off --all"])
 	assert.deepEqual(values("on --a"), ["on --all"])
 	assert.deepEqual(values("off --"), ["off --all"])

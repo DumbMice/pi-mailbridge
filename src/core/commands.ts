@@ -98,12 +98,13 @@ export function completeSubcommand(prefix: string): ArgCompletion[] | null {
 	// The `value` is the WHOLE argument, not the flag: pi replaces the argument text with it, so
 	// returning "--all" for a prefix of "on --" turned a valid command into `/mailbridge --all`, which
 	// parses as help. Same reason the single-word completions below return the subcommand itself.
-	const flag = /^(on|off)\s+(--?\w*)?$/i.exec(typed)
+	// A dash is required before anything is offered: Tab at the end of a bare `on` must not propose the
+	// machine-wide form, or a habitual Tab would change the scope of the command the user was typing.
+	const flag = /^(on|off)\s+(--?\w*)$/i.exec(typed)
 	if (flag) {
 		const sub = (flag[1] ?? "").toLowerCase()
 		const needle = (flag[2] ?? "").toLowerCase()
-		// No flag typed yet, or one half-typed: offer the only flag there is, completed as a whole command.
-		const matches = ["--all"].filter((f) => needle === "" || f.startsWith(needle === "-" ? "--" : needle))
+		const matches = ["--all"].filter((f) => f.startsWith(needle === "-" ? "--" : needle))
 		return matches.length === 0
 			? null
 			: matches.map((f) => ({ value: `${sub} ${f}`, label: f, description: "every session, not just this one" }))
