@@ -450,7 +450,7 @@ Where to look:
 | `…/daemon.lock` | the running daemon's pid — the file to look at when a start says another daemon is already running |
 | `…/routes.lock` | held for the instant a routing id is minted |
 | `…/daemon.log` | the daemon's own log (0600, rotates once at 5 MB) |
-| `…/mode.json` | the persisted global switch — written by `/mailbridge on --all` and `off --all` only (a bare `on`/`off` is this session and lives in the daemon's memory) |
+| `…/mode.json` | the persisted global switch — written by `/mailbridge on --all` and `off --all`; a bare `on`/`off` lives in the daemon's memory, and only falls back to this file when no daemon is running |
 | `…/pending.json` | accepted replies waiting for a session (each stamped with the device that scanned it; `held for another device` counts the ones this device will not claim) |
 | `…/routes.json` | short routing ids (`security.tokenTtlHours`) |
 | `…/threads.json` | outbound Message-IDs for threading and the reply chain |

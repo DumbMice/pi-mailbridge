@@ -6,8 +6,9 @@
 
 - **A bare `/mailbridge off` no longer disarms every agent on the machine.** It quiets the session
   you typed it in - the one whose mail you are currently ignoring - and leaves the others mailing.
-  `/mailbridge on` gives that session back to the global switch. `--all` is the machine-wide one and
-  is what persists: `/mailbridge off --all` stops every session now and every session started later.
+  `/mailbridge on` turns mail back on for that session, even while the machine switch is off. `--all`
+  is the machine-wide one and is what persists: `/mailbridge off --all` stops every session now and
+  every session started later, and `/mailbridge on --all` revives one that had silenced itself.
   The default is still off, so installing still never mails you unprompted.
 - **`/mailbridge status` says which** (`mode: off (this session) · global on`) instead of one
   ambiguous word, and the panel's capability warning names `/mailbridge restart` on a daemon that

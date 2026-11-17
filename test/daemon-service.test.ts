@@ -1475,3 +1475,28 @@ test("a session turning itself on sweeps now, like the global switch", async () 
 		await service.close()
 	}
 })
+
+test("a live session keeps its override past the TTL; only a silent one expires", async () => {
+	// The TTL is the crash safety net. Without refreshing on ping, an all-day session quietly resumes
+	// mailing at the 24 h mark - after it had explicitly turned itself off.
+	const h = await boot()
+	try {
+		await post(h, "/mode", { mode: "off", scope: "global" })
+		await post(h, "/mode", { mode: "on", scope: "session", instanceId: "inst-live" })
+		h.advanceHours(20)
+		await post(h, "/ping", { instanceId: "inst-live" })
+		h.advanceHours(20)
+		const alive = (await (await fetch(`${h.base}/mode?instanceId=inst-live`, { headers: auth() })).json()) as {
+			mode: string
+		}
+		assert.equal(alive.mode, "on", "still on: the session kept pinging")
+		h.advanceHours(30)
+		const gone = (await (await fetch(`${h.base}/mode?instanceId=inst-live`, { headers: auth() })).json()) as {
+			mode: string
+		}
+		assert.equal(gone.mode, "off", "and expired once it stopped")
+	} finally {
+		await h.close()
+	}
+})
+

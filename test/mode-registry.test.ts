@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { DEFAULT_MODE, isMode, readMode, scanningEnabled, writeMode } from "../src/store/mode-store.ts"
+import { DEFAULT_MODE, isMode, readMode, scanningEnabled, writeMode, readModeStamp } from "../src/store/mode-store.ts"
 import { DEFAULT_MAX_ENTRIES, REGISTRY_TTL_MS, createRegistry } from "../src/store/registry.ts"
 
 const env = () => ({ XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-mode-")) })
@@ -130,4 +130,19 @@ test("scanningEnabled: only 'on' lets the daemon touch the mailbox", () => {
 	// The rule /back rests on, in one place.
 	assert.equal(scanningEnabled("on"), true)
 	assert.equal(scanningEnabled("off"), false)
+})
+
+test("every write moves the stamp, even two in the same millisecond", () => {
+	// Sessions compare this stamp for equality to decide whether their own override was superseded,
+	// so two writes inside one millisecond must not collide - or a stale override is re-applied after
+	// the `--all` that cleared it.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-stamp-")) }
+	assert.equal(readModeStamp(env), 0, "no file, no stamp")
+	const at = 1_700_000_000_000
+	writeMode(env, "on", at)
+	const first = readModeStamp(env)
+	writeMode(env, "off", at)
+	const second = readModeStamp(env)
+	assert.ok(second > first, `the stamp must strictly increase (${first} -> ${second})`)
+	assert.equal(readMode(env), "off")
 })

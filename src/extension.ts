@@ -683,13 +683,18 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		const active = client
 
 		const initialMode = await active.mode(instanceId)
+		let effectiveMode: "on" | "off" | undefined = initialMode.ok ? (initialMode.data.mode === "on" ? "on" : "off") : undefined
 		if (sessionMode) {
 			// Re-apply only if the persisted switch has not moved since this session decided. A global
 			// write - ours or another session's `--all` - supersedes every override, and resurrecting
 			// one here would reopen a channel a human shut, including the daemon's scan gate.
-			const current = initialMode.ok ? ((initialMode.data as { globalUpdatedAt?: number }).globalUpdatedAt ?? 0) : undefined
-			if (current === sessionMode.globalAt) {
-				await active.setMode(sessionMode.mode, { scope: "session", instanceId }).catch(() => undefined)
+			// "Could not ask" is not "the switch moved": keep the intent and let the poll tick retry.
+			if (!initialMode.ok) {
+				// leave sessionMode alone
+			} else if ((initialMode.data.globalUpdatedAt ?? 0) === sessionMode.globalAt) {
+				const applied = await active.setMode(sessionMode.mode, { scope: "session", instanceId }).catch(() => undefined)
+				// The re-apply's own answer is the freshest truth about this session.
+				if (applied?.ok) effectiveMode = applied.data.mode === "on" ? "on" : "off"
 			} else {
 				sessionMode = undefined
 			}
@@ -712,7 +717,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 				"error",
 			)
 		}
-		if (initialMode.ok) emailMode = initialMode.data.mode === "on" ? "on" : "off"
+		if (effectiveMode) emailMode = effectiveMode
 
 		notifier = createSettleNotifier({
 			mode: () => emailMode,
@@ -1072,7 +1077,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			// keep this session quiet after the user explicitly switched the machine on.
 			sessionMode =
 				effectiveScope === "session"
-					? { mode, globalAt: (viaDaemon.data as { globalUpdatedAt?: number }).globalUpdatedAt ?? 0 }
+					? { mode, globalAt: viaDaemon.data.globalUpdatedAt ?? 0 }
 					: undefined
 			emailMode = viaDaemon.data.mode === "on" ? "on" : "off"
 			const where = effectiveScope === "global" ? " (all sessions)" : ""

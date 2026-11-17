@@ -226,7 +226,8 @@ it stay pending and unseen until the mode goes back on.
 Mode has **two scopes**, and the wire is described in §3's `/mode` row.
 
 The **global switch** is persisted in `mode.json` (default `off`, so installing never mails you
-unprompted) and is written only by `--all`. The **session override** is
+unprompted) and is written by `--all` — and, in the one case where no daemon exists to hold a
+session override, by a bare `on`/`off` too (the command then says "stored locally"). The **session override** is
 `/mailbridge off|on` without the flag: it lives in the daemon's memory keyed by the session's ping
 id, dies with `/bye` or after 24 h, and is re-applied by the session when it rewires. A global write
 clears every override, so `--all` really does mean every session, in both directions.

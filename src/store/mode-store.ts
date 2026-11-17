@@ -59,8 +59,12 @@ export function readMode(env: NodeJS.ProcessEnv = process.env): Mode {
 export function writeMode(env: NodeJS.ProcessEnv, mode: Mode, now: number = Date.now()): Mode {
 	const p = path(env)
 	mkdirSync(dirname(p), { recursive: true, mode: 0o700 })
+	// Strictly increasing, not just "now": sessions compare this value for equality to decide whether
+	// their own override was superseded, and two writes in one millisecond would compare equal - so a
+	// stale override would be re-applied after a `--all` that was meant to clear it.
+	const stamp = Math.max(now, readModeStamp(env) + 1)
 	const tmp = `${p}.${process.pid}.tmp`
-	writeFileSync(tmp, JSON.stringify({ mode, updatedAt: now } satisfies ModeFile), { mode: 0o600 })
+	writeFileSync(tmp, JSON.stringify({ mode, updatedAt: stamp } satisfies ModeFile), { mode: 0o600 })
 	renameSync(tmp, p)
 	return mode
 }

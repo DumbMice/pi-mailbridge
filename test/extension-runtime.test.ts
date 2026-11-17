@@ -126,6 +126,8 @@ interface FakeDaemon {
 	claimArgs: (number | undefined)[]
 	ackArgs: (number | undefined)[]
 	pendingRecords: PendingRecord[]
+	/** A daemon restart: the persisted switch survives, the in-memory overrides do not. */
+	forgetSessionOverrides(): void
 	/** How many times a session asked the daemon to exit. */
 	shutdowns: number
 	/** Test hook: a supervisor brings the daemon back on the same (wrong) protocol. */
@@ -242,6 +244,7 @@ function fakeDaemon(
 		sent,
 		modes,
 		modeScopes,
+		forgetSessionOverrides: () => sessionOverrides.clear(),
 		registered,
 		released,
 		acked,
@@ -3389,5 +3392,50 @@ test("a foreign --all supersedes this session's override, and a rebuild does not
 		false,
 		`the superseded override must not be re-applied: ${JSON.stringify(after)}`,
 	)
+})
+
+test("a rebuilt runtime with an off override does not claim or mail on the pre-apply mirror", async () => {
+	// The re-apply happens after the mode read, so building the mirror from the *read* left a session
+	// that had turned itself off running with "on" until the next tick - long enough to claim,
+	// inject, ack and mark the reply \Seen, which is not recoverable.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on" })
+	const captured = new Map<string, (args: string, ctx: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		probeHealth: async () => true,
+		stopWaitMs: 0,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	await captured.get("mailbridge")!("off", ctx(notes))
+
+	// A reply arrives, then the daemon restarts (a replacement or idle respawn) and the runtime is
+	// rebuilt: the override map is gone, the persisted switch is not.
+	daemon.pendingRecords.push({
+		uid: 88,
+		sessionId: SESSION,
+		from: "you@example.com",
+		subject: "re",
+		body: "hello",
+		receivedAt: 1,
+	})
+	daemon.forgetSessionOverrides()
+	await captured.get("mailbridge")!("restart", ctx(notes))
+	for (let i = 0; i < 14; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.deepEqual(daemon.claimArgs, [], "an off session must not claim after the re-apply")
+	assert.deepEqual(daemon.acked, [], "and nothing was acked")
+	assert.equal(pi.sent.length, 0, "and nothing was injected")
 })
 

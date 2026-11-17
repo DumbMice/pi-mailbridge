@@ -376,7 +376,7 @@ export function createDaemonClient(options: DaemonClientOptions) {
 		// `{ pending, withheld }`. They are checked by shape, so a squatter's `{}` is not mistaken
 		// for either - `pending.data.pending.length` would otherwise throw.
 		mode: (instanceId?: string) =>
-			call<{ mode: string; global?: string; session?: string }>(
+			call<{ mode: string; global?: string; session?: string; globalUpdatedAt?: number }>(
 				"GET",
 				`/mode${instanceId ? `?instanceId=${encodeURIComponent(instanceId)}` : ""}`,
 				undefined,
@@ -391,7 +391,7 @@ export function createDaemonClient(options: DaemonClientOptions) {
 			mode: "on" | "off",
 			options: { scope?: "session" | "global"; instanceId?: string } = {},
 		) =>
-			call<{ mode: string; global?: string; session?: string }>(
+			call<{ mode: string; global?: string; session?: string; globalUpdatedAt?: number }>(
 				"POST",
 				"/mode",
 				{
