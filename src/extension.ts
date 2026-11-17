@@ -194,7 +194,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	 * `/mailbridge restart`) re-applies it: the daemon keeps overrides in memory, so losing it there
 	 * would silently let mail back in.
 	 */
-	let sessionMode: { mode: "on" | "off"; globalAt: number } | undefined
+	// `globalAt` is undefined when the daemon could not report a stamp; `undefined === undefined` then
+	// re-applies the override, which is the safe direction (never silently un-mute a session).
+	let sessionMode: { mode: "on" | "off"; globalAt: number | undefined } | undefined
 	/** Stable id for this pi process, used for claims and for liveness pings. */
 	const instanceId = sessionInstanceId()
 	/** Throttle for respawning a daemon that exited for idleness. */
@@ -691,8 +693,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			if (!initialMode.ok) {
 				// leave sessionMode alone
 			} else if (
-				// "Could not read the stamp" is not "the switch moved": keep the override rather than
-				// un-muting a session that asked to be quiet.
+				// Without a stamp on either side there is no evidence the switch moved, and "no evidence"
+				// must not un-mute a session that asked to be quiet: keep the override.
+				sessionMode.globalAt === undefined ||
 				initialMode.data.globalUpdatedAt === undefined ||
 				initialMode.data.globalUpdatedAt === sessionMode.globalAt
 			) {
@@ -1086,7 +1089,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			// keep this session quiet after the user explicitly switched the machine on.
 			sessionMode =
 				effectiveScope === "session"
-					? { mode, globalAt: viaDaemon.data.globalUpdatedAt ?? 0 }
+					// Whatever the daemon reported, including nothing: a fabricated 0 would compare
+					// unequal to a real stamp later and drop the override.
+					? { mode, globalAt: viaDaemon.data.globalUpdatedAt }
 					: undefined
 			emailMode = viaDaemon.data.mode === "on" ? "on" : "off"
 			const where = effectiveScope === "global" ? " (all sessions)" : ""

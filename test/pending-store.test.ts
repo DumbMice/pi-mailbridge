@@ -423,5 +423,5 @@ test("an unreadable queue is not corruption: the file stays, and the read fails 
 
 	assert.throws(() => listPending(env), /EISDIR|illegal operation/i, "a read failure must not be reported as an empty queue")
 	assert.equal(statSync(file).isDirectory(), true, "and must not be moved aside as 'corrupt'")
-	assert.equal(existsSync(`${file}.corrupt`) || existsSync(file), true)
+	assert.equal(existsSync(file), true, "and nothing was renamed aside")
 })

@@ -1422,3 +1422,15 @@ test("the catch-up scan is not inside the bookkeeping guard", () => {
 	assert.equal(opens, closes, "the catch-up scan must follow a closed try/catch, not sit inside one")
 })
 
+test("an unknowable mode stamp never counts as evidence that the switch moved", () => {
+	// The override is re-applied after a runtime re-creation only when the persisted switch has not moved.
+	// A missing stamp on either side is not evidence - treating it as one silently un-mutes a session
+	// that asked to be quiet, which is the direction that consumes mail.
+	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
+	assert.match(extension, /sessionMode\.globalAt === undefined/, "the decision-time stamp may be unknown")
+	assert.match(extension, /initialMode\.data\.globalUpdatedAt === undefined/, "so may the re-read")
+	// The stored stamp is whatever the daemon reported - including nothing. A `?? 0` here compares
+	// unequal to a real stamp later and drops the override.
+	assert.doesNotMatch(extension, /globalUpdatedAt\s*\?\?\s*0/, "a fabricated 0 is not a stamp")
+})
+

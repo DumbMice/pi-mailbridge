@@ -527,15 +527,24 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					// send leaves the self-echo guard empty for exactly that window.
 					// Read the thread BEFORE recording: recording moves lastMessageId to the new
 					// id, and a message must answer its predecessor, not itself.
-					const thread = sessionId ? sessionThread(env, sessionId) : {}
+					// Threading is an optimisation; the mail is the product. A read or write fault in the
+					// thread store must not stop the send - the scan's self-echo guard then falls back to
+					// the marker header and the subject route, which is what it did before threading.
+					let thread: { lastMessageId?: string; rootMessageId?: string } = {}
+					if (sessionId) {
+						try {
+							thread = sessionThread(env, sessionId)
+						} catch (error) {
+							deps.log?.(`thread lookup failed, sending unthreaded: ${(error as Error).message}`)
+						}
+					}
 					const messageId = generateMessageId(config.mail.smtp.user ?? "")
 					if (sessionId) {
-						recordOutbound(env, {
-							messageId,
-							sessionId,
-							device: config.device.name,
-							subject,
-						})
+						try {
+							recordOutbound(env, { messageId, sessionId, device: config.device.name, subject })
+						} catch (error) {
+							deps.log?.(`thread record failed, sending anyway: ${(error as Error).message}`)
+						}
 					}
 					const threading = {
 						...(thread.lastMessageId ? { inReplyTo: `<${thread.lastMessageId}>` } : {}),
