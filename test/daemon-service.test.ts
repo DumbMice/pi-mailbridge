@@ -31,6 +31,8 @@ function config(): ResolvedConfig {
 
 interface Harness {
 	service: DaemonService
+	/** Move the service's clock, for the override TTL. */
+	advanceHours(hours: number): void
 	base: string
 	env: NodeJS.ProcessEnv
 	sent: { to: string; subject: string; text: string; messageId?: string }[]
@@ -43,9 +45,11 @@ async function boot(options: { listen?: boolean } = {}): Promise<Harness> {
 	const sent: { to: string; subject: string; text: string; messageId?: string }[] = []
 	const markedSeen: number[] = []
 
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		// What the daemon main() passes: the wire contract and its version.
 		apiVersion: 1,
 		version: "0.1.0-test",
@@ -71,6 +75,9 @@ async function boot(options: { listen?: boolean } = {}): Promise<Harness> {
 
 	const { port } = options.listen === false ? { port: 0 } : await service.listen(0, "127.0.0.1")
 	return {
+		advanceHours: (hours: number) => {
+			clock += hours * 60 * 60 * 1000
+		},
 		service,
 		base: `http://127.0.0.1:${port}`,
 		env,
@@ -269,9 +276,11 @@ test("/send hands the message to the injected mailer", async () => {
 
 test("a send failure surfaces as 502 rather than 200", async () => {
 	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-daemon-")) }
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env,
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => {
@@ -329,9 +338,11 @@ test("malformed JSON is a 400, unknown route is a 404", async () => {
 test("/send reports the Message-ID to the caller so it can be recorded", async () => {
 	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-daemon-")) }
 	const seen: { messageId?: string; subject: string }[] = []
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env,
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<m1@pi.local>" }),
@@ -358,9 +369,11 @@ test("/send reports the Message-ID to the caller so it can be recorded", async (
 test("POST /reload restarts the watcher and requires auth", async () => {
 	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-daemon-")) }
 	let reloads = 0
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env,
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => {},
@@ -385,9 +398,11 @@ test("POST /reload restarts the watcher and requires auth", async () => {
 
 test("a failed reload surfaces as 500 with the reason", async () => {
 	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-daemon-")) }
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env,
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => {},
@@ -406,9 +421,11 @@ test("a failed reload surfaces as 500 with the reason", async () => {
 test("POST /shutdown acknowledges before exiting, and needs auth", async () => {
 	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-daemon-")) }
 	let stopped = 0
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env,
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => {},
@@ -522,9 +539,11 @@ test("/send records the Message-ID before handing the mail over, and threads it"
 	const { statePath } = await import("../src/store/paths.ts")
 	const sent: { subject: string; inReplyTo?: string; references?: string[]; messageId: string; recordedAlready: boolean }[] = []
 
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env,
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async (message) => {
@@ -570,9 +589,11 @@ test("/send records the Message-ID before handing the mail over, and threads it"
 test("/send without a sessionId sets no threading headers", async () => {
 	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-thread-")) }
 	let seen: { inReplyTo?: string } = {}
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env,
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async (message) => {
@@ -607,9 +628,11 @@ test("/ack refuses a record nobody claimed, so another session's reply survives"
 		receivedAt: 1,
 	})
 
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env,
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<x@qq.com>" }),
@@ -630,9 +653,11 @@ test("/ack refuses a record nobody claimed, so another session's reply survives"
 
 test("/health reports the last scan's rejection reasons", async () => {
 	// The reasons were computed and thrown away. "Why did my reply not arrive" needs them.
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-scan-")) },
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<x@qq.com>" }),
@@ -659,9 +684,11 @@ test("POST /mode notifies the daemon so turning it on can rescan", async () => {
 	// Without this hook the daemon only scans on a NEW arrival, so a reply that landed
 	// while the channel was closed would wait for unrelated mail.
 	const seen: string[] = []
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-mode-")) },
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<x@qq.com>" }),
@@ -722,9 +749,11 @@ test("/send uses the CURRENT config after a reload, not the snapshot it started 
 test("/health reports when the daemon read its config", async () => {
 	// The extension compares this with the file's mtime to decide whether to reload a daemon
 	// that was holding a config older than the file.
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-cfgstamp-")) },
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<x@qq.com>" }),
@@ -788,9 +817,11 @@ test("/ack refuses a record from a space the mailbox has left", async () => {
 		uidValidity: 1111,
 	})
 	claimPending(env, 5, "inst", Date.now(), 1111, 1111)
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env,
 		source: { uidValidity: () => 2222, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<x@qq.com>" }),
@@ -826,9 +857,11 @@ test("/ack frees the record's decision slot", async () => {
 	})
 	claimPending(env, 3, "inst")
 	const released: string[] = []
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env,
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<x@qq.com>" }),
@@ -858,9 +891,11 @@ test("a malformed request target does not crash the daemon", async () => {
 	// `GET http://[` threw inside the async handler. Nothing caught it and Node's default is
 	// to exit - one unauthenticated request killed the bridge.
 	const { request } = await import("node:http")
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-url-")) },
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<x@qq.com>" }),
@@ -892,9 +927,11 @@ test("the SSE client cap is enforced", async () => {
 	// Bounded resources are a stated invariant; the cap was untested.
 	const { MAX_SSE_CLIENTS } = await import("../src/daemon/service.ts")
 	const { request } = await import("node:http")
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-sse-")) },
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<x@qq.com>" }),
@@ -930,9 +967,11 @@ test("the SSE client cap is enforced", async () => {
 test("/health reports whether IMAP is connected", async () => {
 	// A revoked credential leaves the daemon running and looking healthy; without this the
 	// user sees "daemon healthy, last scan N minutes ago" and nothing else.
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-imap-")) },
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<x@qq.com>" }),
@@ -949,9 +988,11 @@ test("/health reports whether IMAP is connected", async () => {
 
 test("an internal failure is a 500, not a 400", async () => {
 	// Reporting a store write failure as "bad request" sends incident triage the wrong way.
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-500-")) },
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<x@qq.com>" }),
@@ -977,9 +1018,11 @@ test("an internal failure is a 500, not a 400", async () => {
 })
 
 test("a malformed body is still a 400", async () => {
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-400-")) },
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<x@qq.com>" }),
@@ -1006,9 +1049,11 @@ test("a store write failure is a 500 even though the path says .json", async () 
 	const { addPending } = await import("../src/store/pending-store.ts")
 	// A record so /ack has something to remove, then make the dir unwritable.
 	addPending(env, { uid: 1, sessionId: "s", from: "you@example.com", subject: "x", body: "y", receivedAt: 1 })
+	let clock = Date.now()
 	const service = createDaemonService({
 		config: config(),
 		token: TOKEN,
+		now: () => clock,
 		env,
 		source: { uidValidity: () => undefined, searchAfter: async () => [], fetch: async () => undefined },
 		send: async () => ({ messageId: "<x@qq.com>" }),
@@ -1299,8 +1344,12 @@ test("a session override needs an instance id, and dies with the session", async
 	const h = await boot()
 	try {
 		assert.equal((await post(h, "/mode", { mode: "off", scope: "session" })).status, 400, "no id, no override")
-		await post(h, "/mode", { mode: "off", scope: "session", instanceId: "inst-x" })
+		// The override must differ from the global switch, or the assertion below holds either way.
+		await post(h, "/mode", { mode: "off", scope: "global" })
+		await post(h, "/mode", { mode: "on", scope: "session", instanceId: "inst-x" })
+		assert.equal(h.service.scanEnabled(), false, "not attached yet")
 		await post(h, "/ping", { instanceId: "inst-x" })
+		assert.equal(h.service.scanEnabled(), true, "the attached session's override keeps the mailbox alive")
 		await post(h, "/bye", { instanceId: "inst-x" })
 		// A session that left cannot hold the mailbox quiet: a later process reusing the id starts
 		// from the global switch.
@@ -1353,6 +1402,25 @@ test("a global write beats a session override, in both directions", async () => 
 		assert.equal(h.service.scanEnabled(), false)
 		await post(h, "/mode", { mode: "on", scope: "global" })
 		assert.equal(h.service.scanEnabled(), true, "on --all revives the session that turned itself off")
+	} finally {
+		await h.close()
+	}
+})
+
+test("a session override expires on its own, so a crash cannot hold the mailbox open", async () => {
+	// The TTL is the crash safety net: a session that never says /bye must not keep the daemon scanning
+	// forever on an old decision.
+	const h = await boot()
+	try {
+		await post(h, "/mode", { mode: "off", scope: "global" })
+		await post(h, "/mode", { mode: "on", scope: "session", instanceId: "inst-ttl" })
+		const before = (await (await fetch(`${h.base}/mode?instanceId=inst-ttl`, { headers: auth() })).json()) as {
+			mode: string
+		}
+		assert.equal(before.mode, "on")
+		h.advanceHours(25)
+		const after = await (await fetch(`${h.base}/mode?instanceId=inst-ttl`, { headers: auth() })).json()
+		assert.deepEqual(after, { mode: "off", global: "off" }, "past the TTL the override is gone")
 	} finally {
 		await h.close()
 	}
