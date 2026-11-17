@@ -119,7 +119,7 @@ export interface ScanResult {
 	rejected: number
 	/** Already journaled (acked earlier) — dedupe, not a rejection. */
 	skipped: number
-	/** Per-reason rejection counts, for logs and `/mailbridge status`. */
+	/** Per-reason counts, for logs and `/mailbridge status`: refusals, skips, deferrals, drops. */
 	reasons: Record<string, number>
 	/** Cursor value after the scan. */
 	cursor: number
@@ -130,16 +130,12 @@ function bump(reasons: Record<string, number>, key: string): void {
 }
 
 /**
- * One incremental scan.
- *
- * A message is "handled" (and the cursor moves past it) when it is persisted,
- * rejected, skipped, or has vanished. Only a thrown error from the source or the
- * pending store stops the scan with the cursor left before the offending UID, so
- * the next scan retries it.
- */
-/**
  * One incremental scan: search after the cursor, authorize, persist, advance. Pure in its deps, so the
  * whole pipeline - including a renumbering - can be driven from a fake source.
+ *
+ * A message is "handled" (and the cursor moves past it) when it is persisted, rejected, skipped, or has
+ * vanished. Two things stop the batch with the cursor left before the offending UID: a thrown error from
+ * the source or a store, and a full queue (deliberate - the mail is retried, not dropped).
  */
 export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Promise<ScanResult> {
 	const env = deps.env ?? process.env
@@ -375,7 +371,9 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		// A drop must reach the agent even when the reply has prose: "here is the screen recording"
 		// with the clip silently missing reads as success. The note is appended to the body, which is
 		// the one channel the agent is guaranteed to read - the stub below covers the no-text case.
-		if (dropped.length > 0 && (body || accepted.length > 0 || files.length > 0)) {
+		if (dropped.length > 0) {
+			// Reached only when something was delivered: the stub branch above takes the textless case
+			// where nothing survived.
 			// Not `&& body`: a phone reply of a screenshot plus a rejected clip has no prose, and the
 			// surviving image was delivered with no indication that anything else was lost.
 			const reasons = [...new Set(dropped.map((d) => d.reason))].join(", ")

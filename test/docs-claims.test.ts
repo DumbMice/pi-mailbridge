@@ -491,12 +491,16 @@ test("the README states the Node floor", () => {
 	assert.equal(pkg.engines?.node, ">=22.6", "and it must match package.json")
 })
 
-test("route-miss and attachment drops are not classified as rejections", () => {
+test("route-miss and attachment drops are not classified as rejections", async () => {
 	// They were printed under "rejections:" while `rejected` said 0, contradicting itself.
 	const status = readFileSync(join(root, "src/core/status.ts"), "utf8")
 	const handled = /HANDLED = new Set\(\[([^\]]*)\]\)/.exec(status)?.[1] ?? ""
 	assert.ok(handled.includes("route-miss"), "route-miss still routes, so it is not a rejection")
-	assert.match(status, /attachment-/, "attachment drops are reported as notes")
+	// Behaviour, not a substring: `isRefusalReason` contains the literal "attachment-" itself, so this
+	// assertion used to pass even if attachments were classified as refusals.
+	const { isRefusalReason } = await import("../src/core/status.ts")
+	assert.equal(isRefusalReason("attachment-too-large"), false, "an attachment drop is not a refusal")
+	assert.equal(isRefusalReason("attachment-only-dropped"), false)
 })
 
 test("the device-and-session claim is scoped to settle mails", () => {
@@ -1465,5 +1469,23 @@ test("the inbound document list names every extension the code accepts", () => {
 		const needle = alias[ext] ?? ext
 		assert.match(readme, new RegExp(`(?<![a-z])${needle}(?![a-z])`), `README's inbound list omits .${ext}`)
 	}
+})
+
+test("the daemon injects the UIDVALIDITY check into every scan", () => {
+	// Without the injection the scan silently stops checking, and the whole suite stays green - which is
+	// exactly how the connect-only check survived three rounds.
+	const main = readFileSync(join(root, "src/daemon/main.ts"), "utf8")
+	assert.match(
+		main,
+		/scanAndProcess\(currentConfig, \{[\s\S]{0,200}applyUidValidity:/,
+		"the scan deps carry the check",
+	)
+	// And its result must be visible even when the scan saw no mail: a mid-connection renumber into an
+	// empty folder drops records while examining nothing.
+	assert.match(
+		main,
+		/result\.reasons\["uidvalidity-dropped"\][\s\S]{0,200}log\(/,
+		"a drop is logged outside the examined > 0 gates",
+	)
 })
 

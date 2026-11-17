@@ -954,10 +954,12 @@ test("a renumbering is noticed on a normal scan, not only on reconnect", async (
 	const e = env()
 	// A cursor from the old numbering, well past the UIDs this fake source will return, and *recorded*
 	// against the old UIDVALIDITY: the first observation of a space is an adoption, not a reset.
-	const { advanceCursor } = await import("../src/store/uid-cursor.ts")
-	const { syncUidValidity } = await import("../src/store/uid-cursor.ts")
+	const { advanceCursor, syncUidValidity } = await import("../src/store/uid-cursor.ts")
+	const { addPending } = await import("../src/store/pending-store.ts")
 	advanceCursor(e, 9)
 	syncUidValidity(e, 1111)
+	// A record from the old numbering: nothing can ever claim it once the space changes.
+	addPending(e, { uid: 5, sessionId: "s", from: "a@b.c", subject: "x", body: "old space", receivedAt: 1, uidValidity: 1111 })
 	const { applyUidValidity } = await import("../src/daemon/source-proxy.ts")
 
 	const renumbered = { ...source([msg(1, { text: "after the renumber" })]), uidValidity: () => 2222 }
@@ -969,6 +971,7 @@ test("a renumbering is noticed on a normal scan, not only on reconnect", async (
 		applyUidValidity: (env) => applyUidValidity(env, renumbered),
 	})
 	assert.ok(r.reasons["uidvalidity-reset"] === 1, `the reset should be reported: ${JSON.stringify(r.reasons)}`)
+	assert.equal(r.reasons["uidvalidity-dropped"], 1, "and the queued record from the old space is counted")
 	assert.equal(r.persisted, 1, "and the re-read batch is delivered")
 	assert.equal(listPending(e)[0]?.body, "after the renumber")
 })

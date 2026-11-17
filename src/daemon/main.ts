@@ -486,6 +486,11 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 					reasons: result.reasons,
 				}
 			}
+			// Outside the `examined > 0` gates: a mid-connection renumber into an empty folder drops
+			// queued records while seeing no mail, and that would otherwise leave no trace anywhere.
+			if (result.reasons["uidvalidity-dropped"]) {
+				log(`${why}: ${result.reasons["uidvalidity-dropped"]} queued record(s) from an earlier UID space dropped`)
+			}
 			if (result.persisted > 0) {
 				// Name the reasons even on a partial success: "rejected 1" alone leaves the user
 				// unable to tell which reply was dropped and why.
