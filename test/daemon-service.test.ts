@@ -236,9 +236,9 @@ test("POST /mode persists and broadcasts to connected SSE clients", async () => 
 test("GET /mode reflects the persisted value", async () => {
 	const h = await boot()
 	try {
-		assert.deepEqual(await (await fetch(`${h.base}/mode`, { headers: auth() })).json(), { mode: "off" })
+		assert.deepEqual(await (await fetch(`${h.base}/mode`, { headers: auth() })).json(), { mode: "off", global: "off" })
 		await post(h, "/mode", { mode: "on" })
-		assert.deepEqual(await (await fetch(`${h.base}/mode`, { headers: auth() })).json(), { mode: "on" })
+		assert.deepEqual(await (await fetch(`${h.base}/mode`, { headers: auth() })).json(), { mode: "on", global: "on" })
 	} finally {
 		await h.close()
 	}
@@ -1269,4 +1269,63 @@ test("every accepted loopback form actually binds on this host", async () => {
 	}
 })
 
+test("a session-only off does not touch the global switch, and the override wins", async () => {
+	// The whole point: silencing one noisy agent must not disarm the others.
+	const h = await boot()
+	try {
+		await post(h, "/mode", { mode: "on", scope: "global" })
+		const quiet = await post(h, "/mode", { mode: "off", scope: "session", instanceId: "inst-a" })
+		assert.deepEqual(await quiet.json(), { mode: "off", global: "on", session: "off" })
+
+		// This session is off; the global switch and another session are untouched.
+		const mine = await (await fetch(`${h.base}/mode?instanceId=inst-a`, { headers: auth() })).json()
+		assert.deepEqual(mine, { mode: "off", global: "on", session: "off" })
+		const other = await (await fetch(`${h.base}/mode?instanceId=inst-b`, { headers: auth() })).json()
+		assert.deepEqual(other, { mode: "on", global: "on" })
+
+		// Clearing the override inherits the global switch again.
+		const cleared = await post(h, "/mode", { mode: "on", scope: "session", instanceId: "inst-a", clear: true })
+		assert.deepEqual(await cleared.json(), { mode: "on", global: "on" })
+	} finally {
+		await h.close()
+	}
+})
+
+test("a session override needs an instance id, and dies with the session", async () => {
+	const h = await boot()
+	try {
+		assert.equal((await post(h, "/mode", { mode: "off", scope: "session" })).status, 400, "no id, no override")
+		await post(h, "/mode", { mode: "off", scope: "session", instanceId: "inst-x" })
+		await post(h, "/ping", { instanceId: "inst-x" })
+		await post(h, "/bye", { instanceId: "inst-x" })
+		// A session that left cannot hold the mailbox quiet: a later process reusing the id starts
+		// from the global switch.
+		assert.deepEqual(await (await fetch(`${h.base}/mode?instanceId=inst-x`, { headers: auth() })).json(), {
+			mode: "off",
+			global: "off",
+		})
+	} finally {
+		await h.close()
+	}
+})
+
+test("scanning is on for a session that turned itself on, even with the global switch off", async () => {
+	// The mailbox is one, so the scan gate has to span sessions: while a session is attached and on,
+	// the daemon must keep scanning for it; with nobody attached it follows the global switch.
+	const h = await boot()
+	try {
+		assert.equal(h.service.scanEnabled(), false, "global off, nobody attached")
+		await post(h, "/mode", { mode: "off", scope: "global" })
+		await post(h, "/mode", { mode: "on", scope: "session", instanceId: "inst-on" })
+		assert.equal(h.service.scanEnabled(), false, "an override from a session that is not attached does not scan")
+		await post(h, "/ping", { instanceId: "inst-on" })
+		assert.equal(h.service.scanEnabled(), true, "attached and on: scan")
+		await post(h, "/mode", { mode: "off", scope: "session", instanceId: "inst-on" })
+		assert.equal(h.service.scanEnabled(), false, "that session went quiet again")
+		await post(h, "/mode", { mode: "on", scope: "global" })
+		assert.equal(h.service.scanEnabled(), true, "global on scans regardless")
+	} finally {
+		await h.close()
+	}
+})
 

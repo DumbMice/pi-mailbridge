@@ -119,6 +119,11 @@ export interface DaemonService {
 	/** Push an event to every connected SSE client. */
 	broadcast(event: DaemonEvent): void
 	readonly sseClients: number
+	/**
+	 * Should the mailbox be scanned at all? The global switch, or any *attached* session that turned
+	 * itself on while the global switch is off. Idle with nobody attached, unless global is on.
+	 */
+	scanEnabled(): boolean
 }
 
 function constantTimeEqual(a: string, b: string): boolean {
@@ -166,6 +171,25 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 	// old code, and nothing reads a mailbox no session will consume. A daemon nobody ever pings
 	// (started by hand, and pi never attached) stops on the same clock.
 	const pings = new Map<string, number>()
+
+	// Per-session overrides of the global switch. In memory on purpose: a session is ephemeral, its
+	// override is about *this* run, and the extension re-applies its own on a reconnect (a daemon
+	// restart must not silently re-enable mail). `bye` drops it; the TTL covers a crash.
+	const sessionModes = new Map<string, { mode: Mode; at: number }>()
+	const SESSION_MODE_TTL_MS = 24 * 60 * 60 * 1000
+	function pruneSessionModes(nowMs: number): void {
+		for (const [id, entry] of sessionModes) if (nowMs - entry.at > SESSION_MODE_TTL_MS) sessionModes.delete(id)
+	}
+	/**
+	 * The asking session's override, if it set one and is still around. Keyed by the ping id: that is
+	 * one run of one session, so a restarted pi starts from the global switch rather than inheriting
+	 * a decision made hours ago in a different process.
+	 */
+	function overrideFor(instanceId: string | undefined, nowMs: number): Mode | undefined {
+		if (!instanceId) return undefined
+		pruneSessionModes(nowMs)
+		return sessionModes.get(instanceId)?.mode
+	}
 	// Idleness is measured from the daemon's own start when nobody has pinged yet, so a fresh
 	// daemon gets the full grace period rather than looking infinitely stale.
 	const startedAt = Date.now()
@@ -280,8 +304,14 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					})
 				}
 
-				case "GET /mode":
-					return send(200, { mode: readMode(env) })
+				case "GET /mode": {
+					// `mode` is the effective answer for the asking session, so a client that only
+					// reads `mode` keeps working; `global` and `session` explain why it is what it is.
+					const instanceId = url.searchParams.get("instanceId") ?? undefined
+					const glob = readMode(env)
+					const over = overrideFor(instanceId, now())
+					return send(200, { mode: over ?? glob, global: glob, ...(over ? { session: over } : {}) })
+				}
 
 				case "POST /claim": {
 					const body = asRecord(await readJson(req))
@@ -374,6 +404,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					const instanceId = typeof body?.instanceId === "string" ? body.instanceId : ""
 					if (!instanceId) return fail(400, "bad_request")
 					pings.delete(instanceId)
+					sessionModes.delete(instanceId)
 					return send(200, { ok: true, clients: pings.size })
 				}
 
@@ -399,11 +430,24 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 
 				case "POST /mode": {
 					const body = asRecord(await readJson(req))
+					const scope = body?.scope === "session" ? "session" : "global"
+					if (scope === "session") {
+						// Scope wins over a bare `mode`: a session can go quiet (or come back) without
+						// disarming every other session, which is the whole point of the split.
+						const instanceId = typeof body?.instanceId === "string" ? body.instanceId : ""
+						if (!instanceId) return fail(400, "bad_request")
+						if (body?.clear === true) sessionModes.delete(instanceId)
+						else if (isMode(body?.mode)) sessionModes.set(instanceId, { mode: body.mode, at: now() })
+						else return fail(400, "bad_request")
+						const glob = readMode(env)
+						const over = overrideFor(instanceId, now())
+						return send(200, { mode: over ?? glob, global: glob, ...(over ? { session: over } : {}) })
+					}
 					if (!isMode(body?.mode)) return fail(400, "bad_request")
 					const mode = writeMode(env, body.mode, now())
 					broadcast({ type: "mode", mode })
 					deps.onModeChange?.(mode)
-					return send(200, { mode })
+					return send(200, { mode, global: mode })
 				}
 
 				case "POST /send": {
@@ -521,6 +565,17 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 		server,
 		get sseClients() {
 			return streams.size
+		},
+		/**
+		 * Should the mailbox be scanned at all? Global `on` scans for everyone; a session override
+		 * keeps it scanning while that session is attached, even when the global switch is off.
+		 * Nobody attached and global off means there is no consumer, so stay idle.
+		 */
+		scanEnabled: () => {
+			if (readMode(env) === "on") return true
+			pruneSessionModes(now())
+			for (const id of pings.keys()) if (sessionModes.get(id)?.mode === "on") return true
+			return false
 		},
 		broadcast,
 		// Never fall back to the unspecified address: `undefined` binds 0.0.0.0, and the port is

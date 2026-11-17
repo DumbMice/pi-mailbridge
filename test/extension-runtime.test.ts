@@ -119,6 +119,7 @@ interface FakeDaemon {
 	client: ReturnType<typeof import("../src/daemon/spawn.ts").createDaemonClient>
 	sent: { to?: string; subject: string; text: string }[]
 	modes: string[]
+	modeScopes: { mode: string; scope?: string; instanceId?: string; clear?: boolean }[]
 	registered: string[]
 	released: string[]
 	acked: number[]
@@ -150,6 +151,7 @@ function fakeDaemon(
 ): FakeDaemon {
 	const sent: { to?: string; subject: string; text: string }[] = []
 	const modes: string[] = []
+	const modeScopes: { mode: string; scope?: string; instanceId?: string; clear?: boolean }[] = []
 	const registered: string[] = []
 	const released: string[] = []
 	const acked: number[] = []
@@ -173,11 +175,19 @@ function fakeDaemon(
 				capabilities: over.capabilities ?? [...CAPABILITIES],
 			}),
 		pending: async () => ok({ pending: pendingRecords, withheld: 0 }),
-		mode: async () => ok({ mode: currentMode }),
-		setMode: async (mode: "on" | "off") => {
-			currentMode = mode
-			modes.push(mode)
-			return ok({ mode })
+		mode: async () => ok({ mode: currentMode, global: currentMode }),
+		setMode: async (
+			mode: "on" | "off",
+			options: { scope?: "session" | "global"; instanceId?: string; clear?: boolean } = {},
+		) => {
+			modeScopes.push({ mode, ...options })
+			if ((options.scope ?? "global") === "global") {
+				currentMode = mode
+				modes.push(mode)
+				return ok({ mode, global: mode })
+			}
+			if (options.clear) return ok({ mode: currentMode, global: currentMode })
+			return ok({ mode, global: currentMode, session: mode })
 		},
 		// The tick's first call. Without it the whole tick threw and the swallow-all catch
 		// hid it, so gate tests passed for the wrong reason.
@@ -216,6 +226,7 @@ function fakeDaemon(
 		client: client as never,
 		sent,
 		modes,
+		modeScopes,
 		registered,
 		released,
 		acked,
@@ -374,9 +385,50 @@ test("/mailbridge on and off push the mode through the daemon", async () => {
 	// session_start is what wires the daemon client and seeds the mode mirror.
 	await pi.fire("session_start")
 
+	// A bare on/off is this session's business; `--all` is the one that writes the global switch.
 	await captured.get("mailbridge")!("on", ctx())
 	await captured.get("mailbridge")!("off", ctx())
-	assert.deepEqual(daemon.modes, ["on", "off"])
+	assert.deepEqual(daemon.modes, [], "a bare off must not change every session")
+	assert.deepEqual(
+		daemon.modeScopes.map((m) => ({ mode: m.mode, scope: m.scope, clear: m.clear === true })),
+		[
+			{ mode: "on", scope: "session", clear: true },
+			{ mode: "off", scope: "session", clear: false },
+		],
+	)
+
+	await captured.get("mailbridge")!("off --all", ctx())
+	await captured.get("mailbridge")!("on --all", ctx())
+	assert.deepEqual(daemon.modes, ["off", "on"], "--all is the global switch")
+})
+
+test("a daemon without per-session mode falls back to the global switch and says so", async () => {
+	// The capability is how an older daemon is detected. Pretending the command was local would be
+	// the worst outcome: quieter than asked, for everybody.
+	const daemon = fakeDaemon({ mode: "on", capabilities: CAPABILITIES.filter((c) => c !== "session-mode") })
+	const notes: string[] = []
+	const captured = new Map<string, (args: string, ctx: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: fakeTimers().timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	await captured.get("mailbridge")!("off", ctx(notes))
+
+	assert.deepEqual(daemon.modes, ["off"], "fell back to the global switch")
+	assert.ok(
+		notes.some((n) => /no per-session mode/.test(n)),
+		`must say it changed every session: ${JSON.stringify(notes)}`,
+	)
 })
 
 // --- tools -----------------------------------------------------------------
@@ -1339,7 +1391,12 @@ test("a command reply runs the command instead of prompting the agent", async ()
 	await new Promise((r) => setImmediate(r))
 
 	assert.equal(pi.sent.length, 0, "nothing was injected for the agent to read")
-	assert.equal(daemon.modes.at(-1), "off", "/mailbridge off switched email mode off")
+	assert.deepEqual(
+		{ mode: daemon.modeScopes.at(-1)?.mode, scope: daemon.modeScopes.at(-1)?.scope },
+		{ mode: "off", scope: "session" },
+		"/mailbridge off quietened this session",
+	)
+	assert.deepEqual(daemon.modes, [], "and did not disarm every other session")
 })
 
 test("a reply that merely mentions a command is still a message", async () => {
@@ -1363,7 +1420,7 @@ test("a reply that merely mentions a command is still a message", async () => {
 	await new Promise((r) => setImmediate(r))
 
 	assert.match(pi.sent.at(-1) ?? "", /please stop mailing me/, "the whole reply reaches the agent")
-	assert.notEqual(daemon.modes.at(-1), "off", "and the quoted command did not run")
+	assert.notEqual(daemon.modeScopes.at(-1)?.mode, "off", "and the quoted command did not run")
 })
 
 test("a mail command that throws is acked, not retried forever", async () => {
@@ -1409,7 +1466,7 @@ test("a /mailbridge off reply stops the batch it arrived in", async () => {
 	await pi.fire("session_start")
 	for (let i = 0; i < 5; i += 1) await new Promise((r) => setImmediate(r))
 
-	assert.equal(daemon.modes.at(-1), "off")
+	assert.equal(daemon.modeScopes.at(-1)?.mode, "off")
 	assert.equal(pi.sent.length, 0, "the record behind the switch was not injected")
 	assert.deepEqual(daemon.acked ?? [], [41], "and it was not claimed or acked")
 })
@@ -1444,7 +1501,7 @@ test("/mailbridge on builds the missing runtime instead of reporting a hollow ON
 	// The secret appears (setup wrote one, or the user pasted the password and reloaded).
 	secret = SECRET
 	await captured.get("mailbridge")!("on", ctx(notes))
-	assert.deepEqual(daemon.modes, ["on"], "the mode change went through the daemon, not a local file")
+	assert.equal(daemon.modeScopes.at(-1)?.scope, "session", "the mode change went through the daemon, not a local file")
 	assert.ok(notes.some((n) => /email mode ON/.test(n)), `notes: ${JSON.stringify(notes)}`)
 })
 
@@ -3067,5 +3124,42 @@ test("the latch also stops the session from draining the daemon it called unusab
 
 	assert.ok(notes.some((n) => /restart pi to load the matching extension/.test(n)), `latched: ${JSON.stringify(notes)}`)
 	assert.equal(pendingCalls, 0, "a latched session must not consume the newer daemon's queue")
+})
+
+test("a rebuilt runtime re-applies this session's override", async () => {
+	// The daemon keeps overrides in memory, so a restart would drop it: the session has to push it
+	// back on the new client, or a session that turned itself off starts receiving mail again.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "on" })
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		probeHealth: async () => true,
+		stopWaitMs: 0,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	await captured.get("mailbridge")!("off", ctx(notes))
+	const before = daemon.modeScopes.length
+
+	// A restart tears the runtime down and builds a fresh client.
+	await captured.get("mailbridge")!("restart", ctx(notes))
+	for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
+
+	const after = daemon.modeScopes.slice(before)
+	assert.ok(
+		after.some((m) => m.scope === "session" && m.mode === "off"),
+		`the rebuilt runtime must re-apply the override: ${JSON.stringify(after)}`,
+	)
 })
 

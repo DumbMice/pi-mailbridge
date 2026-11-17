@@ -162,6 +162,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		{ id: "files", what: "document replies (it cannot deliver a PDF or a deck)" },
 		{ id: "attachments", what: "the current attachment rules (mail rendering and the project boundary)" },
 		{ id: "video", what: "video attachments (a linked clip is refused as \"this file type is not attached\")" },
+		{ id: "session-mode", what: "per-session email mode (`/mailbridge off` would change every session instead)" },
 	]
 	/** One notice per session: a context so stale the settle could not even be routed. */
 	let staleContextWarned = false
@@ -189,6 +190,12 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	let notifier: SettleNotifier | undefined
 	/** Mirror of the daemon's global mode. Default off: never mail unprompted. */
 	let emailMode: "on" | "off" = "off"
+	/**
+	 * This session's own override, if it set one. Held here so a rebuilt runtime (daemon restart,
+	 * `/mailbridge restart`) re-applies it: the daemon keeps overrides in memory, so losing it there
+	 * would silently let mail back in.
+	 */
+	let sessionMode: "on" | "off" | undefined
 	/** Stable id for this pi process, used for claims and for liveness pings. */
 	const instanceId = `pi-${process.pid}`
 	/** Throttle for respawning a daemon that exited for idleness. */
@@ -675,7 +682,13 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		if (!client) return false
 		const active = client
 
-		const initialMode = await active.mode()
+		// A rebuilt runtime must not silently inherit the global switch: the daemon holds overrides in
+		// memory, so a restart would otherwise let mail back into a session that turned itself off.
+		if (sessionMode) {
+			await active.setMode(sessionMode, { scope: "session", instanceId }).catch(() => undefined)
+		}
+
+		const initialMode = await active.mode(instanceId)
 		// A session_shutdown can land during that await. Without this the runtime is rebuilt
 		// around a dead ctx: the poll keeps pinging and the daemon's idle exit can never fire.
 		if (!ctx) {
@@ -1012,15 +1025,44 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 	// ---- commands ----------------------------------------------------------
 
-	async function setMode(mode: "on" | "off", c: ExtensionCtxLike): Promise<void> {
+	/**
+	 * `/mailbridge on|off` — this session by default, every session with `--all`.
+	 *
+	 * The scope split exists because one noisy agent should not disarm the others: a bare `off`
+	 * sets an override for *this* session only, while `--all` writes the persisted global switch
+	 * that new sessions inherit. A daemon without the `session-mode` capability only has the global
+	 * switch, so the command falls back to it and says so rather than pretending to be local.
+	 */
+	async function setMode(mode: "on" | "off", c: ExtensionCtxLike, scope: "session" | "global" = "session"): Promise<void> {
 		// No client means this session never built a runtime (it started before a config
 		// existed). Writing mode.json alone would report ON with no notifier and no runner - the
 		// documented "copy config.example.json yourself" path lands here.
 		if (!client && (await startRuntime()) && !pollPaused) startPolling()
-		const viaDaemon = client ? await client.setMode(mode) : undefined
+		// Asked per command, not cached: a daemon replacement mid-session must change the answer
+		// immediately, and an explicit user command can afford one request.
+		const advertised = client ? await client.health() : undefined
+		const caps = advertised?.ok ? (advertised.data as { capabilities?: unknown }).capabilities : undefined
+		const supportsScope = Array.isArray(caps) && caps.includes("session-mode")
+		const effectiveScope = scope === "session" && !supportsScope ? "global" : scope
+		// `on` with session scope means "inherit the global switch again", not "force on for me".
+		const clearing = effectiveScope === "session" && mode === "on"
+		const viaDaemon = client
+			? await client.setMode(mode, {
+					scope: effectiveScope,
+					...(effectiveScope === "session" ? { instanceId, clear: clearing } : {}),
+				})
+			: undefined
 		if (viaDaemon?.ok) {
-			emailMode = mode
-			c.ui.notify(mode === "on" ? "mailbridge: email mode ON" : "mailbridge: email mode OFF", "info")
+			sessionMode = effectiveScope === "session" ? (clearing ? undefined : mode) : undefined
+			emailMode = viaDaemon.data.mode === "on" ? "on" : "off"
+			const where = effectiveScope === "global" ? " (all sessions)" : ""
+			const fellBack = scope === "session" && effectiveScope === "global"
+				? " — this daemon has no per-session mode, so every session was changed; /mailbridge restart enables it"
+				: ""
+			c.ui.notify(
+				`mailbridge: email mode ${mode.toUpperCase()}${where}${clearing ? " (this session inherits the global switch again)" : ""}${fellBack}`,
+				fellBack ? "warning" : "info",
+			)
 			return
 		}
 		// No daemon: fall back to the local file so the mode change is never a silent no-op.
@@ -1097,6 +1139,14 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 			const statusReport = async () => {
 				const secret = secretFn()
+				// Effective for this session, plus the global switch when they differ: "off" alone was
+				// ambiguous once the scope split existed.
+				const mine = client ? await client.mode(instanceId) : undefined
+				const modeLine = mine?.ok
+					? mine.data.session
+						? `${mine.data.mode} (this session) · global ${mine.data.global ?? "?"}`
+						: `${mine.data.mode} (global)`
+					: "(unknown)"
 				const health = client ? await client.health() : undefined
 				// Three different answers, because they need three different fixes: no client here but
 				// one on the port; nothing answering; and something answering that is not the daemon.
@@ -1124,7 +1174,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 										: "unreachable"
 						} (${clientBase ?? currentBaseUrl()})${build}`,
 						`device: ${config.device.name}`,
-						`mode: ${health?.ok ? health.data.mode : "(unknown)"}`,
+						`mode: ${modeLine}`,
 						`imap: ${health?.ok ? (health.data as { imap?: string }).imap ?? "unknown" : "(unknown)"}`,
 						`session: ${ctx?.sessionManager.getSessionId() ?? "(none)"}`,
 						`secret: ${secret ? "present" : "missing"}`,
@@ -1145,10 +1195,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 
 			switch (parsed.sub) {
 				case "on":
-					return void (await setMode("on", c))
+					return void (await setMode("on", c, parsed.all ? "global" : "session"))
 
 				case "off":
-					return void (await setMode("off", c))
+					return void (await setMode("off", c, parsed.all ? "global" : "session"))
 
 				case "help":
 					return void c.ui.notify(USAGE, "info")

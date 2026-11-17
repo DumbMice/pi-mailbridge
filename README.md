@@ -75,6 +75,12 @@ The daemon exists whether or not email mode is on; `/mailbridge on` and `off` ga
 delivery, not the process. So a hung daemon is never "because the mode is off", and the mode being
 off does not stop it from answering `/health`.
 
+**The switch is per session.** A bare `/mailbridge off` quiets *this* session only — the other
+agents you are running keep mailing you — and `on` gives it back to the global switch. `--all` is
+the machine-wide one: `/mailbridge off --all` stops every session now and every session you start
+later, and it is persisted (the default is off, so installing never mails you unprompted).
+`/mailbridge status` shows both when they differ: `mode: off (this session) · global on`.
+
 ## Quick start
 
 Inside pi:
@@ -219,8 +225,8 @@ pi-mailbridge --smoke     # sends one real mail, then opens the folder and count
 | Command | Effect |
 | --- | --- |
 | `/mailbridge` or `/mailbridge status` | daemon health, mode, session, secret, mailbox, allowlist, pending replies |
-| `/mailbridge on` | email mode on: decisions mail you and end the turn |
-| `/mailbridge off` | email mode off: decisions ask in this terminal |
+| `/mailbridge on` | email mode on for this session (`--all`: every session) |
+| `/mailbridge off` | email mode off for this session (`--all`: every session) |
 | `/mailbridge setup <pi-address> [to <your-address>] [force]` | discover servers + auth, write the config, start or reload the daemon |
 | `/mailbridge check` | validate config and that credentials are *present* (no network in pi; `--check` runs your `tokenCommand` when XOAUTH2 is configured) |
 | `/mailbridge auth` | start the OAuth2 device login |

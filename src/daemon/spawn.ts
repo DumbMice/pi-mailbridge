@@ -375,10 +375,34 @@ export function createDaemonClient(options: DaemonClientOptions) {
 		// The endpoints whose contract has no `ok`: `/mode` answers `{ mode }`, `/pending` answers
 		// `{ pending, withheld }`. They are checked by shape, so a squatter's `{}` is not mistaken
 		// for either - `pending.data.pending.length` would otherwise throw.
-		mode: () =>
-			call<{ mode: string }>("GET", "/mode", undefined, undefined, (body) => typeof body.mode === "string"),
-		setMode: (mode: "on" | "off") =>
-			call<{ mode: string }>("POST", "/mode", { mode }, undefined, (body) => typeof body.mode === "string"),
+		mode: (instanceId?: string) =>
+			call<{ mode: string; global?: string; session?: string }>(
+				"GET",
+				`/mode${instanceId ? `?instanceId=${encodeURIComponent(instanceId)}` : ""}`,
+				undefined,
+				undefined,
+				(body) => typeof body.mode === "string",
+			),
+		/**
+		 * `scope: "session"` turns this session's channel off (or back on) without touching the
+		 * global switch; `clear` drops the override and inherits the global mode again.
+		 */
+		setMode: (
+			mode: "on" | "off",
+			options: { scope?: "session" | "global"; instanceId?: string; clear?: boolean } = {},
+		) =>
+			call<{ mode: string; global?: string; session?: string }>(
+				"POST",
+				"/mode",
+				{
+					mode,
+					...(options.scope ? { scope: options.scope } : {}),
+					...(options.instanceId ? { instanceId: options.instanceId } : {}),
+					...(options.clear ? { clear: true } : {}),
+				},
+				undefined,
+				(body) => typeof body.mode === "string",
+			),
 		claim: (uid: number, instanceId: string, uidValidity?: number) =>
 			call<{ ok: boolean }>("POST", "/claim", {
 				uid,

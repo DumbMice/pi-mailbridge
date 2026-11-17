@@ -24,6 +24,8 @@ export interface ParsedCommand {
 	to?: string
 	/** Setup: overwrite an existing config. */
 	force: boolean
+	/** on/off: apply to every session (the persisted global switch), not just this one. */
+	all: boolean
 }
 
 /**
@@ -41,8 +43,8 @@ export interface SubcommandInfo {
 
 export const SUBCOMMAND_INFO = [
 	{ name: "status", hint: "mailbox, queue, last scan, this session" },
-	{ name: "on", hint: "email mode on: decisions mail you" },
-	{ name: "off", hint: "email mode off: decisions ask in this terminal" },
+	{ name: "on", hint: "email mode on for this session (--all: every session)", args: "[--all]" },
+	{ name: "off", hint: "email mode off for this session (--all: every session)", args: "[--all]" },
 	{ name: "setup", hint: "write the config and start the daemon", args: "<pi-address> [to <your-…>] [force]" },
 	{ name: "check", hint: "validate config, and that credentials are present" },
 	{ name: "auth", hint: "approve OAuth2 device login" },
@@ -91,6 +93,13 @@ export interface ArgCompletion {
  */
 export function completeSubcommand(prefix: string): ArgCompletion[] | null {
 	const typed = prefix.trimStart()
+	// `on`/`off` take exactly one flag, and it is the one the user is most likely to half-type.
+	const flag = /^(on|off)\s+(--?\w*)$/i.exec(typed)
+	if (flag) {
+		const needle = (flag[2] ?? "").toLowerCase()
+		const matches = ["--all"].filter((f) => f.startsWith(needle === "-" ? "--" : needle))
+		return matches.length === 0 ? null : matches.map((value) => ({ value, label: value, description: "every session, not just this one" }))
+	}
 	if (/\s/.test(typed)) return null
 	const needle = typed.toLowerCase()
 	const matches = SUBCOMMAND_INFO.filter((c) => c.name.startsWith(needle))
@@ -117,10 +126,14 @@ export function parseMailbridgeCommand(args: string): ParsedCommand {
 	const first = tokens[0]?.toLowerCase()
 
 	if (!first || !isSubcommand(first)) {
-		return { sub: first ? "help" : "status", force: false }
+		return { sub: first ? "help" : "status", force: false, all: false }
 	}
 
-	const parsed: ParsedCommand = { sub: first, force: false }
+	const parsed: ParsedCommand = { sub: first, force: false, all: false }
+	if (first === "on" || first === "off") {
+		parsed.all = tokens.slice(1).some((t) => t.toLowerCase() === "--all")
+		return parsed
+	}
 	if (first !== "setup") return parsed
 
 	const rest = tokens.slice(1)

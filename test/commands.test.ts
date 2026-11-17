@@ -4,8 +4,8 @@ import assert from "node:assert/strict"
 import { completeSubcommand, isSubcommand, parseMailbridgeCommand, SUBCOMMAND_INFO, USAGE } from "../src/core/commands.ts"
 
 test("bare /mailbridge is a status request", () => {
-	assert.deepEqual(parseMailbridgeCommand(""), { sub: "status", force: false })
-	assert.deepEqual(parseMailbridgeCommand("   "), { sub: "status", force: false })
+	assert.deepEqual(parseMailbridgeCommand(""), { sub: "status", force: false, all: false })
+	assert.deepEqual(parseMailbridgeCommand("   "), { sub: "status", force: false, all: false })
 })
 
 test("each documented subcommand parses", () => {
@@ -20,6 +20,7 @@ test("setup takes an address, an optional to, and a force flag", () => {
 		sub: "setup",
 		address: "pi@outlook.com",
 		force: false,
+		all: false,
 	})
 
 	assert.deepEqual(parseMailbridgeCommand("setup pi@outlook.com to me@outlook.com"), {
@@ -27,6 +28,7 @@ test("setup takes an address, an optional to, and a force flag", () => {
 		address: "pi@outlook.com",
 		to: "me@outlook.com",
 		force: false,
+		all: false,
 	})
 
 	assert.deepEqual(parseMailbridgeCommand("setup pi@outlook.com --to me@outlook.com force"), {
@@ -34,6 +36,7 @@ test("setup takes an address, an optional to, and a force flag", () => {
 		address: "pi@outlook.com",
 		to: "me@outlook.com",
 		force: true,
+		all: false,
 	})
 })
 
@@ -140,5 +143,32 @@ test("a completion description fits the line pi draws it on", () => {
 	for (const item of completeSubcommand("") ?? []) {
 		assert.ok((item.description ?? "").length <= 60, `${item.value}: ${item.description}`)
 	}
+})
+
+test("--all is scoped to on/off, and does not leak into other subcommands", () => {
+	// A bare `off` is this session only; `--all` writes the global switch. The flag must not be
+	// silently accepted (and acted on) anywhere else - a stray `--all` in `setup` must not change
+	// the mode of every session.
+	assert.deepEqual(parseMailbridgeCommand("off"), { sub: "off", force: false, all: false })
+	assert.deepEqual(parseMailbridgeCommand("off --all"), { sub: "off", force: false, all: true })
+	assert.deepEqual(parseMailbridgeCommand("on --ALL"), { sub: "on", force: false, all: true })
+	assert.equal(parseMailbridgeCommand("status --all").all, false)
+	assert.equal(parseMailbridgeCommand("setup pi@x.example --all").all, false)
+})
+
+test("completion offers --all exactly where it applies", () => {
+	// Only `on`/`off` take it, and only as the second word: a flag completed after `status` would
+	// invite a command that silently ignores it.
+	const values = (input: string): string[] | null => {
+		const result = completeSubcommand(input)
+		return result === null ? null : result.map((c) => c.value)
+	}
+	assert.deepEqual(values("off -"), ["--all"])
+	assert.deepEqual(values("off --a"), ["--all"])
+	assert.deepEqual(values("on --"), ["--all"])
+	assert.equal(values("off --nope"), null, "no suggestion when nothing matches")
+	assert.equal(values("status -"), null, "status takes no flag")
+	assert.equal(values("setup pi@x"), null)
+	assert.deepEqual(values("of"), ["off"], "the first word still completes subcommands")
 })
 

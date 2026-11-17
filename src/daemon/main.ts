@@ -443,6 +443,10 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		return parts.length ? parts.join(" ") : "no reasons"
 	}
 
+	// Set once the service exists: the scan gate spans the global switch *and* the attached sessions
+	// that turned themselves on, and only the service knows who is attached.
+	let scanGate: () => boolean = () => scanningEnabled(readMode(process.env))
+
 	async function scanNow(why: string): Promise<void> {
 		// `off` must actually close the channel, not just stop the mail coming back.
 		// While mode is off nothing is fetched or persisted and the cursor stays put, so
@@ -451,7 +455,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		// mode is off it is the only thing it can honestly mean. Leaving it stale made a quiet
 		// off period look identical to a dead poll loop - the symptom this line exists to show.
 		lastCheckedAt = Date.now()
-		if (!scanningEnabled(readMode(process.env))) {
+		if (!scanGate()) {
 			if (!reportedModeOff) {
 				reportedModeOff = true
 				log(`${why}: email mode is off - not scanning`)
@@ -510,7 +514,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		if (scanEveryMs === 0) return
 		pollHandle = setTimeout(() => {
 			pollHandle = undefined
-			if (scanningEnabled(readMode(process.env)) && currentWatcher?.isHealthy()) void scanOnce("poll")
+			if (scanGate() && currentWatcher?.isHealthy()) void scanOnce("poll")
 			armPoll()
 		}, scanEveryMs)
 		pollHandle.unref?.()
@@ -675,6 +679,7 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 		// stop and redial the watcher.
 		reload: () => (reloadInFlight ??= doReload().finally(() => (reloadInFlight = undefined))),
 	})
+	scanGate = () => service.scanEnabled()
 
 	service.server.on("error", (error: NodeJS.ErrnoException) => {
 		if (error.code === "EADDRINUSE") {

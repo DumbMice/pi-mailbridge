@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### `off` is now this session, and `--all` is the machine
+
+- **A bare `/mailbridge off` no longer disarms every agent on the machine.** It quiets the session
+  you typed it in - the one whose mail you are currently ignoring - and leaves the others mailing.
+  `/mailbridge on` gives that session back to the global switch. `--all` is the machine-wide one and
+  is what persists: `/mailbridge off --all` stops every session now and every session started later.
+  The default is still off, so installing still never mails you unprompted.
+- **`/mailbridge status` says which** (`mode: off (this session) · global on`) instead of one
+  ambiguous word, and the panel's capability warning names `/mailbridge restart` on a daemon that
+  predates the split (such a daemon has only the global switch, and the command says so rather than
+  pretending to be local).
+- **The daemon scans if any attached session wants mail.** One mailbox, one watcher: with the global
+  switch off, an override from a session that is currently attached keeps scanning for it; nobody
+  attached and global off means the daemon stays idle.
+
 ## 0.1.8 — 2026-11-16
 
 ### The daemon was unreachable from any session with `HTTP_PROXY` set

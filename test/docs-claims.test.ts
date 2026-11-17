@@ -1,4 +1,5 @@
 import { test } from "node:test"
+import { SUBCOMMAND_INFO } from "../src/core/commands.ts"
 import { PENDING_CAP as pendingCap, PENDING_MAX_BYTES as pendingMaxBytes } from "../src/store/pending-store.ts"
 import { MAX_FILE_BYTES, MAX_FILES_TOTAL_BYTES, MAX_TOTAL_BYTES } from "../src/core/attachments.ts"
 import { MAX_MESSAGE_BYTES } from "../src/daemon/watcher.ts"
@@ -793,7 +794,12 @@ test("the daemon's mode gate is present in the code that runs it", () => {
 	// The `off` promise is enforced in main.ts's scanNow, which no test can reach. This pins
 	// the wiring itself, so deleting the gate fails the suite rather than shipping silently.
 	const main = readFileSync(join(root, "src/daemon/main.ts"), "utf8")
-	assert.match(main, /if \(!scanningEnabled\(readMode\(process\.env\)\)\)/, "scanNow must check the mode")
+	// The gate spans the global switch *and* the sessions that turned themselves on, so it is asked
+	// of the service; the wiring to assert is that scanNow consults one, and that the default (before
+	// the service exists) still honours the global switch.
+	assert.match(main, /if \(!scanGate\(\)\)/, "scanNow must check the mode gate")
+	assert.match(main, /let scanGate[^\n]*scanningEnabled\(readMode\(process\.env\)\)/, "and the gate must default to the global switch")
+	assert.match(main, /scanGate = \(\) => service\.scanEnabled\(\)/, "and be handed over to the service once it exists")
 	const source = readFileSync(join(root, "src/core/status.ts"), "utf8")
 	assert.ok(source.includes("HANDLED"), "the file under test was actually read")
 })
@@ -845,7 +851,7 @@ test("the periodic scan is pinned where no test can drive it", () => {
 	assert.match(main, /const shutdown = async[\s\S]{0,400}clearTimeout\(pollHandle\)/, "shutdown must clear it")
 	assert.match(
 		main,
-		/if \(scanningEnabled\(readMode\(process\.env\)\) && currentWatcher\?\.isHealthy\(\)\) void scanOnce\("poll"\)/,
+		/if \(scanGate\(\) && currentWatcher\?\.isHealthy\(\)\) void scanOnce\("poll"\)/,
 		"the timer must respect the mode gate and the watcher's health",
 	)
 	assert.match(main, /const armPoll = \(\): void => \{[\s\S]{0,700}currentConfig\.daemon\.scanIntervalSecs/, "re-read per tick")
@@ -857,7 +863,7 @@ test("the periodic scan is pinned where no test can drive it", () => {
 	// indistinguishable from a dead poll loop - the symptom the line was added to diagnose.
 	// Position, not presence: the deletion that matters is moving it back below the gate.
 	const stampAt = main.indexOf("lastCheckedAt = Date.now()")
-	const gateAt = main.indexOf("if (!scanningEnabled(readMode(process.env)))")
+	const gateAt = main.indexOf("if (!scanGate())")
 	assert.ok(stampAt > -1 && gateAt > -1, "both the stamp and the gate should exist")
 	assert.ok(stampAt < gateAt, "lastCheckedAt must be stamped before the mode gate")
 })
@@ -944,6 +950,8 @@ test("the docs do not claim a mail reply can reopen the mode", () => {
 	for (const { file, text } of allProse()) {
 		const flatText = text.replace(/\s+/g, " ")
 		for (const sentence of flatText.split(/(?<=[.!?])\s+/)) {
+			// A table row lists a command; it is not a claim about where the command works.
+			if (sentence.includes("|")) continue
 			if (!/mailbridge on/.test(sentence)) continue
 			if (!/mail reply|by mail|as a reply/i.test(sentence)) continue
 			assert.ok(
@@ -1298,5 +1306,23 @@ test("the docs state the protocol direction rule, not a blanket replacement", ()
 			`${file} must say a newer daemon is left alone`,
 		)
 	}
+})
+
+test("the docs state that a bare on/off is per session, and --all is the global switch", () => {
+	// The meaning of a bare `off` changed; a doc that still describes the old machine-wide behaviour
+	// would be worse than no doc, because it is the sentence someone reads before typing it.
+	for (const file of ["README.md", "docs/ARCHITECTURE.md"]) {
+		const text = flat(doc(file))
+		assert.match(text, /--all/, `${file} must document --all`)
+		assert.match(
+			text,
+			/this session|per session|per-session/i,
+			`${file} must say a bare on/off is scoped to one session`,
+		)
+	}
+	// And the command's own help must not promise machine-wide behaviour for the bare form.
+	const table = SUBCOMMAND_INFO.find((c) => c.name === "off")
+	assert.ok(table, "off is in the table")
+	assert.match(table.hint + (table.args ?? ""), /session|--all/i, "the completion hint must name the scope")
 })
 
