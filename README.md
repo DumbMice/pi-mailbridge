@@ -68,18 +68,23 @@ the package carries — the compiled `dist/daemon/main.js` for an installed pack
 runtime: it is built once, at publish time), or `src/daemon/main.ts` when you run from a checkout —
 and have this session re-create its client. Queued
 replies, the cursor and the journal are on disk and untouched, so the gap costs nothing but the
-seconds the old daemon spent not watching IMAP; the mode survives because it is a file. If the respawn fails, the session warns and keeps polling, retrying within a minute;
+seconds the old daemon spent not watching IMAP. The global switch survives because it is a file; a
+per-session override does not — it lives in the daemon's memory and the session re-applies it when it
+rewires, so a restart does not quietly let mail back in. If the respawn fails, the session warns and keeps polling, retrying within a minute;
 `/mailbridge restart` forces it.
 
 The daemon exists whether or not email mode is on; `/mailbridge on` and `off` gate scanning and
 delivery, not the process. So a hung daemon is never "because the mode is off", and the mode being
 off does not stop it from answering `/health`.
 
-**The switch is per session.** A bare `/mailbridge off` quiets *this* session only — the other
-agents you are running keep mailing you — and `on` gives it back to the global switch. `--all` is
-the machine-wide one: `/mailbridge off --all` stops every session now and every session you start
-later, and it is persisted (the default is off, so installing never mails you unprompted).
-`/mailbridge status` shows both when they differ: `mode: off (this session) · global on`.
+**The switch has two scopes.** A bare `/mailbridge off` quiets *this* session only — the other
+agents you are running keep mailing you — and a bare `on` puts this session back on **even while the
+machine switch is off**. Neither touches the persisted switch. `--all` is the machine-wide one and
+it is the only form that does two things at once: it writes the persisted state *and* overrides every
+session, both directions. So `/mailbridge off --all` stops every session now and every session you
+start later, and `/mailbridge on --all` revives one that had silenced itself. The persisted default is
+off, so installing never mails you unprompted. `/mailbridge status` shows both when they differ:
+`mode: off (this session) · global on`.
 
 ## Quick start
 
@@ -244,7 +249,7 @@ to do something:
 | Reply | Effect |
 | --- | --- |
 | `/mailbridge on` | only while the mode is already on (a no-op). It cannot re-open the channel from off: nothing scans and no session drains, so the reply is never read. Use the terminal |
-| `/mailbridge off` | email mode OFF (one-way by mail: re-opening it needs the terminal); anything else in that batch stays pending |
+| `/mailbridge off` | email mode OFF for this session; by mail it is one-way, since re-opening needs a terminal the mailbox cannot reach — anything else in that batch stays pending |
 | `/mailbridge` or `/mailbridge status` | the status panel |
 | `/mailbridge check` / `/mailbridge smoke` | validate the config / send one test mail |
 | `/mailbridge help` | the command list |
@@ -391,7 +396,7 @@ Every scan records why each message was refused, so this is answerable:
 ```
 daemon: healthy (http://127.0.0.1:4177) — daemon version 0.1.8, protocol 1
 device: dev-box-7
-mode: on
+mode: on (global)
 imap: connected
 session: 01a1c453-…
 secret: present
@@ -445,7 +450,7 @@ Where to look:
 | `…/daemon.lock` | the running daemon's pid — the file to look at when a start says another daemon is already running |
 | `…/routes.lock` | held for the instant a routing id is minted |
 | `…/daemon.log` | the daemon's own log (0600, rotates once at 5 MB) |
-| `…/mode.json` | the global on/off state `/mailbridge on` and `off` write |
+| `…/mode.json` | the persisted global switch — written by `/mailbridge on --all` and `off --all` only (a bare `on`/`off` is this session and lives in the daemon's memory) |
 | `…/pending.json` | accepted replies waiting for a session (each stamped with the device that scanned it; `held for another device` counts the ones this device will not claim) |
 | `…/routes.json` | short routing ids (`security.tokenTtlHours`) |
 | `…/threads.json` | outbound Message-IDs for threading and the reply chain |

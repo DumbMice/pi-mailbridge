@@ -158,6 +158,8 @@ function fakeDaemon(
 	const claimArgs: (number | undefined)[] = []
 	const ackArgs: (number | undefined)[] = []
 	let currentMode = over.mode ?? "on"
+	/** Per-session overrides, the daemon's in-memory map in miniature. */
+	const sessionOverrides = new Map<string, "on" | "off">()
 	let daemonUp = true
 	let shutdowns = 0
 	const pendingRecords = over.pending ?? []
@@ -175,7 +177,12 @@ function fakeDaemon(
 				capabilities: over.capabilities ?? [...CAPABILITIES],
 			}),
 		pending: async () => ok({ pending: pendingRecords, withheld: 0 }),
-		mode: async () => ok({ mode: currentMode, global: currentMode }),
+		mode: async (instanceId?: string) => {
+			// Scope-aware, like the daemon: without an id the answer is the global switch, with an id
+			// it is that session's override. A scope-blind fake is what hid the tick bug.
+			const own = instanceId ? sessionOverrides.get(instanceId) : undefined
+			return ok(own ? { mode: own, global: currentMode, session: own } : { mode: currentMode, global: currentMode })
+		},
 		setMode: async (
 			mode: "on" | "off",
 			options: { scope?: "session" | "global"; instanceId?: string; clear?: boolean } = {},
@@ -183,10 +190,11 @@ function fakeDaemon(
 			modeScopes.push({ mode, ...options })
 			if ((options.scope ?? "global") === "global") {
 				currentMode = mode
+				sessionOverrides.clear()
 				modes.push(mode)
 				return ok({ mode, global: mode })
 			}
-			if (options.clear) return ok({ mode: currentMode, global: currentMode })
+			if (options.instanceId) sessionOverrides.set(options.instanceId, mode)
 			return ok({ mode, global: currentMode, session: mode })
 		},
 		// The tick's first call. Without it the whole tick threw and the swallow-all catch
@@ -392,7 +400,7 @@ test("/mailbridge on and off push the mode through the daemon", async () => {
 	assert.deepEqual(
 		daemon.modeScopes.map((m) => ({ mode: m.mode, scope: m.scope, clear: m.clear === true })),
 		[
-			{ mode: "on", scope: "session", clear: true },
+			{ mode: "on", scope: "session", clear: false },
 			{ mode: "off", scope: "session", clear: false },
 		],
 	)
@@ -3189,9 +3197,108 @@ test("--all also clears this session's own override", async () => {
 	const after = daemon.modeScopes.slice(beforeAll)
 
 	assert.deepEqual(daemon.modes.at(-1), "on", "the global switch went on")
-	assert.ok(
-		after.some((m) => m.scope === "session" && m.clear === true),
-		`this session's override must be dropped: ${JSON.stringify(after)}`,
-	)
+	assert.equal(after.at(-1)?.scope, "global", `one global write, no session follow-up: ${JSON.stringify(after)}`)
+})
+
+test("a session-scoped off survives the poll tick and stops delivery", async () => {
+	// The tick used to ask for the mode with no instance id, so the daemon answered with the GLOBAL
+	// switch and a session `off` lasted one poll interval - then it claimed, injected, acked,
+	// journalled and marked the mail \Seen, i.e. consumed the replies it was told to leave alone.
+	const t = fakeTimers()
+	const notes: string[] = []
+	// Nothing pending at startup: a startup drain would inject before the command under test runs.
+	const daemon = fakeDaemon({ mode: "on" })
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	await captured.get("mailbridge")!("off", ctx(notes))
+	assert.deepEqual(daemon.modes, [], "the global switch is untouched")
+	daemon.pendingRecords.push({
+		uid: 77,
+		sessionId: SESSION,
+		from: "you@example.com",
+		subject: "re",
+		body: "hello",
+		receivedAt: 1,
+	})
+
+	// Two ticks: the mode mirror is refreshed from the daemon on each one.
+	for (let round = 0; round < 2; round += 1) {
+		t.queue.shift()?.handler()
+		for (let i = 0; i < 12; i += 1) await new Promise((r) => setImmediate(r))
+	}
+
+	assert.equal(pi.sent.length, 0, "nothing was injected for the agent to read")
+	assert.deepEqual(daemon.acked, [], "and nothing was acked")
+})
+
+test("with the machine off, a session can still turn itself on", async () => {
+	// The other direction of the same defect: bare `on` used to clear the override, so on a fresh
+	// install (default off) it toasted ON and enabled nothing.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "off" })
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	await captured.get("mailbridge")!("on", ctx(notes))
+
+	const last = daemon.modeScopes.at(-1)
+	assert.deepEqual({ mode: last?.mode, scope: last?.scope }, { mode: "on", scope: "session" }, "an explicit session on")
+	assert.equal(daemon.modes.length, 0, "the machine switch stays off")
+	assert.ok(notes.some((n) => /email mode ON/.test(n)), `the toast reports the effective mode: ${JSON.stringify(notes)}`)
+})
+
+test("a failed capability probe changes nothing instead of falling back to global", async () => {
+	// A timeout is not "this daemon is old". Escalating a local `off` to the machine-wide switch on a
+	// transient error disarms every other agent - the inversion the scope split exists to prevent.
+	const daemon = fakeDaemon({ mode: "on" })
+	// The capability probe is what fails here (timeout/500), not the daemon's whole existence.
+	daemon.client.health = async () => ({ ok: false as const, status: 0, code: "timeout" })
+	const notes: string[] = []
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: fakeTimers().timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	await captured.get("mailbridge")!("off", ctx(notes))
+
+	assert.deepEqual(daemon.modes, [], "no global write")
+	assert.equal(daemon.modeScopes.length, 0, "no session write either")
+	assert.ok(notes.some((n) => /could not confirm/.test(n)), `must say why: ${JSON.stringify(notes)}`)
 })
 

@@ -223,9 +223,17 @@ arrive once more. The daemon logs the change, the reset and how many records it 
 between records, so an `off` arriving as a reply stops the batch it came in — the records behind
 it stay pending and unseen until the mode goes back on.
 
-Mode is global per machine (one human, one mailbox) and persisted, so a daemon
-restart does not silently re-enable mailing. Each session reads it on its poll tick (the
-daemon also broadcasts it to any `/events` subscriber, of which there are none today).
+Mode has **two scopes**, and the wire is described in §3's `/mode` row.
+
+The **global switch** is persisted in `mode.json` (default `off`, so installing never mails you
+unprompted) and is written only by `--all`. The **session override** is
+`/mailbridge off|on` without the flag: it lives in the daemon's memory keyed by the session's ping
+id, dies with `/bye` or after 24 h, and is re-applied by the session when it rewires. A global write
+clears every override, so `--all` really does mean every session, in both directions.
+
+Each session reads its *own* effective mode on its poll tick — `GET /mode?instanceId=…`, never the
+bare endpoint, which answers with the global switch. The daemon scans when the global switch is on
+**or** an attached session overrode itself on; with nobody attached it follows the global switch.
 
 ## 6. Deliberately out of scope: creating sessions
 

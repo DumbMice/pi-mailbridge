@@ -1283,9 +1283,13 @@ test("a session-only off does not touch the global switch, and the override wins
 		const other = await (await fetch(`${h.base}/mode?instanceId=inst-b`, { headers: auth() })).json()
 		assert.deepEqual(other, { mode: "on", global: "on" })
 
-		// Clearing the override inherits the global switch again.
-		const cleared = await post(h, "/mode", { mode: "on", scope: "session", instanceId: "inst-a", clear: true })
-		assert.deepEqual(await cleared.json(), { mode: "on", global: "on" })
+		// A global write is "every session", so it clears the override rather than leaving it behind.
+		const all = await post(h, "/mode", { mode: "on", scope: "global" })
+		assert.deepEqual(await all.json(), { mode: "on", global: "on" })
+		assert.deepEqual(await (await fetch(`${h.base}/mode?instanceId=inst-a`, { headers: auth() })).json(), {
+			mode: "on",
+			global: "on",
+		})
 	} finally {
 		await h.close()
 	}
@@ -1324,6 +1328,31 @@ test("scanning is on for a session that turned itself on, even with the global s
 		assert.equal(h.service.scanEnabled(), false, "that session went quiet again")
 		await post(h, "/mode", { mode: "on", scope: "global" })
 		assert.equal(h.service.scanEnabled(), true, "global on scans regardless")
+	} finally {
+		await h.close()
+	}
+})
+
+test("a global write beats a session override, in both directions", async () => {
+	// `/mailbridge off --all` must stop a session that had turned itself ON, and `on --all` must
+	// revive one that had turned itself off: otherwise "--all" only sets a default that the loudest
+	// override ignores - and an old client cannot even see the override.
+	const h = await boot()
+	try {
+		await post(h, "/mode", { mode: "on", scope: "session", instanceId: "inst-on" })
+		await post(h, "/ping", { instanceId: "inst-on" })
+		assert.equal(h.service.scanEnabled(), true)
+		await post(h, "/mode", { mode: "off", scope: "global" })
+		assert.equal(h.service.scanEnabled(), false, "off --all stopped the session that turned itself on")
+		assert.deepEqual(await (await fetch(`${h.base}/mode?instanceId=inst-on`, { headers: auth() })).json(), {
+			mode: "off",
+			global: "off",
+		})
+
+		await post(h, "/mode", { mode: "off", scope: "session", instanceId: "inst-off" })
+		assert.equal(h.service.scanEnabled(), false)
+		await post(h, "/mode", { mode: "on", scope: "global" })
+		assert.equal(h.service.scanEnabled(), true, "on --all revives the session that turned itself off")
 	} finally {
 		await h.close()
 	}

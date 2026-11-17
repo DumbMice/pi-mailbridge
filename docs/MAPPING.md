@@ -51,7 +51,7 @@ Everything else ports essentially as-is.
 | `store/secret.js` | 116 | `src/store/secret.ts` | Ported — HMAC key file, first-writer-wins |
 | `store/pending-store.js` | 215 | `src/store/pending-store.ts` | Ported — durable pending replies |
 | `store/uid-cursor.js` | 123 | `src/store/uid-cursor.ts` | Ported, then extended — monotonic within a UID space; resets when the mailbox renumbers |
-| `store/mode-store.js` | 86 | `src/store/mode-store.ts` | Ported — global on/off via `/mailbridge on` · `off` |
+| `store/mode-store.js` | 86 | `src/store/mode-store.ts` | Ported — per-session on/off via `/mailbridge on` · `off`, machine-wide via `--all` |
 | `store/registry.js` | 106 | `src/store/registry.ts` | Ported — one-outstanding-decision guard |
 | `command/afk.md`, `command/back.md` | short | `/mailbridge on` · `off` subcommands | Renamed and namespaced: `back` is too generic a top-level name |
 | `AGENTS.md` | — | `AGENTS.md` | Rewritten for contributors + agents |

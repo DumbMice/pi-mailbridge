@@ -436,8 +436,16 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 						// disarming every other session, which is the whole point of the split.
 						const instanceId = typeof body?.instanceId === "string" ? body.instanceId : ""
 						if (!instanceId) return fail(400, "bad_request")
-						if (body?.clear === true) sessionModes.delete(instanceId)
-						else if (isMode(body?.mode)) sessionModes.set(instanceId, { mode: body.mode, at: now() })
+						if (isMode(body?.mode)) {
+							sessionModes.set(instanceId, { mode: body.mode, at: now() })
+							// Same bound as `pings`, for the same reason: an id that keeps changing must
+							// not grow this map without limit.
+							while (sessionModes.size > MAX_PINGS) {
+								const oldest = sessionModes.keys().next().value
+								if (oldest === undefined) break
+								sessionModes.delete(oldest)
+							}
+						}
 						else return fail(400, "bad_request")
 						const glob = readMode(env)
 						const over = overrideFor(instanceId, now())
@@ -445,6 +453,9 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					}
 					if (!isMode(body?.mode)) return fail(400, "bad_request")
 					const mode = writeMode(env, body.mode, now())
+					// "Every session" has to mean it: an override left behind would keep one quiet
+					// after the user explicitly switched the machine on, invisibly to an old client.
+					sessionModes.clear()
 					broadcast({ type: "mode", mode })
 					deps.onModeChange?.(mode)
 					return send(200, { mode, global: mode })

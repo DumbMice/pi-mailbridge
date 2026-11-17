@@ -1309,25 +1309,50 @@ test("the docs state the protocol direction rule, not a blanket replacement", ()
 })
 
 test("the docs state that a bare on/off is per session, and --all is the global switch", () => {
-	// The meaning of a bare `off` changed. A doc sentence that calls it machine-wide is worse than
-	// no doc: it is what someone reads before typing it.
-	for (const file of ["README.md", "docs/ARCHITECTURE.md"]) {
+	// The meaning of a bare `off` changed. A doc sentence that calls it machine-wide - or that says
+	// `on` "gives it back" to the global switch, which it no longer does - is worse than no doc: it
+	// is what someone reads before typing it.
+	for (const file of ["README.md", "docs/ARCHITECTURE.md", "docs/SECURITY.md", "docs/MAPPING.md"]) {
 		const text = flat(doc(file))
 		assert.match(text, /--all/, `${file} must document --all`)
 		for (const sentence of text.split(/(?<=[.!?])\s+/)) {
-			// Only sentences about the *bare* command: a sentence that mentions `--all` is allowed
-			// to say it affects every session.
+			// A table row lists a command and its effect in a few words; it is not a claim about scope.
+			if (sentence.includes("|")) continue
+			// Sentences that mention `--all` may legitimately say "every session": that is what it does.
 			if (/--all/.test(sentence)) continue
 			if (!/`?\/mailbridge off`?/.test(sentence)) continue
 			assert.doesNotMatch(
 				sentence,
-				/every (attached )?session|machine-wide|all (of them|sessions|your sessions)/i,
+				/every (attached )?session|machine-wide|all (of them|sessions|your sessions)|one-way/i,
 				`${file}: "${sentence.trim()}" calls a bare off machine-wide`,
 			)
 		}
 		assert.match(text, /this session|per session|per-session/i, `${file} must scope a bare on/off to one session`)
 	}
+
+	// `on` asserts this session now; it does not inherit the global switch. Tied to the code, so
+	// rewording one without the other fails.
+	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
+	if (!/scope: "session", instanceId/.test(extension) || /clear: true/.test(extension)) return
+	assert.doesNotMatch(
+		flat(doc("README.md")),
+		/gives it back to the global switch/i,
+		"a bare `on` no longer inherits the global switch - the docs must not say it does",
+	)
+
 	const table = SUBCOMMAND_INFO.find((c) => c.name === "off")
 	assert.ok(table, "off is in the table")
 	assert.match(table.hint + (table.args ?? ""), /session|--all/i, "the completion hint must name the scope")
+})
+
+test("the panel's mode line names the scope it is reporting", () => {
+	// The formatter can only print `(this session)`/`(global)`; a doc example that prints a bare
+	// `mode: on` teaches a shape the product never emits.
+	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
+	assert.match(extension, /\(this session\)/, "the formatter distinguishes the scopes")
+	const readme = doc("README.md")
+	for (const match of readme.matchAll(/^mode: (.+)$/gm)) {
+		if (/^\$|mode: \$|mode: <|mode: \(unknown\)/i.test(match[0])) continue
+		assert.match(match[1] ?? "", /\(this session\)|\(global\)/, `README example prints a shape the product cannot emit: ${match[0]}`)
+	}
 })

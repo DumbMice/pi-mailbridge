@@ -187,9 +187,10 @@ flip the mode, and shut the daemon down. Treat `secret.key` as equivalent to the
     are dropped on every connect (and untagged ones on a detected renumbering), so recent mail
     can be delivered once more instead of being skipped.
   Secrets (`secret.key`, `oauth.json`) live beside them; rotating those is covered above.
-- Turn it off with `/mailbridge off` when you will be at the desk: while mode is off the daemon
-  does not scan and the extension does not claim or inject, so the mailbox is not a
-  listening control channel in either direction. Replies that arrive meanwhile stay in the
+- Turn it off with `/mailbridge off` when you will be at the desk: while this session's mode is off
+  it does not claim or inject, so the mailbox is not a listening control channel for it.
+  `/mailbridge off --all` is the machine-wide form: the daemon stops scanning too, once no attached
+  session has overridden itself on. Replies that arrive meanwhile stay in the
   mailbox and are processed when you `/mailbridge on` again — which also means turning it back on can
   deliver a burst. To stop entirely, close pi and let the daemon exit (~120 s after the last ping),
   or stop it however you started it - with a session still open, the poll tick respawns a daemon it
@@ -234,9 +235,12 @@ What this costs, in the one-mailbox layout (DMARC is off there by design) and if
 forge the allowlisted `From` *and* carries a live route id or token — i.e. they have read one of
 your notifications:
 
-- `/mailbridge off` is a **one-way, global, persisted** denial of the channel: scanning and
-  delivery stop for every session until a human turns it back on at a terminal. Mail is not lost
-  (the cursor does not move), but the remote-decision channel is dead.
+- `/mailbridge off` is a denial of the channel **for the session that ran it**: it is neither
+  persisted nor global, and it lasts until that session turns itself back on or exits. The
+  machine-wide form is `/mailbridge off --all` — **persisted**, and it overrides every session,
+  including ones that had turned themselves on — so the whole channel stays shut, and scanning
+  stops, until a human turns it back on at a terminal. Mail is not lost (the cursor does not move),
+  but the remote-decision channel is dead.
 - `/mailbridge smoke` sends one real mail **from your own account to your own address** and costs
   a daemon reload plus up to ~52 s of IMAP work. It is not rate-limited, so repeated replies can
   consume SMTP/IMAP capacity and get genuine notifications throttled.

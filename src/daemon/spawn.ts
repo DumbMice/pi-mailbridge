@@ -384,12 +384,12 @@ export function createDaemonClient(options: DaemonClientOptions) {
 				(body) => typeof body.mode === "string",
 			),
 		/**
-		 * `scope: "session"` turns this session's channel off (or back on) without touching the
-		 * global switch; `clear` drops the override and inherits the global mode again.
+		 * `scope: "session"` turns this session's channel off (or back on) without touching the global
+		 * switch. A global write clears every override, so it really is "every session".
 		 */
 		setMode: (
 			mode: "on" | "off",
-			options: { scope?: "session" | "global"; instanceId?: string; clear?: boolean } = {},
+			options: { scope?: "session" | "global"; instanceId?: string } = {},
 		) =>
 			call<{ mode: string; global?: string; session?: string }>(
 				"POST",
@@ -398,7 +398,6 @@ export function createDaemonClient(options: DaemonClientOptions) {
 					mode,
 					...(options.scope ? { scope: options.scope } : {}),
 					...(options.instanceId ? { instanceId: options.instanceId } : {}),
-					...(options.clear ? { clear: true } : {}),
 				},
 				undefined,
 				(body) => typeof body.mode === "string",
