@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-11-17
 
 ### `off` is now this session, and `--all` is the machine
 
