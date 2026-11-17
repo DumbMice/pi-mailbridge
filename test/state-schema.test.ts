@@ -83,3 +83,15 @@ test("a legacy file is schema 1 even after the current version moves", () => {
 	// Today they coincide; the point is that they are separate constants.
 	assert.equal(STATE_VERSION, LEGACY_SCHEMA)
 })
+
+test("an unreadable state file is not skipped as unversioned", async () => {
+	// The boot guard exists to refuse a schema this build cannot read. Swallowing a read fault made it
+	// skip the file, and the refusal then surfaced later as a repeating 500 or scan failure.
+	const { mkdirSync } = await import("node:fs")
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-schema-io-")) }
+	const dir = join(env.XDG_STATE_HOME as string, "pi-mailbridge")
+	mkdirSync(dir, { recursive: true })
+	mkdirSync(join(dir, "pending.json"))
+	assert.throws(() => assertStateReadable(env), /EISDIR|illegal operation/i)
+})
+

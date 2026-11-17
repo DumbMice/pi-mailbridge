@@ -1381,8 +1381,12 @@ test("source comments obey the vocabulary rule too, not only prose", () => {
 	// AGENTS.md says the session's in-process objects are re-created; the enforcement test used to scan
 	// only Markdown, so "a rebuilt runtime" survived in the very files an agent reads first.
 	const files = ["src/extension.ts", "src/core/deliveries.ts"]
+	const inProcess = /(?:\brebuilt\b|\brebuild(?:s|ing)?\b)[^.]{0,24}\b(?:client|runner|notifier|runtime|session|secret|token|state)\b/i
+	const inProcessAfter = /\b(?:client|runner|notifier|runtime|session)\b[^.]{0,24}(?:\brebuilt\b|\brebuild(?:s|ing)?\b)/i
 	for (const file of files) {
 		const text = readFileSync(join(root, file), "utf8").replace(/\s+/g, " ")
+		const hit = inProcess.exec(text) ?? inProcessAfter.exec(text)
+		assert.equal(hit, null, `${file}: "${hit?.[0] ?? ""}" - the session's objects are re-created, not rebuilt`)
 		for (const match of text.matchAll(/\b(?:rebuilt|rebuild|rebuilds|rebuilding)\b/gi)) {
 			const at = match.index ?? 0
 			const around = (text.slice(Math.max(0, at - 40), at) + " " + text.slice(at + match[0].length, at + match[0].length + 40)).trim()
@@ -1403,5 +1407,18 @@ test("the scan's only throwing prologue sits inside the handler that logs it", (
 	const pendingAt = main.indexOf("const before = new Set(listPending()")
 	assert.ok(tryAt > -1 && pendingAt > -1, "both the try and the queue read should exist")
 	assert.ok(pendingAt > tryAt, "the queue read must be inside the try")
+})
+
+test("the catch-up scan is not inside the bookkeeping guard", () => {
+	// `scanOnce("catch-up")` is the only consumer of a freshly connected watcher. Inside the guard, a
+	// failing cursor write skipped it - and a renumbered mailbox then reports `examined 0` for ever.
+	const main = readFileSync(join(root, "src/daemon/main.ts"), "utf8")
+	const guardAt = main.indexOf("onReady: () => {")
+	const scanAt = main.indexOf('void scanOnce("catch-up")')
+	assert.ok(guardAt > -1 && scanAt > -1, "both the hook and the scan should exist")
+	const between = main.slice(guardAt, scanAt)
+	const opens = (between.match(/\btry \{/g) ?? []).length
+	const closes = (between.match(/\} catch/g) ?? []).length
+	assert.equal(opens, closes, "the catch-up scan must follow a closed try/catch, not sit inside one")
 })
 

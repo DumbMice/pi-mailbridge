@@ -1520,3 +1520,34 @@ test("/health still answers when the pending queue cannot be read", async () => 
 	}
 })
 
+test("an ack whose journal write fails still succeeds and frees the decision slot", async () => {
+	// The record is already removed when the journal is written, so the ack *did* succeed. A 500 here
+	// made the session report "ack failed" for a completed ack, and skipped registry.release - holding
+	// the decision slot for 24 h, so every later request_decision was refused as alreadyPending.
+	const { mkdirSync, rmSync } = await import("node:fs")
+	const h = await boot()
+	try {
+		addPending(h.env, {
+			uid: 900,
+			sessionId: "sess-ack",
+			from: "you@example.com",
+			subject: "re",
+			body: "yes",
+			receivedAt: 1,
+		})
+		await post(h, "/register", { sessionId: "sess-ack" })
+		const claimed = await post(h, "/claim", { uid: 900, instanceId: "inst" })
+		assert.equal(claimed.status, 200, "claimed before acking")
+		const dir = join(h.env.XDG_STATE_HOME as string, "pi-mailbridge")
+		rmSync(join(dir, "journal.json"), { force: true })
+		mkdirSync(join(dir, "journal.json"))
+
+		const response = await post(h, "/ack", { uid: 900, instanceId: "inst", sessionId: "sess-ack" })
+		assert.equal(response.status, 200, "a journal fault must not fail a completed ack")
+		const health = (await (await fetch(`${h.base}/health`)).json()) as { registry: number }
+		assert.equal(health.registry, 0, "and the decision slot is released")
+	} finally {
+		await h.close()
+	}
+})
+

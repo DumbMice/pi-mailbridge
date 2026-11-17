@@ -575,28 +575,31 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 			factory: createImapflowFactory({ getAccessToken: tokenProvider ? getAccessToken : undefined }),
 			callbacks: {
 				onReady: () => {
+					// Bookkeeping first, then the scan - and the scan is outside the guard: it is the only
+					// consumer of this connection, so skipping it is how a renumbered mailbox reports
+					// "examined 0" for ever on an otherwise healthy IDLE connection.
 					try {
-					// UIDs are only meaningful within one UIDVALIDITY. A recreated or migrated
-					// folder renumbers from 1; without this the high-water cursor would skip
-					// every future message, with "examined 0" as the only symptom.
-					// `currentWatcher` is assigned before start(), so it is this watcher here.
-					const outcome = applyUidValidity(process.env, currentWatcher, (sessionId) => registry.release(sessionId))
-					if (outcome.reset) {
-						log(
-							`mailbox UIDVALIDITY changed to ${outcome.validity}; cursor reset and ${outcome.dropped} queued record(s) dropped - re-reading from the start`,
-						)
-					} else if (outcome.dropped > 0) {
-						// No reset needed, but records from a previous numbering were still stuck in
-						// the queue (a crash between the cursor write and the drop). Say so.
-						log(`${outcome.dropped} queued record(s) from an earlier UID space dropped`)
-					}
-					log("imap ready; running catch-up scan")
-					void scanOnce("catch-up")
+						// UIDs are only meaningful within one UIDVALIDITY. A recreated or migrated folder
+						// renumbers from 1; without this the high-water cursor would skip every future
+						// message, with "examined 0" as the only symptom.
+						// `currentWatcher` is assigned before start(), so it is this watcher here.
+						const outcome = applyUidValidity(process.env, currentWatcher, (sessionId) => registry.release(sessionId))
+						if (outcome.reset) {
+							log(
+								`mailbox UIDVALIDITY changed to ${outcome.validity}; cursor reset and ${outcome.dropped} queued record(s) dropped - re-reading from the start`,
+							)
+						} else if (outcome.dropped > 0) {
+							// No reset needed, but records from a previous numbering were still stuck in the
+							// queue (a crash between the cursor write and the drop). Say so.
+							log(`${outcome.dropped} queued record(s) from an earlier UID space dropped`)
+						}
 					} catch (error) {
 						// A store fault is not a mail-server fault: logging it keeps the connection (the watcher
 						// would otherwise tear down and re-dial every backoff step, blaming IMAP).
 						log(`cursor bookkeeping failed: ${(error as Error).message}`)
 					}
+					log("imap ready; running catch-up scan")
+					void scanOnce("catch-up")
 				},
 				onMail: () => {
 					void scanOnce("idle")

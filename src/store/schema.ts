@@ -96,8 +96,12 @@ export function assertStateReadable(env: NodeJS.ProcessEnv): void {
 		let parsed: unknown
 		try {
 			parsed = JSON.parse(readFileSync(statePath(env, name), "utf8"))
-		} catch {
-			continue
+		} catch (error) {
+			// Missing or unparsable: those stores have their own recovery. A file we could not *read* is
+			// not "no version" - swallowing it here defers the failure to a request or a scan, which is
+			// exactly what this boot-time check exists to avoid.
+			if ((error as NodeJS.ErrnoException).code === "ENOENT" || error instanceof SyntaxError) continue
+			throw error
 		}
 		checkStateVersion(name, parsed)
 	}

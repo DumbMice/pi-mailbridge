@@ -190,7 +190,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	/** Mirror of the daemon's global mode. Default off: never mail unprompted. */
 	let emailMode: "on" | "off" = "off"
 	/**
-	 * This session's own override, if it set one. Held here so a rebuilt runtime (daemon restart,
+	 * This session's own override, if it set one. Held here so a re-created runtime (daemon restart,
 	 * `/mailbridge restart`) re-applies it: the daemon keeps overrides in memory, so losing it there
 	 * would silently let mail back in.
 	 */
@@ -690,7 +690,12 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			// "Could not ask" is not "the switch moved": keep the intent and let the poll tick retry.
 			if (!initialMode.ok) {
 				// leave sessionMode alone
-			} else if ((initialMode.data.globalUpdatedAt ?? 0) === sessionMode.globalAt) {
+			} else if (
+				// "Could not read the stamp" is not "the switch moved": keep the override rather than
+				// un-muting a session that asked to be quiet.
+				initialMode.data.globalUpdatedAt === undefined ||
+				initialMode.data.globalUpdatedAt === sessionMode.globalAt
+			) {
 				const applied = await active.setMode(sessionMode.mode, { scope: "session", instanceId }).catch(() => undefined)
 				// The re-apply's own answer is the freshest truth about this session. If it could not be
 				// confirmed, bias towards quiet: a withheld reply stays pending, a claimed one is consumed.

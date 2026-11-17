@@ -36,12 +36,15 @@ export function isMode(value: unknown): value is Mode {
  * still current: a global write moves the stamp, so a session that reconnects afterwards knows its
  * own override was superseded - by another session's `--all`, or by its own.
  */
-export function readModeStamp(env: NodeJS.ProcessEnv = process.env): number {
+export function readModeStamp(env: NodeJS.ProcessEnv = process.env): number | undefined {
 	try {
 		const parsed = JSON.parse(readFileSync(path(env), "utf8")) as Partial<ModeFile>
 		return typeof parsed?.updatedAt === "number" ? parsed.updatedAt : 0
-	} catch {
-		return 0
+	} catch (error) {
+		// Absent or unparsable is "no stamp" (0). A file we could not *read* is not a value at all:
+		// reporting 0 there would read as "the switch changed", and a session would drop its own mute.
+		if ((error as NodeJS.ErrnoException).code === "ENOENT" || error instanceof SyntaxError) return 0
+		return undefined
 	}
 }
 
@@ -64,7 +67,7 @@ export function writeMode(env: NodeJS.ProcessEnv, mode: Mode, now: number = Date
 	// Strictly increasing, not just "now": sessions compare this value for equality to decide whether
 	// their own override was superseded, and two writes in one millisecond would compare equal - so a
 	// stale override would be re-applied after a `--all` that was meant to clear it.
-	const stamp = Math.max(now, readModeStamp(env) + 1)
+	const stamp = Math.max(now, (readModeStamp(env) ?? 0) + 1)
 	const tmp = `${p}.${process.pid}.tmp`
 	writeFileSync(tmp, JSON.stringify({ mode, updatedAt: stamp } satisfies ModeFile), { mode: 0o600 })
 	renameSync(tmp, p)

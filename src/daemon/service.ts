@@ -324,7 +324,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					return send(200, {
 						mode: over ?? glob,
 						global: glob,
-						globalUpdatedAt: readModeStamp(env),
+						...(readModeStamp(env) === undefined ? {} : { globalUpdatedAt: readModeStamp(env) }),
 						...(over ? { session: over } : {}),
 					})
 				}
@@ -369,7 +369,14 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					// and journaling under the live space would suppress a brand-new message at
 					// that UID. A record predating UIDVALIDITY carries none, and journal() then
 					// keeps the space the file already records.
-					journal(env, uid, acked.uidValidity)
+					try {
+						journal(env, uid, acked.uidValidity)
+					} catch (error) {
+						// The record is already gone, so the ack *succeeded*. Reporting 500 here made the
+						// extension print a failure for a completed ack - and, worse, skipped the release
+						// below, holding the session's decision slot for 24 h.
+						deps.log?.(`journal write failed after ack: ${(error as Error).message}`)
+					}
 					// The record's session, never the request body's: a client that acks
 					// another session's mail must not also free its decision slot.
 					registry.release(acked.sessionId)
@@ -475,7 +482,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 						return send(200, {
 							mode: over ?? glob,
 							global: glob,
-							globalUpdatedAt: readModeStamp(env),
+							...(readModeStamp(env) === undefined ? {} : { globalUpdatedAt: readModeStamp(env) }),
 							...(over ? { session: over } : {}),
 						})
 					}
@@ -486,7 +493,7 @@ export function createDaemonService(deps: DaemonDeps): DaemonService {
 					sessionModes.clear()
 					broadcast({ type: "mode", mode })
 					deps.onModeChange?.(mode)
-					return send(200, { mode, global: mode, globalUpdatedAt: readModeStamp(env) })
+					return send(200, { mode, global: mode, ...(readModeStamp(env) === undefined ? {} : { globalUpdatedAt: readModeStamp(env) }) })
 				}
 
 				case "POST /send": {

@@ -143,6 +143,20 @@ test("every write moves the stamp, even two in the same millisecond", () => {
 	const first = readModeStamp(env)
 	writeMode(env, "off", at)
 	const second = readModeStamp(env)
-	assert.ok(second > first, `the stamp must strictly increase (${first} -> ${second})`)
+	assert.ok(first !== undefined && second !== undefined, "both stamps are readable")
+	assert.ok(second! > first!, `the stamp must strictly increase (${first} -> ${second})`)
 	assert.equal(readMode(env), "off")
 })
+
+test("an unreadable mode file reports no stamp, not zero", async () => {
+	// Zero is a real value ("no stamp yet"); unreadable is not a value at all. Conflating them let a
+	// transient EACCES read as "the persisted switch moved", so a session dropped its own mute.
+	const { mkdirSync, rmSync } = await import("node:fs")
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-stamp-io-")) }
+	writeMode(env, "on", 1_700_000_000_000)
+	const file = join(env.XDG_STATE_HOME as string, "pi-mailbridge", "mode.json")
+	rmSync(file)
+	mkdirSync(file)
+	assert.equal(readModeStamp(env), undefined, "unreadable is not 0")
+})
+
