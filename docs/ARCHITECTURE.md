@@ -376,6 +376,7 @@ src/
     validate.ts         the boundary: cwd under a root, model allowlist, name, prompt
     journal.ts          durable requests: reservations, reconciliation, retention
     bootstrap.ts        shipped extension: the literal first prompt + readiness marker
+    spawn.ts            tmux argv (no prompt), readiness wait, verified stop
   daemon/
     api.ts              the wire contract: API_VERSION, capabilities, endpoint list
     imapflow.ts         imapflow adapter
