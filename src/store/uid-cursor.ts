@@ -27,9 +27,100 @@ interface CursorFile {
 	primed?: boolean
 }
 
-function path(env: NodeJS.ProcessEnv): string {
-	return statePath(env, "uid-cursor.json")
+/** A cursor store for one file. The daemon and the starter each own one; nothing is shared. */
+export interface CursorStore {
+	readonly fileName: string
+	read(env: NodeJS.ProcessEnv): number
+	isPrimed(env: NodeJS.ProcessEnv): boolean
+	markPrimed(env: NodeJS.ProcessEnv): void
+	sync(env: NodeJS.ProcessEnv, uidValidity: number | undefined, uidNext?: number): boolean
+	advance(env: NodeJS.ProcessEnv, uid: number): number
+	reset(env: NodeJS.ProcessEnv, uid?: number): void
 }
+
+/**
+ * The cursor's file name is a parameter for a reason: the session starter must not write the daemon's
+ * cursor, and `applyUidValidity` must not delete the daemon's queued records on its behalf. Two
+ * instances of this store are two independent cursors over the same mailbox.
+ */
+export function createCursorStore(fileName: string): CursorStore {
+	const path = (env: NodeJS.ProcessEnv): string => statePath(env, fileName)
+
+	function readFile(env: NodeJS.ProcessEnv): CursorFile {
+		const p = path(env)
+		try {
+			if (!existsSync(p)) return { lastUid: 0 }
+			const parsed = JSON.parse(readFileSync(p, "utf8")) as Partial<CursorFile>
+			checkStateVersion(fileName, parsed)
+			const uid = parsed?.lastUid
+			const validity = parsed?.uidValidity
+			return {
+				lastUid: typeof uid === "number" && Number.isFinite(uid) && uid >= 0 ? uid : 0,
+				...(typeof validity === "number" && Number.isFinite(validity) ? { uidValidity: validity } : {}),
+				...(parsed?.primed === true ? { primed: true } : {}),
+			}
+		} catch (error) {
+			if (error instanceof StateVersionError) throw error
+			// A parse failure is recoverable state; a read failure is not the caller's to overwrite.
+			if (!(error instanceof SyntaxError)) throw error
+			return { lastUid: 0 }
+		}
+	}
+
+	function write(env: NodeJS.ProcessEnv, uid: number, uidValidity?: number, primed?: boolean): void {
+		const p = path(env)
+		mkdirSync(dirname(p), { recursive: true, mode: 0o700 })
+		const tmp = `${p}.${process.pid}.tmp`
+		const keepPrimed = primed ?? readFile(env).primed === true
+		const body: CursorFile = {
+			...stamp(),
+			lastUid: uid,
+			...(uidValidity === undefined ? {} : { uidValidity }),
+			...(keepPrimed ? { primed: true } : {}),
+		}
+		writeFileSync(tmp, JSON.stringify(body), { mode: 0o600 })
+		renameSync(tmp, p)
+	}
+
+	return {
+		fileName,
+		read: (env) => readFile(env).lastUid,
+		isPrimed: (env) => {
+			const file = readFile(env)
+			return file.primed === true || file.lastUid > 0
+		},
+		markPrimed: (env) => {
+			const file = readFile(env)
+			write(env, file.lastUid, file.uidValidity, true)
+		},
+		sync(env, uidValidity, uidNext) {
+			if (uidValidity === undefined || !Number.isFinite(uidValidity)) return false
+			const current = readFile(env)
+			if (current.uidValidity === uidValidity) return false
+			// First observation on a cursor from a version that stored no validity: usually an upgrade
+			// over an unchanged mailbox, so keep the cursor. But if the cursor is at or past the
+			// mailbox's next UID it cannot belong to this numbering, and keeping it would skip
+			// everything for ever.
+			const observedFirst = current.uidValidity === undefined
+			const outside = observedFirst && uidNext !== undefined && current.lastUid >= uidNext
+			const reset = !observedFirst || outside
+			write(env, reset ? 0 : current.lastUid, uidValidity)
+			return reset
+		},
+		advance(env, uid) {
+			const current = readFile(env)
+			if (uid <= current.lastUid) return current.lastUid
+			write(env, uid, current.uidValidity)
+			return uid
+		},
+		reset(env, uid = 0) {
+			write(env, uid, readFile(env).uidValidity)
+		},
+	}
+}
+
+/** The daemon's cursor: the file every existing caller means. */
+export const daemonCursor = createCursorStore("uid-cursor.json")
 
 /**
  * Is the bridge already watching this mailbox, so that priming would skip mail?
@@ -38,100 +129,25 @@ function path(env: NodeJS.ProcessEnv): string {
  * actually been advanced past something. A file with `lastUid: 0` and no flag is a fresh install:
  * the daemon writes it on connect before reading anything, and priming there is the whole point.
  */
-export function isPrimed(env: NodeJS.ProcessEnv = process.env): boolean {
-	const file = readFile(env)
-	return file.primed === true || file.lastUid > 0
-}
+export const isPrimed = (env: NodeJS.ProcessEnv = process.env): boolean => daemonCursor.isPrimed(env)
 
 /** Record that `prime` ran, so a later run refuses. Preserves the cursor itself. */
-export function markPrimed(env: NodeJS.ProcessEnv = process.env): void {
-	const file = readFile(env)
-	write(env, file.lastUid, file.uidValidity, true)
-}
+export const markPrimed = (env: NodeJS.ProcessEnv = process.env): void => daemonCursor.markPrimed(env)
 
-export function readCursor(env: NodeJS.ProcessEnv = process.env): number {
-	return readFile(env).lastUid
-}
-
-function readFile(env: NodeJS.ProcessEnv): CursorFile {
-	const p = path(env)
-	try {
-		if (!existsSync(p)) return { lastUid: 0 }
-		const parsed = JSON.parse(readFileSync(p, "utf8")) as Partial<CursorFile>
-		checkStateVersion("uid-cursor.json", parsed)
-		const uid = parsed?.lastUid
-		const validity = parsed?.uidValidity
-		return {
-			lastUid: typeof uid === "number" && Number.isFinite(uid) && uid >= 0 ? uid : 0,
-			...(typeof validity === "number" && Number.isFinite(validity) ? { uidValidity: validity } : {}),
-			...(parsed?.primed === true ? { primed: true } : {}),
-		}
-	} catch (error) {
-		if (error instanceof StateVersionError) throw error
-		// A parse failure is recoverable state; a read failure is not the caller's to overwrite.
-		if (!(error instanceof SyntaxError)) throw error
-		return { lastUid: 0 }
-	}
-}
-
-function write(env: NodeJS.ProcessEnv, uid: number, uidValidity?: number, primed?: boolean): void {
-	const p = path(env)
-	mkdirSync(dirname(p), { recursive: true, mode: 0o700 })
-	const tmp = `${p}.${process.pid}.tmp`
-	const keepPrimed = primed ?? readFile(env).primed === true
-	const body: CursorFile = {
-		...stamp(),
-		lastUid: uid,
-		...(uidValidity === undefined ? {} : { uidValidity }),
-		...(keepPrimed ? { primed: true } : {}),
-	}
-	writeFileSync(tmp, JSON.stringify(body), { mode: 0o600 })
-	renameSync(tmp, p)
-}
+export const readCursor = (env: NodeJS.ProcessEnv = process.env): number => daemonCursor.read(env)
 
 /**
- * Compare the mailbox's UIDVALIDITY with the one this cursor was written under.
- *
- * UIDs are only meaningful within one UIDVALIDITY. A recreated or migrated folder renumbers
- * them from 1, and a persisted high-water cursor then skips everything for ever - visible
- * only as "examined 0". When it changes, the cursor is reset so the new UID space is read from
- * the start. The cost is the one ARCHITECTURE.md states: the journal is space-scoped, so a
- * renumbering can re-deliver a reply that was acked inside the route TTL.
- *
- * @returns true when the cursor was reset.
+ * Compare the mailbox's UIDVALIDITY with the one this cursor was written under. Returns true when the
+ * cursor was reset. Kept as a function because `source-proxy` calls it for the daemon's cursor.
  */
-export function syncUidValidity(
+export const syncUidValidity = (
 	env: NodeJS.ProcessEnv,
 	uidValidity: number | undefined,
 	uidNext?: number,
-): boolean {
-	if (uidValidity === undefined || !Number.isFinite(uidValidity)) return false
-	const current = readFile(env)
-	if (current.uidValidity === uidValidity) return false
+): boolean => daemonCursor.sync(env, uidValidity, uidNext)
 
-	// First observation on a cursor from a version that stored no validity: usually an
-	// upgrade over an unchanged mailbox, so keep the cursor. But if the cursor is at or past
-	// the mailbox's next UID, it cannot belong to this numbering - the folder was renumbered
-	// while we were not looking - and keeping it would skip everything for ever.
-	const observedFirst = current.uidValidity === undefined
-	const outside = observedFirst && uidNext !== undefined && current.lastUid >= uidNext
-	const reset = !observedFirst || outside
-	write(env, reset ? 0 : current.lastUid, uidValidity)
-	return reset
-}
-
-/**
- * Advance the cursor to `uid`, never backwards.
- * @returns the cursor value after the call.
- */
-export function advanceCursor(env: NodeJS.ProcessEnv, uid: number): number {
-	const current = readFile(env)
-	if (uid <= current.lastUid) return current.lastUid
-	write(env, uid, current.uidValidity)
-	return uid
-}
+/** Advance the cursor to `uid`, never backwards. Returns the value after the call. */
+export const advanceCursor = (env: NodeJS.ProcessEnv, uid: number): number => daemonCursor.advance(env, uid)
 
 /** Test helper: force the cursor to a value (ignores monotonicity). */
-export function resetCursor(env: NodeJS.ProcessEnv, uid = 0): void {
-	write(env, uid, readFile(env).uidValidity)
-}
+export const resetCursor = (env: NodeJS.ProcessEnv, uid = 0): void => daemonCursor.reset(env, uid)
