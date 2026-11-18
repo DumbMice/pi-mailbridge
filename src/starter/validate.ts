@@ -117,7 +117,7 @@ export function planName(options: { requested?: string; title: string; taken: st
 		sanitiseName(options.title) ||
 		`pi-${options.now.toISOString().slice(2, 16).replace(/[-:T]/g, "")}`
 	if (!base) return invalid("empty-name", "the name has no usable characters")
-	if (base.length < 2) return invalid("name-too-short", base)
+	if (base.length === 0) return invalid("empty-name", "the name has no usable characters")
 	const taken = new Set(options.taken)
 	if (!taken.has(base)) return { ok: true, value: base }
 	for (let n = 2; n <= 99; n++) {

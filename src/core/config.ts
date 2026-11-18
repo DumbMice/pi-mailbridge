@@ -59,6 +59,8 @@ export interface StarterConfig {
 	parserAttemptsPerHour: number
 	confirmationsPerHour: number
 	promptMaxChars: number
+	/** Set `PI_MAILBRIDGE_SESSION_MODE=on` for the started session, so the reply loop closes. */
+	autoEnableMail: boolean
 	/** Freshness of the MAIL (IMAP INTERNALDATE), independent of journal retention. */
 	requestMaxAgeHours: number
 	scanIntervalSecs: number
@@ -136,6 +138,7 @@ export const STARTER_DEFAULTS: StarterConfig = {
 	parserAttemptsPerHour: 6,
 	confirmationsPerHour: 12,
 	promptMaxChars: 8000,
+	autoEnableMail: true,
 	requestMaxAgeHours: 48,
 	scanIntervalSecs: 60,
 	// Read-only, and the run is isolated elsewhere (`-ne --no-mcp …`, see starter/parse-agent.ts).

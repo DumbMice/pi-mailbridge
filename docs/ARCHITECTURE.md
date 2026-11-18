@@ -377,6 +377,7 @@ src/
     journal.ts          durable requests: reservations, reconciliation, retention
     bootstrap.ts        shipped extension: the literal first prompt + readiness marker
     spawn.ts            tmux argv (no prompt), readiness wait, verified stop
+    handle.ts           one message → the decision pipeline (authz, channel, parse, validate, act)
   daemon/
     api.ts              the wire contract: API_VERSION, capabilities, endpoint list
     imapflow.ts         imapflow adapter
