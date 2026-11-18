@@ -248,6 +248,7 @@ test("smoke reports the authserv-id of the copy that came back", async () => {
 					[
 						"Authentication-Results: mx.qq.com; dkim=pass; dmarc=pass",
 						"X-Pi-Mailbridge: notification",
+						"X-Pi-Mailbridge-Id: <abc@example.com>",
 						"Message-ID: <abc@example.com>",
 						"",
 						"body",
@@ -261,3 +262,31 @@ test("smoke reports the authserv-id of the copy that came back", async () => {
 	})
 	assert.equal(result.authservId, "mx.qq.com")
 })
+
+test("a trust anchor is not learned from someone else's notification", () => {
+	// An unrelated notification-looking message with a valid authserv-id is not evidence that the provider
+	// wrote that header in front of us.
+	const singleMailbox = { ...config(), mail: { ...config().mail, imap: { ...config().mail.imap, user: "me@e.com" }, to: "me@e.com" } }
+	return runSmoke(singleMailbox, {
+		send: async () => ({ messageId: "<abc@example.com>" }),
+		connect: async () => ({
+			count: async () => 1,
+			recentSources: async () => [
+				Buffer.from(
+					[
+						"Authentication-Results: attacker.example; dkim=pass",
+						"X-Pi-Mailbridge: notification",
+						"X-Pi-Mailbridge-Id: <someone-else@example.com>",
+						"Message-ID: <someone-else@example.com>",
+						"",
+						"body",
+					].join("\r\n"),
+				),
+			],
+			close: async () => {},
+		}),
+		sleep: async () => {},
+		echoRetryDelaysMs: [1],
+	}).then((result) => assert.equal(result.authservId, undefined))
+})
+

@@ -165,8 +165,10 @@ export async function runSmoke(config: ResolvedConfig, deps: SmokeDeps = {}): Pr
 					// notification-looking message with someone else's Message-ID is not proof that this
 					// provider wrote the header in front of us. The permissive match above is only for
 					// "did the echo come back" reporting.
-					const candidate = /^authentication-results:\s*([^\s;]+)/im.exec(head)?.[1]
-					if (stamped === undefined || stamped === wanted) {
+					// The trust anchor is learned only from a copy that carries *our* stamp: notification-looking
+					// mail with someone else's Message-ID is not proof this provider wrote the header.
+					if (stamped === wanted) {
+						const candidate = /^authentication-results:\s*([^\s;]+)/im.exec(head)?.[1]
 						if (candidate && isAuthservId(candidate)) authservId = candidate.toLowerCase()
 					}
 					if (/^x-pi-mailbridge:\s*notification/im.test(head)) seen = "marker"

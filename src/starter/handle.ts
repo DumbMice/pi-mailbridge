@@ -230,18 +230,16 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 					? grammared.errors.map((e) => `${e.code}: ${e.detail}`).join("; ")
 					: "the command block is incomplete"
 				: "this reply is not a stop:/list: command"
-		const sent = await reply(
-			`[pi-start] refused — ${detail}; nothing was started. Send \`stop: <name>\` or \`list:\`, or a new mail to start a session`,
+		return refuse(
+			named ? "bad-command" : "reply-without-command",
+			`${detail}; nothing was started. Send \`stop: <name>\` or \`list:\`, or a new mail to start a session`,
+			named ? "command" : "start",
 		)
-		record("refused", named ? "command" : "start", { reason: detail })
-		return { action: "refused", code: named ? "bad-command" : "reply-without-command", detail, replied: sent }
 	}
 
 	if (grammared.state === "invalid") {
 		const detail = grammared.errors.map((e) => `${e.code}: ${e.detail}`).join("; ")
-		const sent = await reply(`[pi-start] refused — ${detail}`)
-		record("refused", "start", { reason: detail })
-		return { action: "refused", code: grammared.errors[0]?.code ?? "invalid", detail, replied: sent }
+		return refuse(grammared.errors[0]?.code ?? "invalid", detail)
 	}
 
 	// 6. Commands: stop and list are not starts, so the caps do not apply to them.
@@ -272,8 +270,11 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 			const stopped = await deps.stop(record.tmuxSessionId, record.name, record.requestId)
 			if (!stopped.ok) return "failed"
 			journal.sessions[name] = { ...record, endedAt: now }
-			if (journal.requests[record.requestId]) {
-				transition(journal, record.requestId, { state: "ended" }, now)
+			const request = journal.requests[record.requestId]
+			if (request) {
+				// Leave an unsent result owed; the next scan mails it. Ending the record abandoned it.
+				const owed = request.state === "ready" && request.resultSent !== true
+				transition(journal, record.requestId, owed ? {} : { state: "ended" }, now)
 			}
 			return "stopped"
 		}

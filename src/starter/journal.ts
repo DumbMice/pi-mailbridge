@@ -287,6 +287,9 @@ export function writeJournal(
 	// Everything still in the map survived the horizon, so all of it is replayable: count pressure refuses
 	// admission rather than forgetting a record that would let old mail run twice.
 	if (Object.keys(requests).length > options.maxRequests) {
+		// Commands and refusals share this budget: past the limit even a `stop:` is refused (and so is its
+		// own record), because evicting a replayable tombstone is the worse failure. `starter repair` resets
+		// the journal when an operator decides that is right.
 		throw new JournalFullError(`starter journal is at its limit (${options.maxRequests}); every entry is still replayable`)
 	}
 	cap(sessions, options.maxSessions, (s) => s.endedAt !== undefined)

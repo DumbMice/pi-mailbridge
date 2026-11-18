@@ -171,12 +171,16 @@ export function createPromptWriter(env: NodeJS.ProcessEnv): {
 			}
 		},
 		pruneReceipts() {
+			// `.handled` receipts are the bootstrap's reload guard; they outlive the prompt files they sit
+			// beside (the readiness marker is pruned after an hour, the guard must not be).
 			let removed = 0
 			try {
 				for (const name of readdirSync(dir)) {
-					if (!name.endsWith(".ready")) continue
+					// `.handled` is the reload guard and lives for a week; `.ready`/`.txt` are consumable.
+					const isGuard = name.endsWith(".handled")
+					if (!name.endsWith(".ready") && !isGuard) continue
 					try {
-						if (Date.now() - statSync(join(dir, name)).mtimeMs > 3_600_000) {
+						if (Date.now() - statSync(join(dir, name)).mtimeMs > (isGuard ? 7 * 24 * 3_600_000 : 3_600_000)) {
 							unlinkSync(join(dir, name))
 							removed += 1
 						}

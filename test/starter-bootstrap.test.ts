@@ -2,7 +2,7 @@
 
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { chmodSync, existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdtempSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -143,9 +143,11 @@ test("a reload does not re-inject or re-claim: the marker means it was handled",
 	const { sent, fire } = rig({ PI_MAILBRIDGE_START_PROMPT: prompt, PI_MAILBRIDGE_START_READY: ready, PI_MAILBRIDGE_START_REQUEST: "req-9" })
 	fire()
 	const first = readFileSync(ready, "utf8")
+	// The starter prunes `.ready` after an hour; the guard must survive that, so the marker is removed here.
+	unlinkSync(ready)
 	sent.length = 0
 	fire()
 	assert.deepEqual(sent, [], "nothing is injected on the second session_start")
-	assert.equal(readFileSync(ready, "utf8"), first, "and the marker is not rewritten")
+	assert.equal(existsSync(ready), false, "and it does not write a marker it cannot justify")
 })
 

@@ -49,14 +49,37 @@ function intentStorePath(env: NodeJS.ProcessEnv): string {
 	return join(dirname(statePath(env, "starter.log")), "session-intent.json")
 }
 
-function intentConsumed(env: NodeJS.ProcessEnv, key: string): boolean {
-	if (consumedEnvIntent.has(key)) return true
+interface IntentReceipt {
+	key: string
+	at: number
+}
+
+const INTENT_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
+function readIntentReceipts(env: NodeJS.ProcessEnv): IntentReceipt[] {
 	try {
 		const stored = JSON.parse(readFileSync(intentStorePath(env), "utf8")) as unknown
-		return Array.isArray(stored) && stored.includes(key)
+		if (!Array.isArray(stored)) return []
+		const now = Date.now()
+		return stored
+			.map((entry): IntentReceipt | undefined => {
+				if (typeof entry === "string") return { key: entry, at: now }
+				if (entry && typeof entry === "object" && typeof (entry as IntentReceipt).key === "string") {
+					const at = typeof (entry as IntentReceipt).at === "number" ? (entry as IntentReceipt).at : now
+					return { key: (entry as IntentReceipt).key, at }
+				}
+				return undefined
+			})
+			.filter((entry): entry is IntentReceipt => entry !== undefined && now - entry.at < INTENT_TTL_MS)
 	} catch {
-		return false
+		return []
 	}
+}
+
+function intentConsumed(env: NodeJS.ProcessEnv, key: string): boolean {
+	if (consumedEnvIntent.has(key)) return true
+	// A week, not "the last N": a long-lived session's receipt must not be evicted by newer sessions.
+	return readIntentReceipts(env).some((entry) => entry.key === key)
 }
 
 function consumeIntent(env: NodeJS.ProcessEnv, key: string): void {
@@ -64,15 +87,10 @@ function consumeIntent(env: NodeJS.ProcessEnv, key: string): void {
 	try {
 		const file = intentStorePath(env)
 		mkdirSync(dirname(file), { recursive: true, mode: 0o700 })
-		const stored = (() => {
-			try {
-				const value = JSON.parse(readFileSync(file, "utf8")) as unknown
-				return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []
-			} catch {
-				return []
-			}
-		})()
-		if (!stored.includes(key)) writeFileSync(file, JSON.stringify([...stored.slice(-99), key]), { mode: 0o600 })
+		const stored = readIntentReceipts(env)
+		if (!stored.some((entry) => entry.key === key)) {
+			writeFileSync(file, JSON.stringify([...stored, { key, at: Date.now() }]), { mode: 0o600 })
+		}
 	} catch {
 		/* memory still holds the decision for this process */
 	}

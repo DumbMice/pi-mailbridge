@@ -182,7 +182,20 @@ async function reconcileInterrupted(record: ReturnType<typeof alreadySeen>, deps
 		// leave pi alive but idle (missing credentials, prompt never accepted), and adopting it as "started"
 		// would mail a success that never happened.
 		const readyFile = record.readyFile
-		if (readyFile) {
+		// Conditional readiness was the hole: a reservation without the field was adopted with no evidence.
+		if (!readyFile) {
+			deps.journal.requests[record.id] = {
+				...record,
+				state: "uncertain",
+				reason: "the child is running but no readiness evidence was recorded",
+				at: deps.now(),
+			}
+			summary.uncertain += 1
+			deps.log(`uncertain ${record.id}: readiness evidence is missing`)
+			deps.saveJournal(deps.journal)
+			return
+		}
+		{
 			try {
 				const marker = JSON.parse(readFileSync(readyFile, "utf8")) as { ok?: boolean; error?: string }
 				if (marker.ok !== true) {
@@ -278,10 +291,14 @@ export async function scanOnce(deps: ScanDeps): Promise<ScanSummary> {
 	for (const [name, session] of liveList === undefined ? [] : Object.entries(deps.journal.sessions)) {
 		if (session.endedAt !== undefined || liveNow.has(name)) continue
 		deps.journal.sessions[name] = { ...session, endedAt: deps.now() }
-		if (deps.journal.requests[session.requestId]) {
+		const request = deps.journal.requests[session.requestId]
+		if (request) {
+			// An undelivered result stays owed: ending the request here removed it from the ready-only flush,
+			// so a dead session silently abandoned the mail it promised.
+			const owed = request.state === "ready" && request.resultSent !== true
 			deps.journal.requests[session.requestId] = {
-				...deps.journal.requests[session.requestId]!,
-				state: "ended",
+				...request,
+				...(owed ? {} : { state: "ended" }),
 				at: deps.now(),
 			}
 		}
@@ -371,42 +388,29 @@ export function createStarterRunner(deps: RunnerDeps) {
 	const timers = deps.timers ?? realTimers
 	const intervalMs = Math.max(0, (deps.scanIntervalSecs ?? deps.config.starter.scanIntervalSecs) * 1000)
 	let sweep: unknown
-	let running = false
-	let queued = false
 	/** The scan that may be inside an await right now, so a shutdown can wait for it. */
 	let inFlight: Promise<void> | undefined
 
 	let lastSummary: ScanSummary | undefined
-	const guarded = async (): Promise<void> => {
-		if (running) {
-			// A burst of IDLE events must not start overlapping scans; run one more after this one.
-			queued = true
-			return
-		}
-		running = true
-		const work = (async (): Promise<void> => {
-			const summary = await scanOnce(deps)
-			lastSummary = summary
-			if (summary.examined > 0) {
-				deps.log(
-					`scan: examined ${summary.examined}, started ${summary.started}, refused ${summary.refused}, ignored ${summary.ignored}`,
-				)
+	// One chain: IDLE, the sweep and a manual `once` all append to it, and each caller waits for the work it
+	// asked for. Returning early while a scan was in flight let `once` release the lifetime lock mid-scan.
+	let chain: Promise<void> = Promise.resolve()
+	const guarded = (): Promise<void> => {
+		chain = chain.then(async () => {
+			try {
+				const summary = await scanOnce(deps)
+				lastSummary = summary
+				if (summary.examined > 0) {
+					deps.log(
+						`scan: examined ${summary.examined}, started ${summary.started}, refused ${summary.refused}, ignored ${summary.ignored}`,
+					)
+				}
+			} catch (error) {
+				// The cursor was not advanced past the failure, so the next scan retries the same UIDs.
+				deps.log(`scan failed: ${(error as Error).message}`)
 			}
-		})()
-		inFlight = work.catch((error) => {
-			// The cursor was not advanced past the failure, so the next scan retries the same UIDs.
-			deps.log(`scan failed: ${(error as Error).message}`)
 		})
-		try {
-			await inFlight
-		} finally {
-			running = false
-			inFlight = undefined
-			if (queued) {
-				queued = false
-				await guarded()
-			}
-		}
+		return chain
 	}
 
 	const schedule = (): void => {
@@ -432,10 +436,9 @@ export function createStarterRunner(deps: RunnerDeps) {
 		async stop(): Promise<void> {
 			if (sweep !== undefined) timers.clearTimeout(sweep)
 			sweep = undefined
-			queued = false
-			// Join the scan in progress: releasing the lifetime lock while a spawn or a journal save is still
-			// in flight lets the next process read a state that is about to change.
-			if (inFlight) await inFlight
+			// Join the whole chain: releasing the lifetime lock while a spawn or a journal save is still in
+			// flight lets the next process read a state that is about to change.
+			await chain
 			await deps.source.stop?.()
 		},
 	}

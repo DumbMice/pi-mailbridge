@@ -92,7 +92,17 @@ export function installBootstrap(pi: BootstrapPi, env: BootstrapEnv = process.en
 		// `/reload` emits another session_start. The marker means this request was already delivered, so a
 		// second run must neither re-inject a diagnostic nor claim readiness again - the prompt file is gone.
 		const ready = env.PI_MAILBRIDGE_START_READY
-		if (ready && existsSync(ready)) return
+		// A receipt of its own, written before anything else: the readiness marker is pruned by the starter
+		// after an hour, and a reload after that must still not re-inject.
+		const handled = ready ? `${ready}.handled` : undefined
+		if (handled && existsSync(handled)) return
+		if (handled) {
+			try {
+				writeFileSync(handled, String(Date.now()), { mode: 0o600 })
+			} catch {
+				/* memory cannot help here; the marker check below is the fallback */
+			}
+		}
 		const requestId = env.PI_MAILBRIDGE_START_REQUEST
 		const prompt = readPromptFile(env)
 		consume(env.PI_MAILBRIDGE_START_PROMPT)

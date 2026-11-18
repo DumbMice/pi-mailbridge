@@ -353,11 +353,15 @@ before any reply, so echo, off-channel, replayed and stale mail is never answere
 4. our own mail (`X-Pi-Mailbridge`)
 5. channel (subject prefix or configured address, never both) — there is no device tag inside the subject
 6. replay (Message-ID, UID space) and freshness (`INTERNALDATE`)
-7. durable record of the mail as a command or a refusal; for a start, the request is admitted, then the
-   hourly budget and live cap are checked
-8. optional stage-B parse for a missing `cwd`
-9. validation (cwd / model / thinking / name)
-10. **durable reservation of the session identity** → spawn → result mail
+7. recording, in the order each outcome happens: a command is admitted before it acts and settled after; a
+   refusal (including budget) is written *before* its mail; a start is reserved only once its fields are
+   validated
+8. optional stage-B parse for a missing `cwd`, then validation (cwd / model / thinking / name)
+9. **durable reservation of the session identity** → spawn → result mail
+
+A start is therefore *not* admitted before the budget check: the budget is checked first, and only an
+admitted start gets a reservation. What is durable before every side effect is the record of a command or
+a refusal.
 
 Commands are journalled like starts, so replaying an old `stop:` cannot stop whatever holds that name
 later, and a refusal is terminal: a replay after the budget frees up does not execute it.

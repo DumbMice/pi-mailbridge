@@ -161,10 +161,11 @@ The gates, in the order `handleMail()` applies them: `starter.enabled` plus a no
 problem for `starter check`); the body grammar (a reply is read above its quote, and a reply that is not
 `stop:`/`list:` is refused rather than treated as a request); `security.allowFrom` exact match and DMARC,
 reused from §2 rather than reimplemented; the mailbox's own echo markers; the channel (subject prefix, or a
-configured address — never both); replay (Message-ID, UID space) and freshness (INTERNALDATE); then a
-durable record of the mail as a command or refusal, and for a start the hourly budget and live session cap,
-the optional stage-B parse, path validation, model allowlist, name sanitising, and the reservation written
-before anything is spawned.
+configured address — never both); replay (Message-ID, UID space) and freshness (INTERNALDATE); then the
+hourly budget and live session cap, the optional stage-B parse, path validation, model allowlist and name
+sanitising, and the reservation written before anything is spawned. Commands and refusals are recorded
+durably before they act or are mailed; a *start* is reserved only after validation, so no session can exist
+without a record of it.
 
 **A starter request is authorized by address and DMARC, not by a routing token.** It cannot carry one — a
 fresh request has no reply headers, which is the one requirement the starter's authorization context

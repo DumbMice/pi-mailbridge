@@ -508,3 +508,18 @@ test("stop: all settles, so command records stay prunable", async () => {
 	assert.equal(record.state, "ended", "an admitted command must reach a terminal state")
 })
 
+test("the refusal is already persisted when the mail is being sent", async () => {
+	// Asserting after completion cannot see a crash between send and record; the record must exist inside
+	// the sender, for the branches that used to send first.
+	for (const body of ["cwd: /nope", "prompt: x\nmodel: a/b"]) {
+		const r = rig()
+		let seen: string | undefined
+		r.deps.send = async () => {
+			seen = Object.values(r.journal.requests).find((entry) => entry.state === "refused")?.state
+		}
+		const outcome = await handleMail(mail({ body, uid: 60, messageId: `<dur-${body.length}@x>` }, r.project), r.deps)
+		assert.equal(outcome.action, "refused", body)
+		assert.equal(seen, "refused", `recorded before the send: ${body}`)
+	}
+})
+

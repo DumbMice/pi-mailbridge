@@ -100,6 +100,9 @@ function rig(over: { journal?: JournalFile; throwOnFetch?: number; starter?: Par
 test("a result that never went out is mailed once on the next scan, without re-spawning", async () => {
 	// `ready` is written before the mail and `resultSent` after it: a crash between them leaves a session
 	// that exists and a human who was never told. Retrying the mail is the point of tracking them apart.
+	const readyDir = mkdtempSync(join(tmpdir(), "pmb-adopt-"))
+	const readyFile = join(readyDir, "req-1.ready")
+	writeFileSync(readyFile, JSON.stringify({ ok: true }), { mode: 0o600 })
 	const r = rig({
 		journal: {
 			v: 1,
@@ -164,6 +167,9 @@ test("a fetch failure does not advance the cursor past the offending UID", async
 test("an interrupted request is reconciled against what is running, not re-run", async () => {
 	// The journal says a request was reserved and exists as tmux $4: the scan adopts it rather than
 	// starting a second session.
+	const readyDir = mkdtempSync(join(tmpdir(), "pmb-adopt-"))
+	const readyFile = join(readyDir, "req-1.ready")
+	writeFileSync(readyFile, JSON.stringify({ ok: true }), { mode: 0o600 })
 	const r = rig({
 		journal: {
 			v: 1,
@@ -177,6 +183,7 @@ test("an interrupted request is reconciled against what is running, not re-run",
 					state: "reserved",
 					at: r0(),
 					tmuxSessionId: "$4",
+					readyFile,
 					name: "do-a-thing",
 					piSessionId: "pi-x",
 					cwd: "/tmp",
@@ -223,6 +230,9 @@ test("IDLE and the sweep cannot overlap: a burst runs one scan, then at most one
 
 test("a reserved record with no id but a live name is adopted, not refused", async () => {
 	// The real crash window: the record is saved before spawn() returns, so it has no $N to match on.
+	const readyDir = mkdtempSync(join(tmpdir(), "pmb-adopt2-"))
+	const readyFile = join(readyDir, "req-2.ready")
+	writeFileSync(readyFile, JSON.stringify({ ok: true }), { mode: 0o600 })
 	const r = rig({
 		journal: {
 			v: 1,
@@ -237,6 +247,7 @@ test("a reserved record with no id but a live name is adopted, not refused", asy
 					launchedAt: Date.now(),
 					name: "half-born",
 					tmuxName: "half-born",
+					readyFile,
 					cwd: "/tmp",
 					piSessionId: "pi-y",
 				},
@@ -363,6 +374,7 @@ test("recovery does not call a child started when its readiness marker failed or
 			},
 		})
 		r.liveSessions = async () => [{ id: "$1", name: "half" }]
+		r.ownerOf = async () => "req"
 		const summary = await scanOnce(r)
 		assert.equal(summary.adopted, 0, readyFile)
 		assert.equal(r.journal.requests.req?.state, "uncertain", readyFile)
@@ -396,10 +408,10 @@ test("an oversized or undated message never becomes a start request", async () =
 		uid: 6,
 		from: "me@e.com",
 		subject: "[pi-start] old",
-		text: "cwd: /tmp",
+		// Undated on purpose, and otherwise valid: the freshness rule is what must refuse it.
+		text: `cwd: ${undated.config.starter.roots[0]}/project`,
 		headers: { authResults: ["mx; dmarc=pass"], messageId: "<old@x>" },
 		receivedAt: Date.now(),
-		internalDate: Date.now(),
 	})
 	const s2 = await scanOnce(undated)
 	assert.equal(s2.started, 0, "no arrival time, no freshness proof, no start")
@@ -420,5 +432,88 @@ test("adoption refuses a live name whose ownership marker belongs to another req
 	const summary = await scanOnce(r)
 	assert.equal(summary.adopted, 0)
 	assert.equal(r.journal.requests.req?.state, "uncertain")
+})
+
+test("once() waits for a scan that IDLE already started, and stop() drains the chain", async () => {
+	// `guarded()` used to queue and return, so `once` could release the lifetime lock while the queued scan
+	// was still spawning.
+	const r = rig()
+	let release!: () => void
+	const gate = new Promise<void>((resolve) => {
+		release = resolve
+	})
+	let fetches = 0
+	const original = r.source.fetch.bind(r.source)
+	r.source.fetch = async (uid: number) => {
+		fetches += 1
+		if (fetches === 1) await gate
+		return original(uid)
+	}
+	const timers = { setTimeout: () => 0 as unknown, clearTimeout: () => {} }
+	const runner = createStarterRunner({ ...r, timers, scanIntervalSecs: 0 })
+	const idle = runner.once()
+	await new Promise((resolve) => setTimeout(resolve, 10))
+	let onceDone = false
+	const once = runner.once().then(() => {
+		onceDone = true
+	})
+	await new Promise((resolve) => setTimeout(resolve, 10))
+	assert.equal(onceDone, false, "the second once waits for the first scan")
+	release()
+	await Promise.all([idle, once])
+	assert.equal(onceDone, true)
+	await runner.stop()
+})
+
+test("adoption without readiness evidence is uncertain", async () => {
+	// The check used to run only when the field existed, so a reservation without it was adopted blindly.
+	const r = rig({
+		journal: {
+			v: 1,
+			requests: { req: { id: "req", messageId: "<m@x>", uid: 1, receivedAt: Date.now(), state: "spawning", at: Date.now(), launchedAt: Date.now(), name: "x", tmuxName: "x", cwd: "/tmp" } },
+			sessions: {},
+		},
+	})
+	r.liveSessions = async () => [{ id: "$1", name: "x" }]
+	r.ownerOf = async () => "req"
+	const summary = await scanOnce(r)
+	assert.equal(summary.adopted, 0)
+	assert.equal(r.journal.requests.req?.state, "uncertain")
+	assert.match(r.journal.requests.req?.reason ?? "", /no readiness evidence/)
+})
+
+test("a result is still mailed when its session died before the mail went out", async () => {
+	// The sweep used to end the request, removing it from the ready-only flush: a dead session silently
+	// abandoned the result it promised.
+	const r = rig({
+		journal: {
+			v: 1,
+			requests: {
+				req: {
+					id: "req",
+					messageId: "<m@x>",
+					uid: 1,
+					receivedAt: Date.now(),
+					state: "ready",
+					at: Date.now(),
+					name: "gone",
+					cwd: "/tmp",
+					piSessionId: "pi",
+					tmuxSessionId: "$1",
+				},
+			},
+			sessions: { gone: { name: "gone", tmuxSessionId: "$1", piSessionId: "pi", requestId: "req", cwd: "/tmp", at: 1 } },
+		},
+	})
+	// No pending mail: this test is about the owed result, not about a new request.
+	r.messages.delete(1)
+	const sent: string[] = []
+	r.handle.send = async (message) => {
+		sent.push(message.subject)
+	}
+	r.liveSessions = async () => []
+	const summary = await scanOnce(r)
+	assert.equal(sent.length, 1, `the owed result goes out even though the session is gone: ${JSON.stringify([summary, r.journal.requests.req])}`)
+	assert.equal(r.journal.requests.req?.resultSent, true, JSON.stringify(r.journal.requests))
 })
 
