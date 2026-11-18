@@ -361,7 +361,7 @@ test("a non-command reply never starts a session, even with a default cwd", asyn
 	assert.equal(r.spawned.length, 0)
 	// Authenticated, so it gets an answer: silence here would look like the mail was never read.
 	assert.equal(r.replies.length, 1)
-	assert.match(r.replies[0]!.text, /was not a command/)
+	assert.match(r.replies[0]!.text, /not a stop:\/list: command/)
 
 	// A reply that lost its Re: marker is still a reply: In-Reply-To is the authoritative sign.
 	const unmarked = await handleMail(
@@ -399,5 +399,46 @@ test("a failed spawn still counts against the budget", async () => {
 	assert.equal(second.action, "refused")
 	if (second.action === "refused") assert.equal(second.code, "quota")
 	assert.equal(attempts, 1, "the second attempt never reached spawn")
+})
+
+test("off-channel and echo replies are dropped, not answered", async () => {
+	// SECURITY §4a: echo and off-channel mail is dropped without a reply. Both are reachable in the default
+	// layout, because the default channel is a subject prefix on the mailbox the bridge already watches.
+	const off = rig()
+	const offChannel = await handleMail(
+		mail({
+			messageId: "<off@x>",
+			uid: 21,
+			subject: "Re: [pi] the build finished",
+			headers: { authResults: ["mx.example.com; dmarc=pass"], inReplyTo: "<notify@x>" },
+			body: "thanks!",
+		}),
+		off.deps,
+	)
+	assert.equal(offChannel.action, "ignored")
+	assert.equal(off.replies.length, 0, "no backscatter to off-channel mail")
+
+	const echoRig = rig()
+	const echo = await handleMail(
+		mail({
+			messageId: "<echo@x>",
+			uid: 22,
+			subject: "Re: [pi-start] fix-the-auth-test",
+			headers: { authResults: ["mx.example.com; dmarc=pass"], xPiMailbridge: "result", inReplyTo: "<req-1@example.com>" },
+			body: "[pi-start] started fix-the-auth-test\ncwd: /tmp",
+		}),
+		echoRig.deps,
+	)
+	assert.equal(echo.action, "ignored")
+	// Our own result mail carries In-Reply-To, so answering it would loop at the confirmation budget.
+	assert.equal(echoRig.replies.length, 0, "never answer our own mail")
+})
+
+test("list: says tmux did not answer rather than claiming no sessions", async () => {
+	const r = rig()
+	r.deps.list = async () => undefined
+	const outcome = await handleMail(mail({ messageId: "<l@x>", uid: 30, body: "list:" }, r.project), r.deps)
+	assert.equal(outcome.action, "listed")
+	assert.match(r.replies[0]!.text, /could not list sessions/)
 })
 

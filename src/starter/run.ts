@@ -203,6 +203,7 @@ export async function scanOnce(deps: ScanDeps): Promise<ScanSummary> {
 	// is the only truth here, so the cap is computed against it - done below, once per scan.
 	const cursor = deps.cursor.read(deps.env)
 	const liveList = await deps.liveSessions()
+	if (liveList === undefined) deps.log("the sweep skipped: tmux did not answer")
 	const liveNow = new Map((liveList ?? []).map((entry) => [entry.name, entry.id]))
 	// An unreadable live list is not an empty one: sweeping then would end every session we own.
 	for (const [name, session] of liveList === undefined ? [] : Object.entries(deps.journal.sessions)) {

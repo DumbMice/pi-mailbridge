@@ -132,7 +132,7 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 	// work itself. Silence, not a refusal mail: a starter that is off should look off to a stranger.
 	if (!starter.enabled) return { action: "ignored", reason: "disabled" }
 
-	// 1. Resource caps. Commands (`stop`, `list`) are exempt: a stop must work at the quota.
+	// Resource caps. Commands (`stop`, `list`) are exempt: a stop must work at the quota.
 	// Reply headers are the authoritative sign: a fresh request has none *by design* (that is why the
 	// request context relaxes reply evidence), so `In-Reply-To`/`References` means this answers a mail even
 	// when the client's marker is one we do not know, or was edited off.
@@ -178,14 +178,6 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 	)
 	if (!auth.ok) return ignore(`unauthenticated:${auth.reason}`)
 
-	// A reply is how `stop:` comes back (the result mail says so), but a non-command reply is a person
-	// answering a notification: starting a session from it would run the quoted history as the prompt.
-	// Checked after authentication, so the answer goes only to a sender we already trust.
-	if (replyMail && !isCommand) {
-		await reply("[pi-start] that reply was not a command — nothing was started; send `stop: <name>`/`list:`, or a new mail to start a session")
-		return { action: "refused", code: "reply-without-command", detail: "a reply that is not stop:/list:", replied: true }
-	}
-
 	// 3. Our own mail must never start anything (the marker, then the recorded Message-ID).
 	if (mail.headers.xPiMailbridge) return ignore("self-echo")
 
@@ -198,6 +190,24 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 	if (seen) return ignore(`already-handled:${seen.state}`)
 	if (isStale({ receivedAt: mail.receivedAt }, now, starter.requestMaxAgeHours)) return ignore("stale")
 
+	// A reply is how `stop:` comes back (the result mail says so), but a non-command reply is a person
+	// answering a notification: starting a session from it would run the quoted history as the prompt.
+	// Placed *after* the echo/channel/replay gates: SECURITY §4a promises that echo, off-channel, replayed
+	// and stale mail is dropped without a reply, and answering our own result mail would start a loop.
+	if (replyMail && !isCommand) {
+		// If the block did name a command, say what was wrong with it rather than "not a command".
+		const named = /^\s*(stop|list)\s*:/im.test(body)
+		const detail =
+			named && grammared.state !== "complete"
+				? grammared.state === "invalid"
+					? grammared.errors.map((e) => `${e.code}: ${e.detail}`).join("; ")
+					: "the command block is incomplete"
+				: "this reply is not a stop:/list: command"
+		const sent = await reply(
+			`[pi-start] refused — ${detail}; nothing was started. Send \`stop: <name>\` or \`list:\`, or a new mail to start a session`,
+		)
+		return { action: "refused", code: named ? "bad-command" : "reply-without-command", detail, replied: sent }
+	}
 
 	if (grammared.state === "invalid") {
 		const detail = grammared.errors.map((e) => `${e.code}: ${e.detail}`).join("; ")
