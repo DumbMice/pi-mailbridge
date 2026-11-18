@@ -54,13 +54,13 @@ interface IntentReceipt {
 	at: number
 }
 
-const INTENT_TTL_MS = 7 * 24 * 60 * 60 * 1000
-
 function readIntentReceipts(env: NodeJS.ProcessEnv): IntentReceipt[] {
 	try {
 		const stored = JSON.parse(readFileSync(intentStorePath(env), "utf8")) as unknown
 		if (!Array.isArray(stored)) return []
 		const now = Date.now()
+		// No time-based expiry: a session can reload at any age, and forgetting its receipt would reapply the
+		// override the user already cleared. One small key per started session is the whole cost.
 		return stored
 			.map((entry): IntentReceipt | undefined => {
 				if (typeof entry === "string") return { key: entry, at: now }
@@ -70,7 +70,7 @@ function readIntentReceipts(env: NodeJS.ProcessEnv): IntentReceipt[] {
 				}
 				return undefined
 			})
-			.filter((entry): entry is IntentReceipt => entry !== undefined && now - entry.at < INTENT_TTL_MS)
+			.filter((entry): entry is IntentReceipt => entry !== undefined)
 	} catch {
 		return []
 	}

@@ -110,7 +110,9 @@ async function flushUnsentResults(deps: ScanDeps, summary: ScanSummary): Promise
 				].join("\n"),
 				inReplyTo: record.messageId,
 			})
-			deps.journal.requests[record.id] = { ...record, resultSent: true }
+			// A delayed delivery after the session ended must also settle the request, or it can never age out.
+			const ended = record.name ? deps.journal.sessions[record.name]?.endedAt !== undefined : false
+			deps.journal.requests[record.id] = { ...record, resultSent: true, ...(ended ? { state: "ended" } : {}) }
 			deps.saveJournal(deps.journal)
 			summary.resultsFlushed += 1
 			deps.log(`flushed the result for ${name}`)
@@ -395,7 +397,11 @@ export function createStarterRunner(deps: RunnerDeps) {
 	// One chain: IDLE, the sweep and a manual `once` all append to it, and each caller waits for the work it
 	// asked for. Returning early while a scan was in flight let `once` release the lifetime lock mid-scan.
 	let chain: Promise<void> = Promise.resolve()
+	let stopping = false
 	const guarded = (): Promise<void> => {
+		// Once shutdown starts, no new work is admitted: otherwise `stop()` drains a snapshot while IDLE
+		// keeps appending, and the lock is released with a scan still running.
+		if (stopping) return Promise.resolve()
 		chain = chain.then(async () => {
 			try {
 				const summary = await scanOnce(deps)
@@ -434,6 +440,7 @@ export function createStarterRunner(deps: RunnerDeps) {
 			schedule()
 		},
 		async stop(): Promise<void> {
+			stopping = true
 			if (sweep !== undefined) timers.clearTimeout(sweep)
 			sweep = undefined
 			// Join the whole chain: releasing the lifetime lock while a spawn or a journal save is still in

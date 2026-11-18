@@ -176,11 +176,13 @@ export function createPromptWriter(env: NodeJS.ProcessEnv): {
 			let removed = 0
 			try {
 				for (const name of readdirSync(dir)) {
-					// `.handled` is the reload guard and lives for a week; `.ready`/`.txt` are consumable.
+					// `.handled` is the reload guard and is never pruned by age: a session can reload at any
+					// age, and deleting the guard would let the bootstrap inject into a running session.
 					const isGuard = name.endsWith(".handled")
 					if (!name.endsWith(".ready") && !isGuard) continue
+					if (isGuard) continue
 					try {
-						if (Date.now() - statSync(join(dir, name)).mtimeMs > (isGuard ? 7 * 24 * 3_600_000 : 3_600_000)) {
+						if (Date.now() - statSync(join(dir, name)).mtimeMs > 3_600_000) {
 							unlinkSync(join(dir, name))
 							removed += 1
 						}
@@ -274,6 +276,21 @@ export async function createImapSource(config: ResolvedConfig, hooks: SourceHook
 }
 
 async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> {
+	// The lock comes first: history read before it could predate the previous owner's final actions, and a
+	// contender that starts scanning from stale history can double-reserve a name.
+	const lifetime = acquireLock(ctx.env, "starter.lock")
+	if (!lifetime.ok) {
+		ctx.err(`another starter is already running (pid ${lifetime.holder})`)
+		return once ? 1 : 0
+	}
+	try {
+		return await runLocked(ctx, deps, once)
+	} finally {
+		lifetime.lock.release()
+	}
+}
+
+async function runLocked(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> {
 	const log = createStarterLog(ctx.config, ctx.env)
 	const journal: JournalFile = ctx.journal()
 	const cursor = createCursorStore("starter-cursor.json")
@@ -344,29 +361,14 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 	wake = () => void runner.once()
 
 	if (once) {
-		// A real `once` mutates the journal, so it takes the same lifetime lock as `run`: two of them at once
-		// could both reserve the same name and spawn two sessions.
-		const onceLock = acquireLock(ctx.env, "starter.lock")
-		if (!onceLock.ok) {
-			ctx.err(`another starter is already running (pid ${onceLock.holder})`)
-			return 1
-		}
-		try {
-			await source.start?.()
-			const summary = await runner.once()
-			await source.stop?.()
-			log(`once: examined ${summary.examined}, started ${summary.started}, refused ${summary.refused}, ignored ${summary.ignored}`)
-			return 0
-		} finally {
-			onceLock.lock.release()
-		}
-	}
-
-	const lock = acquireLock(ctx.env, "starter.lock")
-	if (!lock.ok) {
-		ctx.err(`another starter is already running (pid ${lock.holder})`)
+		// The lifetime lock is already held by runLoop: a real `once` mutates the journal too.
+		await source.start?.()
+		const summary = await runner.once()
+		await source.stop?.()
+		log(`once: examined ${summary.examined}, started ${summary.started}, refused ${summary.refused}, ignored ${summary.ignored}`)
 		return 0
 	}
+
 	await runner.start()
 	ctx.out("starter: watching (SIGTERM or Ctrl-C to stop)")
 	await new Promise<void>((resolve) => {
@@ -375,7 +377,6 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 		process.once("SIGINT", stop)
 	})
 	await runner.stop()
-	lock.lock.release()
 	return 0
 }
 
@@ -471,7 +472,12 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 		}
 		journal.sessions[name] = { ...record, endedAt: Date.now() }
 		const request = journal.requests[record.requestId]
-		if (request) journal.requests[record.requestId] = { ...request, state: "ended", at: Date.now() }
+		if (request) {
+			// An undelivered result stays owed: ending the record removed it from the ready-only flush, so a
+			// CLI stop abandoned the mail the session had promised.
+			const owed = request.state === "ready" && request.resultSent !== true
+			journal.requests[record.requestId] = { ...request, ...(owed ? {} : { state: "ended" }), at: Date.now() }
+		}
 		try {
 			ctx.save(journal)
 		} catch (error) {

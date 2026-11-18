@@ -5,7 +5,7 @@
 
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { existsSync, mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, unlinkSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { spawn } from "node:child_process"
@@ -113,7 +113,8 @@ test("list prints what tmux has, and stop kills by the recorded session id only"
 	})
 	assert.deepEqual(killed, ["$3"], "killed by the recorded id, not by the name")
 	assert.ok(saved?.sessions.fix?.endedAt, "and the journal records the end")
-	assert.equal(saved?.requests.r1?.state, "ended")
+	// The request stays ready because its result was never delivered: the next scan mails it.
+	assert.equal(saved?.requests.r1?.state, "ready")
 
 	// An unknown name kills nothing.
 	const before = killed.length
@@ -293,5 +294,48 @@ test("the journal write is a transaction: a held lock refuses rather than overwr
 	holder.kill()
 	unlinkSync(statePath(env, "starter-journal.lock"))
 	assert.doesNotThrow(() => journalStore(env, config())(journal))
+})
+
+test("CLI stop leaves an undelivered result owed", async () => {
+	// Ending the request here removed it from the ready-only flush, abandoning the mail the session promised.
+	const e = env()
+	const journal: JournalFile = {
+		v: 1,
+		requests: { r1: { id: "r1", messageId: "m@x", uid: 1, receivedAt: 1, state: "ready", at: 1 } },
+		sessions: { fix: { name: "fix", tmuxSessionId: "$3", piSessionId: "pi-x", requestId: "r1", cwd: "/tmp", at: 1 } },
+	}
+	let saved: JournalFile | undefined
+	await runStarterCommand(["stop", "fix"], {
+		config: config(),
+		env: e,
+		readJournal: () => journal,
+		saveJournal: (j) => {
+			saved = j
+		},
+		stopSession: async () => ({ ok: true }),
+		stdout: () => {},
+		stderr: () => {},
+	})
+	assert.equal(saved?.sessions.fix?.endedAt !== undefined, true)
+	assert.equal(saved?.requests.r1?.state, "ready", "owed, not ended")
+})
+
+test("the reload guard is never pruned by age, while readiness receipts are", () => {
+	// Deleting the guard after a week let the bootstrap inject a missing-prompt diagnostic into a session
+	// that could still reload.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-guard-")) }
+	const prompts = createPromptWriter(env)
+	const { readyFile } = prompts.write("req-1", "prompt")
+	writeFileSync(readyFile, JSON.stringify({ ok: true }), { mode: 0o600 })
+	const guard = `${readyFile}.handled`
+	writeFileSync(guard, "1", { mode: 0o600 })
+	// Age both well past the readiness window.
+	const old = new Date(Date.now() - 30 * 24 * 3_600_000)
+	utimesSync(readyFile, old, old)
+	utimesSync(guard, old, old)
+	const pruned = prompts.pruneReceipts()
+	assert.equal(pruned, 1, "the stale readiness receipt is removed")
+	assert.equal(existsSync(readyFile), false)
+	assert.equal(existsSync(guard), true, "the guard survives, so a reload injects nothing")
 })
 
