@@ -81,6 +81,8 @@ export interface HeaderLike {
 	inReplyTo?: string
 	/** `References`, the ancestor chain. */
 	references?: string[]
+	/** `To:` addresses, for the starter's configured-address channel. */
+	to?: string[]
 	/** `Auto-Submitted`, `Precedence`, `X-Auto-Response-Suppress`, `List-Id`. */
 	autoSubmitted?: string
 	precedence?: string

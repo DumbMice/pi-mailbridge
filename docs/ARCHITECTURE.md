@@ -378,6 +378,7 @@ src/
     bootstrap.ts        shipped extension: the literal first prompt + readiness marker
     spawn.ts            tmux argv (no prompt), readiness wait, verified stop
     handle.ts           one message → the decision pipeline (authz, channel, parse, validate, act)
+    run.ts              the watch loop: own cursor, sweep + IDLE, one scan at a time
   daemon/
     api.ts              the wire contract: API_VERSION, capabilities, endpoint list
     imapflow.ts         imapflow adapter

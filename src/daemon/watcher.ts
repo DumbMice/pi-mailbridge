@@ -47,6 +47,8 @@ export const WANTED_HEADERS = [
 	// echo even if the id was never recorded (a send that raced the scan).
 	"message-id",
 	"x-pi-mailbridge",
+	// The session starter may be configured on a dedicated address; that channel matches on To.
+	"to",
 	// Reply-chain fallback: threading headers, so a reply reaches the session even
 	// when the subject token was rewritten by a client or a human.
 	"in-reply-to",
@@ -120,9 +122,14 @@ export function extractHeaders(raw: Buffer | string): ExtractedHeaders {
 /** Map extracted headers onto the shape the authorization layer consumes. */
 export function toHeaderLike(extracted: ExtractedHeaders): HeaderLike {
 	const one = (name: string): string | undefined => extracted.headerValues.get(name)?.[0]
+	const everyone = (extracted.headerValues.get("to") ?? [])
+		.flatMap((value) => value.split(","))
+		.map((value) => value.trim())
+		.filter(Boolean)
 	return {
 		from: extracted.from,
 		subject: extracted.subject,
+		...(everyone.length ? { to: everyone } : {}),
 		authResults: extracted.headerValues.get("authentication-results"),
 		// message-id is what lets the scanner recognise our own notification coming back.
 		...(one("message-id") ? { messageId: one("message-id") } : {}),
