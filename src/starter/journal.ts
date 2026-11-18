@@ -281,7 +281,13 @@ export function writeJournal(
 	}
 	const sessions: Record<string, SessionRecord> = {}
 	for (const [name, record] of Object.entries(journal.sessions)) {
-		if (record.endedAt !== undefined && record.endedAt < cutoff) continue
+		if (record.endedAt !== undefined && record.endedAt < cutoff) {
+			// Keep it while a result is owed: settlement after a delayed delivery needs to know the session
+			// ended, and without it the request can never reach a terminal state.
+			const request = journal.requests[record.requestId]
+			const owed = request !== undefined && request.state === "ready" && request.resultSent !== true
+			if (!owed) continue
+		}
 		sessions[name] = record
 	}
 	// Everything still in the map survived the horizon, so all of it is replayable: count pressure refuses
@@ -334,7 +340,12 @@ export function mergeJournals(disk: JournalFile, mine: JournalFile): JournalFile
 		return bAt >= aAt ? b : a
 	}
 	const requests: Record<string, RequestRecord> = { ...disk.requests }
-	for (const [id, record] of Object.entries(mine.requests)) requests[id] = newer(requests[id], record)!
+	for (const [id, record] of Object.entries(mine.requests)) {
+		const winner = newer(requests[id], record)!
+		// Delivery evidence is monotonic: once a result went out, a newer in-memory view that predates the
+		// send must not claim it is still owed, or the next scan mails it again.
+		requests[id] = requests[id]?.resultSent === true || record.resultSent === true ? { ...winner, resultSent: true } : winner
+	}
 	const sessions: Record<string, SessionRecord> = { ...disk.sessions }
 	for (const [name, record] of Object.entries(mine.sessions)) sessions[name] = newer(sessions[name], record)!
 	return { ...stamp(), requests, sessions }

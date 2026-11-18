@@ -270,3 +270,36 @@ test("a marker that cannot be written leaves the corrupt journal in place", () =
 	chmodSync(dirname(file), 0o700)
 })
 
+test("delivery evidence survives a merge with a newer in-memory record", () => {
+	// During SMTP a CLI stop can write a newer ready/unsent record; the flush's resultSent:true carried an
+	// older timestamp, lost the merge, and the result was mailed again.
+	const disk: JournalFile = {
+		v: 1,
+		requests: { r: { id: "r", messageId: "<r@x>", uid: 1, receivedAt: 1, state: "ready", at: 99, resultSent: true } },
+		sessions: {},
+	}
+	const mine: JournalFile = {
+		v: 1,
+		requests: { r: { id: "r", messageId: "<r@x>", uid: 1, receivedAt: 1, state: "ready", at: 100 } },
+		sessions: {},
+	}
+	assert.equal(mergeJournals(disk, mine).requests.r?.resultSent, true)
+})
+
+test("an ended session is retained while its result is still owed", () => {
+	// Pruning the session removed the evidence settlement needs, so the request stayed ready for ever.
+	const env = freshEnv()
+	const now = Date.now()
+	const old = now - 365 * 24 * 60 * 60 * 1000
+	const journal: JournalFile = {
+		v: 1,
+		requests: { r: { id: "r", messageId: "<r@x>", uid: 1, receivedAt: old, state: "ready", at: old } },
+		sessions: { s: { name: "s", tmuxSessionId: "$1", piSessionId: "pi", requestId: "r", cwd: "/tmp", at: old, endedAt: old } },
+	}
+	const written = writeJournal(env, journal, JOURNAL_DEFAULTS, now)
+	assert.ok(written.sessions.s, "the session is kept while delivery is owed")
+	journal.requests.r = { ...journal.requests.r!, resultSent: true, state: "ended" }
+	const after = writeJournal(env, journal, JOURNAL_DEFAULTS, now)
+	assert.equal(after.sessions.s, undefined, "and it is prunable once the result went out")
+})
+

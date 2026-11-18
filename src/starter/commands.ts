@@ -363,8 +363,14 @@ async function runLocked(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number
 	if (once) {
 		// The lifetime lock is already held by runLoop: a real `once` mutates the journal too.
 		await source.start?.()
-		const summary = await runner.once()
-		await source.stop?.()
+		let summary
+		try {
+			summary = await runner.once()
+		} finally {
+			// Drain, not just disconnect: an IDLE-triggered scan queued behind this one could still be running
+			// when the lifetime lock is released.
+			await runner.stop()
+		}
 		log(`once: examined ${summary.examined}, started ${summary.started}, refused ${summary.refused}, ignored ${summary.ignored}`)
 		return 0
 	}

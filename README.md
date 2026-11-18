@@ -111,7 +111,9 @@ are bound by `starter.confirmationsPerHour` and by SMTP itself. The two are not 
 mail that fails to send is recorded as still owed and is sent on a later scan, while a *refusal* the
 budget swallowed is not retried — send the mail again if you need it answered. A reply to a result that is not `stop:`/`list:` is
 answered with a refusal, never treated as a request: start sessions with a new mail. `list:` lists live
-sessions, and says "tmux did not answer" rather than "no sessions" when the socket is unavailable.
+sessions, and says "tmux did not answer" rather than "no sessions" when the socket is unavailable. Stopping
+a session ends the session, not the delivery of its result: if the "started" mail never went out, it is
+still sent on a later scan.
 
 ```jsonc
 "starter": {
