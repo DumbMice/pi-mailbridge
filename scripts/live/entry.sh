@@ -87,7 +87,12 @@ dump() {
 	done
 	{ tmux -L pimail list-sessions; for s in $(tmux -L pimail list-sessions -F '#{session_id}' 2>/dev/null); do echo "--- pane $s"; tmux -L pimail capture-pane -p -t "$s" | tail -15; done; } >/runtime/tmux.txt 2>&1 || true
 	ps -eo pid,args | grep -E "[p]i |[t]mux" >/runtime/ps.txt 2>&1 || true
-	chmod -R a+rX /runtime 2>/dev/null || true
+	# Publish only the artefacts: the config beside them holds the account's auth code and stays 700/600.
+	mkdir -p /runtime/out 2>/dev/null || true
+	for f in starter-journal.json starter.log starter.out tmux.txt ps.txt; do
+		[ -f "/runtime/$f" ] && { cp "/runtime/$f" "/runtime/out/$f" 2>/dev/null || true; chmod 644 "/runtime/out/$f" 2>/dev/null || true; }
+	done
+	chmod 755 /runtime/out /runtime 2>/dev/null || true
 	exit $code
 }
 trap dump EXIT

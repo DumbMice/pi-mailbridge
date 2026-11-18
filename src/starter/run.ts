@@ -347,6 +347,9 @@ export async function scanOnce(deps: ScanDeps): Promise<ScanSummary> {
 		const mail = toStarterMail(message, uidValidity)
 		const seen = alreadySeen(deps.journal, { messageId: mail.messageId, uid, uidValidity })
 		if (seen) {
+			// Replays are ignored too, and were the one silent path left without a reason on the wire. (A
+			// crash can repeat this line; the cursor is what makes the *action* once-only.)
+			deps.log(`ignored uid ${uid}: already-handled:${seen.state}`)
 			await reconcileInterrupted(seen, deps, summary)
 			deps.cursor.advance(deps.env, uid)
 			summary.ignored += 1
@@ -365,9 +368,10 @@ export async function scanOnce(deps: ScanDeps): Promise<ScanSummary> {
 		else if (outcome.action === "refused") summary.refused += 1
 		else {
 			summary.ignored += 1
-			// A silent gate that cannot be observed is a gate nobody can debug: name the reason on the wire
-			// (never in a reply - these are exactly the mails that must not be answered).
-			deps.log(`ignored uid ${uid}: ${"reason" in outcome ? outcome.reason : outcome.action}`)
+			// Only a genuinely ignored mail gets the reason line: a `stop:`/`list:` also lands in this counter
+			// (it started nothing), and logging "ignored ... stopped" would be a lie. Never a reply - these
+			// are exactly the mails that must not be answered.
+			if (outcome.action === "ignored") deps.log(`ignored uid ${uid}: ${outcome.reason}`)
 		}
 		// Recorded (or deliberately not) before the cursor moves: a crash here re-reads the mail and the
 		// journal recognises it.

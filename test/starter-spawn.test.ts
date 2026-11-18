@@ -81,7 +81,7 @@ test("the human name and the pi session id are separate, so a reused name cannot
 
 test("kill targets the immutable session id, never the reusable name", () => {
 	assert.deepEqual(buildKillArgv("$4"), ["tmux", "-L", "pimail", "kill-session", "-t", "$4"])
-	assert.deepEqual(buildListArgv(), ["tmux", "-L", "pimail", "list-sessions", "-F", "#{session_id}\t#{session_name}"])
+	assert.deepEqual(buildListArgv(), ["tmux", "-L", "pimail", "list-sessions", "-F", "#{session_id} #{session_name}"])
 })
 
 test("a start is successful only when the bootstrap says ready and the session exists", async () => {
@@ -177,11 +177,12 @@ test("stop kills by id and reports tmux's refusal instead of pretending", async 
 test("listing tolerates a dead tmux server", async () => {
 	assert.deepEqual(await listSessions({ exec: async () => ({ code: 1, stdout: "", stderr: "no server" }) }), [])
 	const listed = await listSessions({
-		exec: async () => ({ code: 0, stdout: "$1\tfix-auth\n$2\tsame-name\n", stderr: "" }),
+		// A literal space separator, and a name that itself contains one.
+		exec: async () => ({ code: 0, stdout: "$1 fix-auth\n$2 probe one\n", stderr: "" }),
 	})
 	assert.deepEqual(listed, [
 		{ id: "$1", name: "fix-auth" },
-		{ id: "$2", name: "same-name" },
+		{ id: "$2", name: "probe one" },
 	])
 })
 

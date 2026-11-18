@@ -179,7 +179,10 @@ export function buildNameArgv(tmuxSessionId: string, socket = DEFAULT_SOCKET): s
 }
 
 export function buildListArgv(socket = DEFAULT_SOCKET): string[] {
-	return ["tmux", "-L", socket, "list-sessions", "-F", "#{session_id}\t#{session_name}"]
+	// A literal space, not `\t`: tmux does not expand escapes in `-F`, so a `\t` came back as the two
+	// characters `\` `t` and the parser produced ids like `$0\tname` with an empty name - which made every
+	// sweep believe no recorded session was running.
+	return ["tmux", "-L", socket, "list-sessions", "-F", "#{session_id} #{session_name}"]
 }
 
 /** A pane's text, capped and stripped of control characters, for a refusal mail. */
@@ -384,8 +387,9 @@ export async function listSessions(
 		.map((line) => line.trim())
 		.filter(Boolean)
 		.map((line) => {
-			const [id = "", name = ""] = line.split("\t")
-			return { id, name }
+			// Split at the first space: a session name may itself contain spaces ("probe one").
+			const cut = line.indexOf(" ")
+			return cut === -1 ? { id: line, name: "" } : { id: line.slice(0, cut), name: line.slice(cut + 1) }
 		})
 		.filter((entry) => entry.id.startsWith("$"))
 }
