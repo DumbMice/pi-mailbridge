@@ -205,9 +205,13 @@ async function prime(config: ResolvedConfig): Promise<number> {
  * One daemon per state directory, whatever port it thinks it owns. The algorithm lives in
  * `store/lock.ts`, shared with the session starter so the two cannot drift.
  */
-function acquireDaemonLock(env: NodeJS.ProcessEnv): { ok: true; release: () => void } | { ok: false; pid: number } {
+function acquireDaemonLock(
+	env: NodeJS.ProcessEnv,
+): { ok: true; release: () => void } | { ok: false; pid: number; stale?: boolean } {
 	const result = acquireLock(env, "daemon.lock")
-	return result.ok ? { ok: true, release: result.lock.release } : { ok: false, pid: result.holder }
+	return result.ok
+		? { ok: true, release: result.lock.release }
+		: { ok: false, pid: result.holder, ...(result.stale ? { stale: true } : {}) }
 }
 
 function argValue(argv: string[], flag: string): string | undefined {
@@ -654,7 +658,13 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 
 	const lock = acquireDaemonLock(process.env)
 	if (!lock.ok) {
-		log(`another daemon is already running (pid ${lock.pid}); exiting`)
+		// Stealing a stale lock is gone: two daemons must never both believe they hold it, so a crashed
+		// predecessor requires one explicit `starter unlock`.
+		log(
+			lock.stale
+				? `the daemon lock is stale (holder ${lock.pid || "unknown"} is gone); run \`pi-mailbridge starter unlock\` to clear it`
+				: `another daemon is already running (pid ${lock.pid}); exiting`,
+		)
 		process.exit(0)
 	}
 	const { port, host } = await service.listen()

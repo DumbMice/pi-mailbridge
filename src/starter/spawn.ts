@@ -222,18 +222,32 @@ export async function spawnSession(plan: SpawnPlan, deps: SpawnDeps = {}): Promi
 	 * A name is reusable: if the process that created it exited and a new starter (or a person) reused the
 	 * name, killing by name alone would stop a stranger. The request id in the environment is the proof.
 	 */
-	const kill = async (): Promise<void> => {
+	const kill = async (): Promise<"killed" | "not-ours" | "unknown"> => {
 		const id = await exec(buildSessionIdArgv(plan.tmuxId, socket))
-		if (id.code !== 0) return
-		await exec(buildKillIfOwnedArgv(id.stdout.trim(), plan.requestId, socket))
+		if (id.code !== 0) return "unknown"
+		const target = id.stdout.trim()
+		if (!target.startsWith("$")) return "unknown"
+		const removed = await exec(buildKillIfOwnedArgv(target, plan.requestId, socket))
+		if (removed.code !== 0) return "unknown"
+		// `if-shell` succeeds whether or not its condition matched, so ask the server afterwards. Still there
+		// means the marker did not match (or could not be read): our cleanup killed nothing, and whether that
+		// session is ours is unresolved.
+		const still = await exec(["tmux", "-L", socket, "has-session", "-t", target])
+		return still.code === 0 ? "not-ours" : "killed"
 	}
 
 	for (;;) {
 		const marker = readMarker(plan.readyFile, readFile)
 		if (marker) {
 			if (marker.ok !== true) {
-				await kill()
-				return { ok: false, reason: "unready", detail: marker.error ?? "the bootstrap could not deliver the prompt" }
+				const cleaned = await kill()
+				return {
+					ok: false,
+					reason: "unready",
+					detail: marker.error ?? "the bootstrap could not deliver the prompt",
+					// A cleanup that could not establish termination may have left our child running.
+					...(cleaned === "unknown" || cleaned === "not-ours" ? { uncertain: true } : {}),
+				}
 			}
 			// The marker is a claim by our own code; the session must still exist.
 			const id = await exec(buildSessionIdArgv(plan.tmuxId, socket))
@@ -255,9 +269,14 @@ export async function spawnSession(plan: SpawnPlan, deps: SpawnDeps = {}): Promi
 		}
 		if (now() >= deadline) {
 			const pane = await exec(["tmux", "-L", socket, "capture-pane", "-p", "-t", plan.tmuxId])
-			await kill()
+			const cleaned = await kill()
 			const detail = diagnosticsFrom(pane.stdout)
-			return { ok: false, reason: "unready", detail: detail || "the session did not report ready in time" }
+			return {
+				ok: false,
+				reason: "unready",
+				detail: detail || "the session did not report ready in time",
+				...(cleaned === "unknown" || cleaned === "not-ours" ? { uncertain: true } : {}),
+			}
 		}
 		await sleep(pollMs)
 	}
@@ -289,19 +308,29 @@ export async function stopSession(
 		}
 	}
 	// The name can be reused too. The request id in the session's environment is the marker that a restart
-	// cannot counterfeit, so it is the final check before anything is killed.
+	// cannot counterfeit, so the final step is a *conditional* kill: the check and the kill run inside one
+	// tmux server, and a restart takes the command with it instead of retargeting it at a stranger.
 	if (deps.expectedRequestId !== undefined) {
-		const marker = await readOwnershipMarker(tmuxSessionId, { exec, socket })
-		if (marker === undefined) {
-			return { ok: false, reason: "not-ours", detail: `${tmuxSessionId} carries no ownership marker` }
-		}
-		if (marker !== deps.expectedRequestId) {
+		const marked = await readOwnershipMarker(tmuxSessionId, { exec, socket })
+		if (marked === undefined || marked !== deps.expectedRequestId) {
 			return {
 				ok: false,
 				reason: "not-ours",
-				detail: `${tmuxSessionId} belongs to request ${marker}, not ${deps.expectedRequestId}`,
+				detail:
+					marked === undefined
+						? `${tmuxSessionId} carries no ownership marker`
+						: `${tmuxSessionId} belongs to request ${marked}, not ${deps.expectedRequestId}`,
 			}
 		}
+		const conditional = await exec(buildKillIfOwnedArgv(tmuxSessionId, deps.expectedRequestId, socket))
+		if (conditional.code !== 0) {
+			return { ok: false, reason: "kill-failed", detail: diagnosticsFrom(conditional.stderr || conditional.stdout) || "tmux refused the conditional kill" }
+		}
+		const still = await exec(["tmux", "-L", socket, "has-session", "-t", tmuxSessionId])
+		if (still.code === 0) {
+			return { ok: false, reason: "not-ours", detail: `${tmuxSessionId} did not match its ownership marker; nothing was killed` }
+		}
+		return { ok: true }
 	}
 	const killed = await exec(buildKillArgv(tmuxSessionId, socket))
 	if (killed.code !== 0) {

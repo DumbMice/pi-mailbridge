@@ -247,7 +247,9 @@ test("stop refuses a session whose ownership marker names another request", asyn
 				? { code: 0, stdout: "fix-auth", stderr: "" }
 				: argv.includes("show-environment")
 					? { code: 0, stdout: "PI_MAILBRIDGE_REQUEST=req-mine", stderr: "" }
-					: { code: 0, stdout: "", stderr: "" },
+					: argv.includes("has-session")
+						? { code: 1, stdout: "", stderr: "gone" }
+						: { code: 0, stdout: "", stderr: "" },
 	})
 	assert.equal(mine.ok, true)
 })
@@ -274,5 +276,23 @@ test("cleanup never kills a name that now belongs to another request", async () 
 	assert.ok(conditional, "a conditional kill is issued")
 	assert.ok(conditional!.some((arg) => arg.includes("PI_MAILBRIDGE_REQUEST=req-1")), "conditioned on our marker")
 	assert.equal(calls.some((argv) => argv.includes("kill-session")), false, "never an unconditional kill-session")
+})
+
+test("an unresolved cleanup after a failed readiness is uncertain, not definitive", async () => {
+	// Refusing conclusively would delete the evidence for a child that cleanup could not prove it stopped.
+	const files = new Map<string, string>([["/tmp/prompts/req-1.ready", JSON.stringify({ ok: false, error: "no model" })]])
+	const result = await spawnSession(plan(), {
+		exec: async (argv) => {
+			if (argv.includes("display-message")) return { code: 0, stdout: "$7\n", stderr: "" }
+			if (argv.includes("show-environment")) return { code: 0, stdout: "PI_MAILBRIDGE_REQUEST=someone-else", stderr: "" }
+			// `if-shell` "succeeds"; `has-session` shows the target survived, so termination is unresolved.
+			if (argv.includes("has-session")) return { code: 0, stdout: "", stderr: "" }
+			return { code: 0, stdout: "", stderr: "" }
+		},
+		readFile: (path) => files.get(path),
+		sleep: async () => {},
+	})
+	assert.equal(result.ok, false)
+	if (!result.ok) assert.equal(result.uncertain, true, "cleanup could not prove the session stopped")
 })
 

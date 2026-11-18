@@ -1,5 +1,5 @@
 import { test } from "node:test"
-import { mkdtempSync } from "node:fs"
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
@@ -3615,6 +3615,35 @@ test("a failed env apply does not outlive a later global off", async () => {
 		daemon.modeScopes.slice(globalAt + 1).filter((entry) => entry.scope === "session"),
 		[],
 		"the stale intent must not reopen what the global off closed",
+	)
+})
+
+test("no mail is enabled when the suppression receipt cannot be recorded", async () => {
+	// Durable suppression must precede the enabling request: otherwise a reload re-applies `on` after the
+	// user's later `off --all`. Make the receipt directory a file so every write fails.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "off" })
+	const pi = fakePi(ctx(notes))
+	const stateHome = mkdtempSync(join(tmpdir(), "pmb-intent-broken-"))
+	mkdirSync(join(stateHome, "pi-mailbridge"), { recursive: true })
+	writeFileSync(join(stateHome, "pi-mailbridge", "session-intents"), "not a directory")
+	const env = { XDG_STATE_HOME: stateHome, PI_MAILBRIDGE_SESSION_MODE: "on", PI_MAILBRIDGE_START_REQUEST: "req-broken" }
+	mailbridge(pi, {
+		env,
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
+	assert.deepEqual(
+		daemon.modeScopes.filter((entry) => entry.scope === "session"),
+		[],
+		"nothing is enabled without a durable receipt",
 	)
 })
 

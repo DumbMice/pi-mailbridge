@@ -473,25 +473,47 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 	if (cmd === "unlock") {
 		// The only way a stale lock is cleared: it is never stolen automatically, because moving a lock that
 		// another process may have just replaced is how two owners end up convinced they hold it.
-		const file = statePath(ctx.env, "starter.lock")
-		let holder = 0
-		try {
-			holder = Number(readFileSync(file, "utf8").trim().split(" ")[0])
-		} catch {
-			ctx.out("no starter lock to clear")
-			return 0
+		//
+		// Every lock this package can strand is covered — the starter's own, the journal transaction's, and
+		// the daemon's — and each is cleared only after confirming its holder is gone. A lock is also left
+		// alone when it is younger than a minute: a just-started process may not be visible to `kill(0)` yet.
+		const locks = ["starter.lock", "starter-journal.lock", "daemon.lock"]
+		const cleared: string[] = []
+		const refused: string[] = []
+		for (const name of locks) {
+			const file = statePath(ctx.env, name)
+			let content: string
+			try {
+				content = readFileSync(file, "utf8").trim()
+			} catch {
+				continue
+			}
+			const holder = Number(content.split(" ")[0])
+			const fresh = (() => {
+				try {
+					return Date.now() - statSync(file).mtimeMs < 60_000
+				} catch {
+					return false
+				}
+			})()
+			if (holder > 0 && isAlive(holder)) {
+				refused.push(`${name} (pid ${holder} is alive)`)
+				continue
+			}
+			if (fresh) {
+				refused.push(`${name} (recent; wait a minute)`)
+				continue
+			}
+			try {
+				unlinkSync(file)
+				cleared.push(name)
+			} catch {
+				/* gone between the read and the unlink: nothing to clear */
+			}
 		}
-		if (holder > 0 && isAlive(holder)) {
-			ctx.err(`the lock is held by a live process (pid ${holder}); stop it first`)
-			return 1
-		}
-		try {
-			unlinkSync(file)
-		} catch {
-			/* already gone */
-		}
-		ctx.out(`cleared the stale starter lock (holder ${holder || "unknown"} was gone)`)
-		return 0
+		for (const name of cleared) ctx.out(`cleared ${name}`)
+		for (const name of refused) ctx.err(`kept ${name}`)
+		return refused.length > 0 ? 1 : 0
 	}
 	if (cmd === "repair") {
 		// The corrupt-journal refusal points here, so this has to exist: set the bad bytes aside, clear the

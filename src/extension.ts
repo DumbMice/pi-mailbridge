@@ -742,15 +742,18 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		// runtime must not resurrect the override the user just cleared.
 		const requestedMode = env.PI_MAILBRIDGE_SESSION_MODE?.trim().toLowerCase()
 		if (!intentConsumed(env, intentKey) && sessionMode === undefined && (requestedMode === "on" || requestedMode === "off")) {
-			const stamped = await active.mode(instanceId)
-			const globalAt = stamped.ok ? stamped.data.globalUpdatedAt : undefined
-			const applied = await active
-				.setMode(requestedMode, { scope: "session", instanceId })
-				.catch(() => undefined)
-			// Durable suppression first: if the receipt cannot be written, a reload would re-apply the
-			// inherited `on` after the user's later `off --all`, so the intent is not honoured at all.
-			if (applied?.ok && consumeIntent(env, intentKey)) {
-				sessionMode = { mode: requestedMode, globalAt }
+			// Durable suppression comes first: an in-memory receipt does not survive `/reload`, and a reload
+			// that re-applies `on` after a global `off --all` is worse than not honouring the intent at all.
+			if (consumeIntent(env, intentKey)) {
+				const stamped = await active.mode(instanceId)
+				const globalAt = stamped.ok ? stamped.data.globalUpdatedAt : undefined
+				const applied = await active
+					.setMode(requestedMode, { scope: "session", instanceId })
+					.catch(() => undefined)
+				if (applied?.ok) sessionMode = { mode: requestedMode, globalAt }
+			} else {
+				// Nothing was enabled, so nothing needs undoing; say why rather than silently ignoring.
+				console.error("pi-mailbridge: could not record the mail-mode intent; mail was not enabled in this session")
 			}
 		}
 
