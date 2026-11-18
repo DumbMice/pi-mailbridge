@@ -114,6 +114,14 @@ async function flushUnsentResults(deps: ScanDeps, summary: ScanSummary): Promise
 			const ended = record.name ? deps.journal.sessions[record.name]?.endedAt !== undefined : false
 			deps.journal.requests[record.id] = { ...record, resultSent: true, ...(ended ? { state: "ended" } : {}) }
 			deps.saveJournal(deps.journal)
+			// The save merges: a CLI stop that ran during the send may have ended the session *and* written a
+			// newer ready record. Settle against what the merge produced, or the request stays nonterminal.
+			const session = record.name ? deps.journal.sessions[record.name] : undefined
+			const merged = deps.journal.requests[record.id]
+			if (session?.endedAt !== undefined && merged && merged.resultSent === true && merged.state !== "ended") {
+				deps.journal.requests[record.id] = { ...merged, state: "ended" }
+				deps.saveJournal(deps.journal)
+			}
 			summary.resultsFlushed += 1
 			deps.log(`flushed the result for ${name}`)
 		} catch (error) {

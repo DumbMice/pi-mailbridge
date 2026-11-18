@@ -13,7 +13,7 @@ import { join } from "node:path"
 import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
 import type { RawMessage } from "../src/daemon/process.ts"
 import { createStarterRunner, scanOnce, type ScanDeps } from "../src/starter/run.ts"
-import type { JournalFile } from "../src/starter/journal.ts"
+import { type JournalFile, mergeJournals } from "../src/starter/journal.ts"
 import { createCursorStore } from "../src/store/uid-cursor.ts"
 import type { HandleDeps } from "../src/starter/handle.ts"
 
@@ -517,3 +517,37 @@ test("a result is still mailed when its session died before the mail went out", 
 	assert.equal(r.journal.requests.req?.resultSent, true, JSON.stringify(r.journal.requests))
 })
 
+test("a CLI stop during the send still settles the delivered result", async () => {
+	// Settlement used the pre-save snapshot; the save merges in the CLI's ended session and its newer ready
+	// record, so the request can stay nonterminal for ever and never age out.
+	const r = rig({
+		journal: {
+			v: 1,
+			requests: { req: { id: "req", messageId: "<m@x>", uid: 1, receivedAt: Date.now(), state: "ready", at: 1, name: "gone", cwd: "/tmp", tmuxSessionId: "$1" } },
+			sessions: { gone: { name: "gone", tmuxSessionId: "$1", piSessionId: "pi", requestId: "req", cwd: "/tmp", at: 1 } },
+		},
+	})
+	r.messages.delete(1)
+	r.liveSessions = async () => [{ id: "$1", name: "gone" }]
+	// What the CLI wrote to disk while SMTP was in flight: ended session, newer ready request.
+	const disk = {
+		v: 1 as const,
+		requests: { req: { ...r.journal.requests.req!, state: "ready" as const, at: 99 } },
+		sessions: { gone: { ...r.journal.sessions.gone!, endedAt: 99 } },
+	}
+	let sends = 0
+	r.handle.send = async () => {
+		sends += 1
+	}
+	r.saveJournal = (journal) => {
+		const merged = mergeJournals(disk, journal)
+		for (const key of Object.keys(journal.requests)) delete journal.requests[key]
+		Object.assign(journal.requests, merged.requests)
+		for (const key of Object.keys(journal.sessions)) delete journal.sessions[key]
+		Object.assign(journal.sessions, merged.sessions)
+	}
+	await scanOnce(r)
+	assert.equal(sends, 1)
+	assert.equal(r.journal.requests.req?.resultSent, true)
+	assert.equal(r.journal.requests.req?.state, "ended", "settled against the merged state")
+})

@@ -298,7 +298,13 @@ export function writeJournal(
 		// the journal when an operator decides that is right.
 		throw new JournalFullError(`starter journal is at its limit (${options.maxRequests}); every entry is still replayable`)
 	}
-	cap(sessions, options.maxSessions, (s) => s.endedAt !== undefined)
+	// Only sessions whose results are settled may be evicted: the others are the evidence settlement needs
+	// when a delayed delivery finally goes out.
+	cap(sessions, options.maxSessions, (s) => {
+		if (s.endedAt === undefined) return false
+		const request = requests[s.requestId]
+		return request === undefined || request.state !== "ready" || request.resultSent === true
+	})
 
 	const body: JournalFile = { ...stamp(), requests, sessions }
 	const file = path(env)
