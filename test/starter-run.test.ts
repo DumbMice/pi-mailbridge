@@ -310,3 +310,20 @@ test("a mailing-list post and an auto-reply are robots to the starter too", asyn
 	}
 })
 
+test("an unavailable live list ends no session and reconciles nothing", async () => {
+	// `undefined` from tmux means "I could not answer". Treating it as empty ended every owned session and
+	// marked a spawning record uncertain, which is terminal.
+	const r = rig({
+		journal: {
+			v: 1,
+			requests: { req: { id: "req", messageId: "<m@x>", uid: 1, receivedAt: Date.now(), state: "spawning", at: Date.now(), launchedAt: Date.now(), name: "x", tmuxName: "x", cwd: "/tmp" } },
+			sessions: { x: { name: "x", tmuxSessionId: "$1", piSessionId: "pi", requestId: "req", cwd: "/tmp", at: 1 } },
+		},
+	})
+	r.liveSessions = async () => undefined
+	const summary = await scanOnce(r)
+	assert.equal(summary.swept, 0, "nothing was ended")
+	assert.equal(r.journal.sessions.x?.endedAt, undefined)
+	assert.equal(r.journal.requests.req?.state, "spawning", "and the record was left for a scan that can see tmux")
+})
+

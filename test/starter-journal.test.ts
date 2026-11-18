@@ -248,3 +248,10 @@ test("merging keeps both writers' entries and lets the newer one win", () => {
 	assert.equal(merged.sessions.gone?.endedAt, 50)
 })
 
+test("a present-but-wrong journal section is corruption, not an empty one", () => {
+	const env = freshEnv()
+	mkdirSync(dirname(filePath(env)), { recursive: true })
+	writeFileSync(filePath(env), JSON.stringify({ v: 1, requests: [], sessions: {} }), { mode: 0o600 })
+	assert.throws(() => readJournal(env), /`requests` is not an object/)
+})
+

@@ -346,7 +346,9 @@ test("a non-command reply never starts a session, even with a default cwd", asyn
 	// The result mail says "reply with stop: …", so replies are the command channel. A person answering a
 	// notification sends prose plus quoted history; treating that as a start request ran the quote as the
 	// prompt. This is the P0 from round 2, and `defaultCwd` made it reachable in a directory nobody chose.
-	const r = rig({ config: config({ defaultCwd: "/tmp" }) })
+	const r = rig()
+	// The setting that made the round-2 P0 reachable: a start with no cwd of its own would land here.
+	r.deps.config.starter.defaultCwd = r.project
 	const reply = mail({
 		messageId: "<reply@x>",
 		uid: 4,
@@ -354,10 +356,26 @@ test("a non-command reply never starts a session, even with a default cwd", asyn
 		body: 'thanks, looks good\n\nOn Mon, pi wrote:\n> cwd: /tmp/starter-e2e\n> stop: reply with "stop: fix-the-auth-test"',
 	})
 	const outcome = await handleMail(reply, r.deps)
-	assert.equal(outcome.action, "ignored")
-	if (outcome.action === "ignored") assert.equal(outcome.reason, "reply-without-command")
+	assert.equal(outcome.action, "refused")
+	if (outcome.action === "refused") assert.equal(outcome.code, "reply-without-command")
 	assert.equal(r.spawned.length, 0)
-	assert.equal(r.replies.length, 0)
+	// Authenticated, so it gets an answer: silence here would look like the mail was never read.
+	assert.equal(r.replies.length, 1)
+	assert.match(r.replies[0]!.text, /was not a command/)
+
+	// A reply that lost its Re: marker is still a reply: In-Reply-To is the authoritative sign.
+	const unmarked = await handleMail(
+		mail({
+			messageId: "<rm@x>",
+			uid: 7,
+			subject: "[pi-start] fix the auth test",
+			headers: { authResults: ["mx.example.com; dmarc=pass"], inReplyTo: "<started@x>" },
+			body: "thanks, looks good\n\nOn Mon, pi wrote:\n> cwd: /tmp/starter-e2e",
+		}),
+		r.deps,
+	)
+	assert.equal(unmarked.action, "refused")
+	assert.equal(r.spawned.length, 0)
 
 	// A command above the quote still works: that is the documented workflow.
 	const stop = mail({ messageId: "<stop@x>", uid: 5, subject: "Re: [pi-start] fix-the-auth-test", body: "stop: all\n\nOn Mon, pi wrote:\n> cwd: /tmp" })

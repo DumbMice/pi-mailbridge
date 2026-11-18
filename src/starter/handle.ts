@@ -133,13 +133,27 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 	if (!starter.enabled) return { action: "ignored", reason: "disabled" }
 
 	// 1. Resource caps. Commands (`stop`, `list`) are exempt: a stop must work at the quota.
-	const body = isReplySubject(mail.subject) ? stripQuotedText(mail.body) : mail.body
+	// Reply headers are the authoritative sign: a fresh request has none *by design* (that is why the
+	// request context relaxes reply evidence), so `In-Reply-To`/`References` means this answers a mail even
+	// when the client's marker is one we do not know, or was edited off.
+	const replyMail =
+		isReplySubject(mail.subject) ||
+		Boolean(mail.headers.inReplyTo?.trim()) ||
+		(mail.headers.references?.length ?? 0) > 0
+	const body = replyMail ? stripQuotedText(mail.body) : mail.body
 	const grammared = parseRequest(body, { promptMaxChars: starter.promptMaxChars })
 	const isCommand = grammared.state === "complete" && (grammared.request.kind === "stop" || grammared.request.kind === "list")
-	// A reply is how `stop:` comes back (the result mail says so), but a non-command reply is a person
-	// answering a notification: its body is prose plus quoted history, and starting a session from it would
-	// run the quote as a prompt. The daemon never sees this mail, so the check has to live here.
-	if (isReplySubject(mail.subject) && !isCommand) return { action: "ignored", reason: "reply-without-command" }
+
+	/** Returns whether the mail actually went out: the journal must not record a failed result as sent. */
+	const reply = async (text: string): Promise<boolean> => {
+		try {
+			await deps.send({ subject: replySubject(mail.subject), text, inReplyTo: mail.messageId })
+			return true
+		} catch (error) {
+			deps.log(`confirmation failed: ${(error as Error).message}`)
+			return false
+		}
+	}
 
 	// 2. Authentication, in the request context. A self-addressed request has no reply headers by design.
 	const auth = authorize(
@@ -164,6 +178,14 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 	)
 	if (!auth.ok) return ignore(`unauthenticated:${auth.reason}`)
 
+	// A reply is how `stop:` comes back (the result mail says so), but a non-command reply is a person
+	// answering a notification: starting a session from it would run the quoted history as the prompt.
+	// Checked after authentication, so the answer goes only to a sender we already trust.
+	if (replyMail && !isCommand) {
+		await reply("[pi-start] that reply was not a command — nothing was started; send `stop: <name>`/`list:`, or a new mail to start a session")
+		return { action: "refused", code: "reply-without-command", detail: "a reply that is not stop:/list:", replied: true }
+	}
+
 	// 3. Our own mail must never start anything (the marker, then the recorded Message-ID).
 	if (mail.headers.xPiMailbridge) return ignore("self-echo")
 
@@ -176,16 +198,6 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 	if (seen) return ignore(`already-handled:${seen.state}`)
 	if (isStale({ receivedAt: mail.receivedAt }, now, starter.requestMaxAgeHours)) return ignore("stale")
 
-	/** Returns whether the mail actually went out: the journal must not record a failed result as sent. */
-	const reply = async (text: string): Promise<boolean> => {
-		try {
-			await deps.send({ subject: replySubject(mail.subject), text, inReplyTo: mail.messageId })
-			return true
-		} catch (error) {
-			deps.log(`confirmation failed: ${(error as Error).message}`)
-			return false
-		}
-	}
 
 	if (grammared.state === "invalid") {
 		const detail = grammared.errors.map((e) => `${e.code}: ${e.detail}`).join("; ")
@@ -195,7 +207,12 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 
 	// 6. Commands: stop and list are not starts, so the caps do not apply to them.
 	if (grammared.state === "complete" && grammared.request.kind === "list") {
-		const live = (await deps.list()) ?? []
+		const live = await deps.list()
+		if (live === undefined) {
+			// `undefined` is "tmux did not answer", not "nothing is running".
+			await reply("[pi-start] could not list sessions: tmux did not answer")
+			return { action: "listed", count: 0, replied: true }
+		}
 		const rows = live.map((entry) => {
 			const record = journal.sessions[entry.name]
 			return `${entry.name} ${entry.id}${record?.cwd ? ` ${record.cwd}` : ""}`

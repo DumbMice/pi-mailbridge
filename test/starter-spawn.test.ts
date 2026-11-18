@@ -214,3 +214,9 @@ test("stop still kills when the name matches", async () => {
 	assert.equal(result.ok, true)
 })
 
+test("an unrecognised tmux failure is not read as 'no sessions'", async () => {
+	// Returning [] for any failure made the sweep end every session we own on a 30 s timeout.
+	assert.equal(await listSessions({ exec: async () => ({ code: 1, stdout: "", stderr: "lost server" }) }), undefined)
+	assert.deepEqual(await listSessions({ exec: async () => ({ code: 1, stdout: "", stderr: "no server running on /tmp/x" }) }), [])
+})
+

@@ -128,7 +128,14 @@ async function reconcileInterrupted(record: ReturnType<typeof alreadySeen>, deps
 	if (!record || record.state === "refused" || record.state === "ended") return
 	// Already reconciled once: adopting it again would double-count, and there is nothing to learn.
 	if (record.state === "ready" && record.tmuxSessionId) return
-	const live = (await deps.liveSessions()) ?? []
+	const liveNow = await deps.liveSessions()
+	// An unavailable live list proves nothing about this session: leave the record as it is, for a scan
+	// that can actually see tmux.
+	if (liveNow === undefined) {
+		deps.log(`cannot reconcile ${record.id}: tmux did not answer`)
+		return
+	}
+	const live = liveNow
 	const verdict = reconcile(
 		{ ...record, tmuxName: record.tmuxName ?? record.name },
 		live.map((entry) => ({ tmuxSessionId: entry.id, name: entry.name })),
