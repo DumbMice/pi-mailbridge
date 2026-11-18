@@ -32,6 +32,13 @@ export interface OutboundMessage {
 	/** Defaults to the SMTP user. */
 	from?: string
 	/**
+	 * Send `text` as-is: no Markdown rendering, no local-image discovery, no HTML part.
+	 *
+	 * For diagnostics that quote a terminal: the session starter's result mails. Rendering would turn a
+	 * captured pane into Markdown and discover paths in it as attachments.
+	 */
+	plain?: boolean
+	/**
 	 * Message-ID to stamp. The caller mints it when it needs to record the id before the
 	 * send completes (self-echo guard, threading); otherwise sendMail mints one.
 	 */
@@ -111,7 +118,9 @@ export async function sendMail(
 	if (!message.to) throw new Error("pi-mailbridge: no recipient (mail.to)")
 
 	const factory = deps.transportFactory ?? defaultTransportFactory
-	const rendered = renderMessage(message.text, {
+	const rendered = message.plain
+		? undefined
+		: renderMessage(message.text, {
 		...(message.cwd ? { root: message.cwd } : {}),
 		// The user's cap, so a QQ account can use 45 MB and a Gmail account is not left with a
 		// send that fails at the provider.
@@ -139,7 +148,10 @@ export async function sendMail(
 		// Belt and braces for single-mailbox mode: the scan refuses any message carrying it.
 		// The second header carries the id we minted: providers may replace Message-ID (QQ
 		// does), and this is how the just-sent copy is identified afterwards.
-		headers: { "X-Pi-Mailbridge": "notification", "X-Pi-Mailbridge-Id": stampedId },
+		headers: {
+			"X-Pi-Mailbridge": message.plain ? "result" : "notification",
+			"X-Pi-Mailbridge-Id": stampedId,
+		},
 			to: message.to,
 			// The subject carries model-controlled text. A CR/LF would fold a new header into
 			// the message (the classic header-injection shape), and an unbounded subject is
@@ -148,13 +160,13 @@ export async function sendMail(
 			// multipart/alternative: clients fold quoted history only for HTML mail, so
 			// plain-text-only notifications produced reply threads of raw repeated text.
 			text: message.text,
-			html: rendered.html,
+			...(rendered ? { html: rendered.html } : {}),
 			// Thread every notification for a session into one conversation. Subject alone is
 			// enough for Outlook's conversation topic; these headers are what Gmail uses.
 			...(message.inReplyTo ? { inReplyTo: message.inReplyTo } : {}),
 			...(message.references?.length ? { references: message.references.join(" ") } : {}),
 			// Local images become cid: attachments; a bare file path would arrive broken.
-			...(rendered.attachments.length > 0 ? { attachments: rendered.attachments } : {}),
+			...(rendered && rendered.attachments.length > 0 ? { attachments: rendered.attachments } : {}),
 		})) as { messageId?: string } | undefined
 	}
 

@@ -298,3 +298,23 @@ test("the configured attachment budget reaches the renderer", () => {
 		assert.equal(sent[0]!.attachments, undefined, "over the 1 MB budget, so nothing is attached")
 	})
 })
+
+test("a plain message carries no HTML part and no attachment discovery", async () => {
+	// Result mails quote diagnostics. Rendering them would turn a captured pane into Markdown and treat
+	// paths in it as images to attach.
+	const sent: Record<string, unknown>[] = []
+	await sendMail(config(), { to: "me@example.com", subject: "s", text: "![x](./shot.png)\nplain", plain: true }, {
+		transportFactory: () => ({
+			sendMail: async (options: Record<string, unknown>) => {
+				sent.push(options)
+				return {}
+			},
+		}),
+	})
+	assert.equal(sent.length, 1)
+	assert.equal(sent[0]!.html, undefined, "no html part")
+	assert.deepEqual(sent[0]!.attachments, undefined, "and no attachments discovered")
+	assert.equal(sent[0]!.text, "![x](./shot.png)\nplain", "the text is sent as written")
+	assert.equal((sent[0]!.headers as Record<string, string>)["X-Pi-Mailbridge"], "result", "and marked as a result, not a notification")
+})
+
