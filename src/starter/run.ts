@@ -50,6 +50,8 @@ export interface ScanSummary {
 	adopted: number
 	uncertain: number
 	resultsFlushed: number
+	/** Owned sessions found dead this scan; each frees a live-cap slot. */
+	swept: number
 }
 
 function toStarterMail(message: RawMessage, uidValidity: number | undefined): StarterMail {
@@ -65,6 +67,12 @@ function toStarterMail(message: RawMessage, uidValidity: number | undefined): St
 			autoSubmitted: headers.autoSubmitted,
 			precedence: headers.precedence,
 			xPiMailbridge: headers.piMailbridge,
+			// Robot detection is shared with the daemon, and it uses these two: dropping them here made a
+			// mailing-list post or a vacation responder look like a person.
+			...(headers.listId === undefined ? {} : { listId: headers.listId }),
+			...(headers.autoResponseSuppress === undefined
+				? {}
+				: { autoResponseSuppress: headers.autoResponseSuppress }),
 		},
 		messageId: headers.messageId ?? `<uid-${message.uid}>`,
 		uid: message.uid,
@@ -109,17 +117,34 @@ async function flushUnsentResults(deps: ScanDeps, summary: ScanSummary): Promise
 	}
 }
 
-/** Reconcile a request whose outcome was interrupted, using what is actually running now. */
+/**
+ * Reconcile a request whose outcome was interrupted, using what is actually running now.
+ *
+ * The local view borrows the reserved name as `tmuxName` when no id was persisted: a record saved before
+ * `spawn()` returned carries no `$N`, and calling that "no session was created" would refuse a child that
+ * exists. Matching by name first, then by id, keeps both facts usable; anything left over is uncertain.
+ */
 async function reconcileInterrupted(record: ReturnType<typeof alreadySeen>, deps: ScanDeps, summary: ScanSummary): Promise<void> {
 	if (!record || record.state === "refused" || record.state === "ended") return
+	// Already reconciled once: adopting it again would double-count, and there is nothing to learn.
+	if (record.state === "ready" && record.tmuxSessionId) return
 	const live = await deps.liveSessions()
-	const verdict = reconcile(record, live.map((entry) => ({ tmuxSessionId: entry.id, name: entry.name })))
+	const verdict = reconcile(
+		{ ...record, tmuxName: record.tmuxName ?? record.name },
+		live.map((entry) => ({ tmuxSessionId: entry.id, name: entry.name })),
+	)
 	if (verdict.action === "adopt") {
-		deps.journal.requests[record.id] = { ...record, state: "ready", at: deps.now() }
-		if (record.tmuxSessionId && record.name) {
+		const adoptedId = verdict.tmuxSessionId ?? record.tmuxSessionId
+		deps.journal.requests[record.id] = {
+			...record,
+			state: "ready",
+			at: deps.now(),
+			...(adoptedId ? { tmuxSessionId: adoptedId } : {}),
+		}
+		if (adoptedId && record.name) {
 			deps.journal.sessions[record.name] = {
 				name: record.name,
-				tmuxSessionId: record.tmuxSessionId,
+				tmuxSessionId: adoptedId,
 				piSessionId: record.piSessionId ?? "",
 				requestId: record.id,
 				cwd: record.cwd ?? "",
@@ -149,8 +174,42 @@ async function reconcileInterrupted(record: ReturnType<typeof alreadySeen>, deps
  * a transient IMAP error never skips mail.
  */
 export async function scanOnce(deps: ScanDeps): Promise<ScanSummary> {
-	const summary: ScanSummary = { examined: 0, started: 0, refused: 0, ignored: 0, adopted: 0, uncertain: 0, resultsFlushed: 0 }
+	const summary: ScanSummary = {
+		examined: 0,
+		started: 0,
+		refused: 0,
+		ignored: 0,
+		adopted: 0,
+		uncertain: 0,
+		resultsFlushed: 0,
+		swept: 0,
+	}
+	// Recovery first: a record interrupted at spawn has no mail left to re-read (the cursor moved past it), so
+	// reconciliation cannot wait for a replay that will never come.
+	for (const record of Object.values(deps.journal.requests)) {
+		if (record.state === "reserved" || record.state === "spawning" || record.state === "spawned" || record.state === "ready") {
+			if (record.tmuxSessionId && (record.resultSent || record.state === "ready")) continue
+			await reconcileInterrupted(record, deps, summary)
+		}
+	}
+	// A session that exited on its own is still "owned" in the journal until someone notices. The live list
+	// is the only truth here, so the cap is computed against it - done below, once per scan.
 	const cursor = deps.cursor.read(deps.env)
+	const liveNow = new Map((await deps.liveSessions()).map((entry) => [entry.name, entry.id]))
+	for (const [name, session] of Object.entries(deps.journal.sessions)) {
+		if (session.endedAt !== undefined || liveNow.has(name)) continue
+		deps.journal.sessions[name] = { ...session, endedAt: deps.now() }
+		if (deps.journal.requests[session.requestId]) {
+			deps.journal.requests[session.requestId] = {
+				...deps.journal.requests[session.requestId]!,
+				state: "ended",
+				at: deps.now(),
+			}
+		}
+		summary.swept += 1
+		deps.log(`swept ${name}: it is no longer running`)
+	}
+	if (summary.swept > 0) deps.saveJournal(deps.journal)
 	const uidValidity = deps.source.uidValidity?.()
 	deps.cursor.sync(deps.env, uidValidity)
 	const uids = (await deps.source.searchAfter(deps.cursor.read(deps.env))).slice().sort((a, b) => a - b)
@@ -260,7 +319,7 @@ export function createStarterRunner(deps: RunnerDeps) {
 		/** One scan, for `once` and for tests. Returns the summary of the scan it ran (or the last one). */
 		once: async (): Promise<ScanSummary> => {
 			await guarded()
-			return lastSummary ?? { examined: 0, started: 0, refused: 0, ignored: 0, adopted: 0, uncertain: 0, resultsFlushed: 0 }
+			return lastSummary ?? { examined: 0, started: 0, refused: 0, ignored: 0, adopted: 0, uncertain: 0, resultsFlushed: 0, swept: 0 }
 		},
 		async start(): Promise<void> {
 			deps.log("starter: watching")

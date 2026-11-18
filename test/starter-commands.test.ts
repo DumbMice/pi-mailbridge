@@ -10,8 +10,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
-import { createPromptWriter, createStarterLog, runStarterCommand, starterProblems, watcherCallbacks } from "../src/starter/commands.ts"
+import { createPromptWriter, createStarterLog, runStarterCommand, starterMailConfig, starterProblems, watcherCallbacks } from "../src/starter/commands.ts"
 import type { JournalFile } from "../src/starter/journal.ts"
+import { validateCwd } from "../src/starter/validate.ts"
 
 function config(over: Partial<typeof STARTER_DEFAULTS> = {}): ResolvedConfig {
 	const base = mkdtempSync(join(tmpdir(), "pmb-cmd-root-"))
@@ -178,5 +179,30 @@ test("IDLE and ready both wake the runner, and errors reach the log", () => {
 	callbacks.onError?.(new Error("connection reset"), 1000)
 	assert.deepEqual(calls, ["ready", "mail"])
 	assert.deepEqual(errors, ["connection reset"])
+})
+
+test("starter.channel.folder replaces the daemon's folder for the starter's own connection", () => {
+	// It was validated and then ignored: the starter read INBOX while the operator expected a subfolder.
+	const base = config()
+	const plain = starterMailConfig(base)
+	assert.equal(plain.mail.imap.folder, base.mail.imap.folder, "unchanged when unset")
+	const moved = starterMailConfig({ ...base, starter: { ...base.starter, channel: { ...base.starter.channel, folder: "Queue" } } })
+	assert.equal(moved.mail.imap.folder, "Queue")
+	assert.equal(base.mail.imap.folder, "INBOX", "the shared config object is not mutated")
+	assert.equal(moved.mail.imap.host, base.mail.imap.host, "everything else is carried through")
+})
+
+test("an empty roots list is reported as fail-closed, matching the containment rule", () => {
+	// The message said "a session could be rooted anywhere"; validateCwd returns outside-root for every
+	// path when there are no roots. Message and behaviour are pinned together here so they cannot drift.
+	const empty = config({ roots: [] })
+	const problems = starterProblems(empty)
+	assert.ok(problems.some((line) => /no mail could start a session/.test(line)), problems.join("; "))
+	assert.ok(!problems.some((line) => /anywhere/.test(line)), "the opposite of the behaviour is not claimed")
+
+	// And the behaviour it reports: every path is outside zero roots.
+	const outcome = validateCwd("/tmp", { roots: [], reserved: [] })
+	assert.equal(outcome.ok, false)
+	if (!outcome.ok) assert.equal(outcome.code, "outside-root")
 })
 

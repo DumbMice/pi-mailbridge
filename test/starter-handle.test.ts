@@ -278,6 +278,7 @@ test("the start quota refuses new sessions but never a stop", async () => {
 		receivedAt: recent,
 		state: "ready",
 		at: recent,
+		launchedAt: recent,
 	}
 	const refused = await handleMail(mail({ messageId: "<second@x>", uid: 2 }, r.project), r.deps)
 	assert.equal(refused.action, "refused")
@@ -295,5 +296,25 @@ test("a start budget of 0 disables the limit rather than forbidding every start"
 	const r = rig({ config: config({ startsPerHour: 0 }) })
 	const outcome = await handleMail(mail({}, r.project), r.deps)
 	assert.equal(outcome.action, "started")
+})
+
+test("a stopped session does not refund the hourly budget", async () => {
+	// Counting surviving sessions made start/stop/start an unlimited loop; the attempt is the unit.
+	const r = rig({ config: config({ startsPerHour: 1 }) })
+	const first = await handleMail(mail({ messageId: "<a@x>", uid: 1 }, r.project), r.deps)
+	assert.equal(first.action, "started")
+	const stop = await handleMail(mail({ messageId: "<b@x>", uid: 2, body: "stop: all" }, r.project), r.deps)
+	assert.equal(stop.action, "stopped")
+	const third = await handleMail(mail({ messageId: "<c@x>", uid: 3 }, r.project), r.deps)
+	assert.equal(third.action, "refused")
+	if (third.action === "refused") assert.equal(third.code, "quota")
+})
+
+test("starter.enabled false refuses silently: no spawn, no parser, no reply", async () => {
+	const r = rig({ config: config({ enabled: false }) })
+	const outcome = await handleMail(mail({}, r.project), r.deps)
+	assert.equal(outcome.action, "ignored")
+	assert.equal(r.spawned.length, 0)
+	assert.equal(r.replies.length, 0)
 })
 

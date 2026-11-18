@@ -30,6 +30,8 @@ export interface StarterMail {
 		autoSubmitted?: string
 		precedence?: string
 		xPiMailbridge?: string
+		listId?: string
+		autoResponseSuppress?: string
 	}
 	messageId: string
 	uid: number
@@ -56,7 +58,7 @@ export interface HandleDeps {
 	/** Remove a prompt file whose session never started (the bootstrap removes it when it runs). */
 	removePrompt?: (requestId: string) => void
 	spawn: (plan: SpawnPlan) => Promise<SpawnResult>
-	stop: (tmuxSessionId: string) => Promise<{ ok: boolean; detail?: string }>
+	stop: (tmuxSessionId: string, expectedName?: string) => Promise<{ ok: boolean; detail?: string }>
 	list: () => Promise<{ id: string; name: string }[]>
 	send: (mail: OutcomeMail) => Promise<void>
 	now: () => number
@@ -102,8 +104,10 @@ function startQuotaReached(config: ResolvedConfig, journal: JournalFile, now: nu
 	const live = Object.values(journal.sessions).filter((s) => s.endedAt === undefined)
 	if (live.length >= config.starter.maxSessions) return true
 	const hourAgo = now - 60 * 60 * 1000
+	// Counted by *attempt*: a stop changes the state to ended, and refunding the budget would let a loop of
+	// start/stop/start run unbounded. Refusals never spawned, so they do not count.
 	const recent = Object.values(journal.requests).filter(
-		(r) => (r.state === "ready" || r.state === "spawned" || r.state === "spawning") && r.at > hourAgo,
+		(r) => r.launchedAt !== undefined && r.launchedAt > hourAgo && r.state !== "refused",
 	)
 	// 0 disables the limit, like every other window in this file: a user who wants no starts at all has
 	// `starter.enabled: false`, and a silent "0 means never" would be a trap in the other direction.
@@ -124,6 +128,10 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 	const now = deps.now()
 	const starter = config.starter
 
+	// `enabled: false` is a switch, not advice: `check` reports it, but a daemon-less process must refuse
+	// work itself. Silence, not a refusal mail: a starter that is off should look off to a stranger.
+	if (!starter.enabled) return { action: "ignored", reason: "disabled" }
+
 	// 1. Resource caps. Commands (`stop`, `list`) are exempt: a stop must work at the quota.
 	const grammared = parseRequest(mail.body, { promptMaxChars: starter.promptMaxChars })
 	const isCommand = grammared.state === "complete" && (grammared.request.kind === "stop" || grammared.request.kind === "list")
@@ -138,6 +146,12 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 				authResults: mail.headers.authResults,
 				autoSubmitted: mail.headers.autoSubmitted,
 				precedence: mail.headers.precedence,
+				// The shared policy uses both of these to spot robots; dropping them here made a list post
+				// look like a person.
+				...(mail.headers.listId === undefined ? {} : { listId: mail.headers.listId }),
+				...(mail.headers.autoResponseSuppress === undefined
+					? {}
+					: { autoResponseSuppress: mail.headers.autoResponseSuppress }),
 			},
 			context: "request",
 		},
@@ -189,7 +203,7 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 		const stopOne = async (name: string): Promise<"stopped" | "unknown" | "failed"> => {
 			const record = journal.sessions[name]
 			if (!record || record.endedAt !== undefined) return "unknown"
-			const stopped = await deps.stop(record.tmuxSessionId)
+			const stopped = await deps.stop(record.tmuxSessionId, record.name)
 			if (!stopped.ok) return "failed"
 			journal.sessions[name] = { ...record, endedAt: now }
 			if (journal.requests[record.requestId]) {
@@ -232,6 +246,7 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 		if (parsed.cwd) fields = { ...fields, cwd: parsed.cwd }
 		else if (parsed.error) deps.log(`agent parse found nothing: ${parsed.error}`)
 	}
+	if (!fields.cwd && starter.defaultCwd) fields = { ...fields, cwd: starter.defaultCwd }
 	if (!fields.cwd) {
 		const detail = starter.parse.agent || wantsAgent ? "cwd is missing and could not be determined" : "cwd is required"
 		await reply(`[pi-start] refused — ${detail} (set "cwd:" or starter.defaultCwd)`)
@@ -277,6 +292,7 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 	// 9. Reserve before executing: the record says what should exist, before it exists.
 	const id = newRequestId(mail, now)
 	const piSessionId = `pi-${new Date(now).toISOString().slice(2, 16).replace(/[-:T]/g, "")}-${Math.abs(now % 0xffff).toString(16).padStart(4, "0")}`
+	const model = fields.model ?? (starter.defaultModel || undefined)
 	const prompt = resolvePrompt(fields.prompt)
 	const { promptFile, readyFile } = deps.writePrompt(id, prompt)
 	journal.requests[id] = {
@@ -290,19 +306,22 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 		piSessionId,
 		name: name.value,
 		cwd: cwd.value,
-		...(fields.model ? { model: fields.model } : {}),
+		// Ownership before existence: recovery matches a live child by this name, never by a `$N` that the
+		// tmux server may reuse after a restart.
+		tmuxName: name.value,
+		...(model ? { model } : {}),
 	}
 	deps.save(journal)
 
 	// 10. Execute.
-	transition(journal, id, { state: "spawning" }, now)
+	transition(journal, id, { state: "spawning", launchedAt: now }, now)
 	deps.save(journal)
 	const result = await deps.spawn({
 		tmuxId: name.value,
 		piSessionId,
 		displayName: name.value,
 		cwd: cwd.value,
-		...(fields.model ? { model: fields.model } : {}),
+		...(model ? { model } : {}),
 		...(fields.thinking ? { thinking: fields.thinking } : {}),
 		promptFile,
 		readyFile,

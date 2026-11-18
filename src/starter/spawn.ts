@@ -16,7 +16,9 @@ import { execFile as nodeExecFile } from "node:child_process"
 
 export const DEFAULT_SOCKET = "pimail"
 /** How long to wait for the bootstrap's readiness marker before calling the start a failure. */
-export const READY_TIMEOUT_MS = 20_000
+// Longer than the bootstrap's own acceptance window: the marker is written on `turn_start` or on that
+// timeout, and the spawn must outlast it to report the reason instead of "no marker".
+export const READY_TIMEOUT_MS = 30_000
 export const READY_POLL_MS = 100
 /** Captured pane text is a diagnostic, not a transcript: cap it and strip control characters. */
 const MAX_DIAGNOSTIC_CHARS = 2_000
@@ -127,6 +129,11 @@ export function buildKillArgv(tmuxSessionId: string, socket = DEFAULT_SOCKET): s
 	return ["tmux", "-L", socket, "kill-session", "-t", tmuxSessionId]
 }
 
+/** `#{session_name}` for one id: the ownership check, without relying on the numeric id. */
+export function buildNameArgv(tmuxSessionId: string, socket = DEFAULT_SOCKET): string[] {
+	return ["tmux", "-L", socket, "display-message", "-p", "-t", tmuxSessionId, "#{session_name}"]
+}
+
 export function buildListArgv(socket = DEFAULT_SOCKET): string[] {
 	return ["tmux", "-L", socket, "list-sessions", "-F", "#{session_id}\t#{session_name}"]
 }
@@ -213,12 +220,27 @@ export async function spawnSession(plan: SpawnPlan, deps: SpawnDeps = {}): Promi
 /** Stop a session, but only if the id still matches what we recorded. */
 export async function stopSession(
 	tmuxSessionId: string,
-	deps: Pick<SpawnDeps, "exec"> & { socket?: string } = {},
+	deps: (Pick<SpawnDeps, "exec"> & { socket?: string; expectedName?: string }) | undefined = {},
 ): Promise<{ ok: true } | { ok: false; reason: string; detail: string }> {
 	const exec = deps.exec ?? defaultExec
 	const socket = deps.socket ?? DEFAULT_SOCKET
 	if (!tmuxSessionId.startsWith("$")) {
 		return { ok: false, reason: "bad-session-id", detail: `${tmuxSessionId} is not a tmux session id` }
+	}
+	// `$N` is only unique while the server lives: after a restart it can name a different session. The name
+	// we chose is the ownership marker, so it is verified before anything is killed.
+	if (deps.expectedName !== undefined) {
+		const name = await exec(buildNameArgv(tmuxSessionId, socket))
+		if (name.code !== 0) {
+			return { ok: false, reason: "gone", detail: "the session is no longer running" }
+		}
+		if (name.stdout.trim() !== deps.expectedName) {
+			return {
+				ok: false,
+				reason: "not-ours",
+				detail: `${tmuxSessionId} is now ${name.stdout.trim()}, not ${deps.expectedName}`,
+			}
+		}
 	}
 	const killed = await exec(buildKillArgv(tmuxSessionId, socket))
 	if (killed.code !== 0) {

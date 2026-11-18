@@ -13,7 +13,7 @@ import { loadConfig } from "../core/config.ts"
 import { statePath } from "../store/paths.ts"
 import { acquireLock } from "../store/lock.ts"
 import { createCursorStore } from "../store/uid-cursor.ts"
-import { type JournalFile, JOURNAL_DEFAULTS, readJournal, writeJournal } from "./journal.ts"
+import { type JournalFile, JOURNAL_DEFAULTS, mergeJournals, readJournal, writeJournal } from "./journal.ts"
 import { buildSpawnArgv, listSessions, spawnSession, stopSession, type SpawnPlan } from "./spawn.ts"
 import { createStarterRunner, type StarterSource } from "./run.ts"
 import { createConfirmer, renderList } from "./confirm.ts"
@@ -49,13 +49,36 @@ interface Ctx {
 
 function context(deps: CliDeps): Ctx {
 	const env = deps.env ?? process.env
+	const config = deps.config ?? loadConfig(env)
 	return {
-		config: deps.config ?? loadConfig(env),
+		config,
 		env,
 		out: deps.stdout ?? ((line) => console.log(line)),
 		err: deps.stderr ?? ((line) => console.error(line)),
 		journal: deps.readJournal ?? (() => readJournal(env)),
-		save: deps.saveJournal ?? ((journal) => writeJournal(env, journal, JOURNAL_DEFAULTS)),
+		save:
+			deps.saveJournal ??
+			((journal) => {
+				// Read-merge-write: the CLI and a running starter both own parts of this file, and a plain
+				// overwrite from either erased the other's change.
+				let disk: JournalFile
+				try {
+					disk = readJournal(env)
+				} catch (error) {
+					// Untrusted on disk is not a licence to overwrite it with a partial view.
+					throw new Error(`refusing to save over an untrusted journal: ${(error as Error).message}`)
+				}
+				const merged = mergeJournals(disk, journal)
+				for (const key of Object.keys(journal.requests)) delete journal.requests[key]
+				Object.assign(journal.requests, merged.requests)
+				for (const key of Object.keys(journal.sessions)) delete journal.sessions[key]
+				Object.assign(journal.sessions, merged.sessions)
+				writeJournal(env, merged, {
+					...JOURNAL_DEFAULTS,
+					// The acceptance horizon is the replay guard; the journal must not forget before it.
+					requestMaxAgeHours: config.starter.requestMaxAgeHours,
+				})
+			}),
 	}
 }
 
@@ -143,7 +166,9 @@ export function createPromptWriter(env: NodeJS.ProcessEnv): {
 export function starterProblems(config: ResolvedConfig): string[] {
 	const problems: string[] = []
 	if (!config.starter.enabled) problems.push("starter.enabled is false — nothing will start")
-	if (config.starter.roots.length === 0) problems.push("starter.roots is empty — a session could be rooted anywhere")
+	// Containment fails closed with no roots: every path is `outside-root`. Saying "anywhere" told an
+	// operator the opposite of the code on the line they read to decide the configuration is safe.
+	if (config.starter.roots.length === 0) problems.push("starter.roots is empty — no mail could start a session")
 	for (const root of config.starter.roots) {
 		if (!existsSync(root)) problems.push(`starter.roots: ${root} does not exist`)
 		else if (!statSync(root).isDirectory()) problems.push(`starter.roots: ${root} is not a directory`)
@@ -195,9 +220,20 @@ export function watcherCallbacks(hooks: SourceHooks): {
 	}
 }
 
+/**
+ * The mail config the starter actually connects with: `starter.channel.folder` replaces the daemon's folder
+ * when it is set. Without this the setting was validated and then ignored, which is worse than absent.
+ */
+export function starterMailConfig(config: ResolvedConfig): ResolvedConfig {
+	const folder = config.starter.channel.folder.trim()
+	if (!folder) return config
+	return { ...config, mail: { ...config.mail, imap: { ...config.mail.imap, folder } } }
+}
+
 export async function createImapSource(config: ResolvedConfig, hooks: SourceHooks = {}): Promise<StarterSource> {
-	const provider = await buildTokenProvider(config)
-	return createImapWatcher(config, {
+	const wired = starterMailConfig(config)
+	const provider = await buildTokenProvider(wired)
+	return createImapWatcher(wired, {
 		factory: createImapflowFactory({ getAccessToken: provider ? () => provider.getToken() : undefined }),
 		callbacks: watcherCallbacks(hooks),
 	})
@@ -209,7 +245,7 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 	const cursor = createCursorStore("starter-cursor.json")
 	const prompts = createPromptWriter(ctx.env)
 	const bootstrapPath = resolveBootstrapPath(import.meta.url)
-	const confirmer = createConfirmer(ctx.config, { log })
+	const confirmer = createConfirmer(ctx.config, { log, provider: await buildTokenProvider(ctx.config) })
 	let wake = (): void => {}
 	const source = deps.createSource
 		? await deps.createSource(ctx.config)
@@ -236,13 +272,16 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 			},
 			removePrompt: (id) => prompts.remove(id),
 			spawn: (plan) => spawnSession(plan),
-			stop: async (id) => {
-				const result = await stopSession(id)
+			stop: async (id, name) => {
+				// The name is the ownership proof: a reused `$N` after a tmux restart must not be killed.
+				const result = await stopSession(id, { expectedName: name })
 				return result.ok ? { ok: true } : { ok: false, detail: result.detail }
 			},
 			list: async () => (await listSessions()).map((entry) => ({ id: entry.id, name: entry.name })),
 			send: async (message) => {
-				await confirmer.send({ subject: message.subject, text: message.text, inReplyTo: message.inReplyTo })
+				// False means the budget swallowed it; the journal must keep the result owed.
+				const sent = await confirmer.send({ subject: message.subject, text: message.text, inReplyTo: message.inReplyTo })
+				if (!sent) throw new Error("confirmation budget reached")
 			},
 			log,
 			now: Date.now,
@@ -269,7 +308,10 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 	wake = () => void runner.once()
 
 	if (once) {
+		// Without starting the source a real `once` scanned nothing and still exited 0.
+		await source.start?.()
 		const summary = await runner.once()
+		await source.stop?.()
 		log(`once: examined ${summary.examined}, started ${summary.started}, refused ${summary.refused}, ignored ${summary.ignored}`)
 		return 0
 	}

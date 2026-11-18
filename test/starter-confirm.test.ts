@@ -98,3 +98,23 @@ test("the confirmation budget is separate, and a refused send is logged, not thr
 	assert.match(logs[0]!, /confirmation budget reached/)
 	assert.equal(confirmer.sentInWindow(), 2)
 })
+
+test("the confirmation mailer receives the XOAUTH2 provider, not just the config", async () => {
+	// Without it, SMTP refuses `authType: XOAUTH2` - the IMAP connection would work and every result mail
+	// would fail, which is the worst combination: sessions start and nobody is told.
+	const sent: unknown[] = []
+	const provider = {
+		getToken: async () => "token-1",
+		invalidate: () => {},
+		isDisabled: () => false,
+		state: () => ({ cached: true, disabled: false, failures: 0 }),
+	}
+	const base = config()
+	const confirmer = createConfirmer(
+		{ ...base, mail: { ...base.mail, smtp: { ...base.mail.smtp, authType: "XOAUTH2" } } },
+		{ send: async (_cfg, _message, received) => void sent.push(received), provider },
+	)
+	assert.equal(await confirmer.send({ subject: "[pi-start] x", text: "ok", inReplyTo: "<m@x>" }), true)
+	assert.equal(sent[0], provider, "the provider travels with the message")
+})
+

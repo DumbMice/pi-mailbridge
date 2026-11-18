@@ -19,7 +19,7 @@ import { readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs"
 
 /** The small part of pi's extension API this module uses. Typed locally: no import means no coupling. */
 export interface BootstrapPi {
-	on(event: "session_start", handler: () => unknown): void
+	on(event: "session_start" | "turn_start", handler: () => unknown): void
 	/** Deliberately called without `expandPromptTemplates`: that option is what dispatches commands. */
 	sendUserMessage(text: string): void
 }
@@ -34,6 +34,9 @@ export interface BootstrapEnv {
 
 /** A prompt file larger than this is not ours; the grammar caps prompts far below it. */
 const DEFAULT_MAX_BYTES = 1_000_000
+
+/** How long pi has to start a turn before the prompt counts as not accepted. */
+const ACCEPT_TIMEOUT_MS = 20_000
 
 export interface BootstrapOutcome {
 	ok: boolean
@@ -102,9 +105,23 @@ export function installBootstrap(pi: BootstrapPi, env: BootstrapEnv = process.en
 		}
 
 		try {
-			// No options: `sendUserMessage` reaches the model as plain text unless expansion is asked for.
+			// `sendUserMessage` returns before pi has accepted the turn, and pi swallows a rejected prompt
+			// (missing credentials) internally. Readiness therefore waits for the observable `turn_start`:
+			// a live but idle session reported as "started" is the failure this prevents.
+			let accepted = false
+			pi.on("turn_start", () => {
+				accepted = true
+				writeMarker(env, { ok: true, ...(requestId ? { requestId } : {}), bytes: prompt.bytes })
+			})
 			pi.sendUserMessage(prompt.text)
-			writeMarker(env, { ok: true, ...(requestId ? { requestId } : {}), bytes: prompt.bytes })
+			setTimeout(() => {
+				if (accepted) return
+				writeMarker(env, {
+					ok: false,
+					...(requestId ? { requestId } : {}),
+					error: "pi did not start a turn for the prompt (missing credentials?)",
+				})
+			}, ACCEPT_TIMEOUT_MS)
 		} catch (error) {
 			writeMarker(env, { ok: false, ...(requestId ? { requestId } : {}), error: (error as Error).message })
 		}

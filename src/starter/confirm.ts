@@ -10,6 +10,7 @@
 
 import type { ResolvedConfig } from "../core/config.ts"
 import type { OutboundMessage } from "../core/mailer.ts"
+import type { TokenProvider } from "../core/oauth.ts"
 
 /** Captured pane text is a diagnostic: strip escapes and control bytes, cap it. */
 export function cleanDiagnostic(text: string, max = 1_500): string {
@@ -73,8 +74,10 @@ export function replySubject(options: ReplySubjectOptions): string {
 }
 
 export interface ConfirmerDeps {
-	/** Injected for tests; normally `sendMail`. */
-	send?: (config: ResolvedConfig, message: OutboundMessage) => Promise<unknown>
+	/** Injected for tests; normally `sendMail`. The provider is the XOAUTH2 one IMAP already uses. */
+	send?: (config: ResolvedConfig, message: OutboundMessage, provider?: TokenProvider) => Promise<unknown>
+	/** SMTP credentials source for XOAUTH2; without it the mailer refuses that auth type. */
+	provider?: TokenProvider
 	now?: () => number
 	log?: (line: string) => void
 }
@@ -95,7 +98,9 @@ export interface Confirmer {
  */
 export function createConfirmer(config: ResolvedConfig, deps: ConfirmerDeps = {}): Confirmer {
 	const send =
-		deps.send ?? ((cfg: ResolvedConfig, message: OutboundMessage) => import("../core/mailer.ts").then((m) => m.sendMail(cfg, message)))
+		deps.send ??
+		((cfg: ResolvedConfig, message: OutboundMessage, provider?: TokenProvider) =>
+			import("../core/mailer.ts").then((m) => m.sendMail(cfg, message, provider ? { provider } : {})))
 	const now = deps.now ?? Date.now
 	const limit = Math.max(0, config.starter.confirmationsPerHour)
 	const window: number[] = []
@@ -113,15 +118,19 @@ export function createConfirmer(config: ResolvedConfig, deps: ConfirmerDeps = {}
 				return false
 			}
 			window.push(now())
-			await send(config, {
-				to: config.mail.to,
-				subject: replySubject({ original: facts.subject }),
-				text: facts.text,
-				// Threaded under the request, so the human sees the answer where they asked.
-				inReplyTo: facts.inReplyTo,
-				references: [facts.inReplyTo],
-				plain: true,
-			})
+			await send(
+				config,
+				{
+					to: config.mail.to,
+					subject: replySubject({ original: facts.subject }),
+					text: facts.text,
+					// Threaded under the request, so the human sees the answer where they asked.
+					inReplyTo: facts.inReplyTo,
+					references: [facts.inReplyTo],
+					plain: true,
+				},
+				deps.provider,
+			)
 			return true
 		},
 		sentInWindow: () => {

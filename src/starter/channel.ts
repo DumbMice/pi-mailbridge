@@ -25,9 +25,24 @@ export interface ChannelInput {
 	device: string
 }
 
+/**
+ * Strip the reply/forward markers a mail client adds.
+ *
+ * The result mails say `stop:` in reply, and the reply arrives as `Re: [pi-start] redo`. Rejecting that made
+ * the documented workflow a refusal, so the markers are removed before the channel tag is read.
+ */
+function stripReplyMarkers(subject: string): string {
+	let value = subject.trim()
+	for (;;) {
+		const next = value.replace(/^(?:re|aw|sv|antw|fwd|fw|tr)\s*(?:\[\d+\])?\s*:\s*/i, "")
+		if (next === value) return value
+		value = next
+	}
+}
+
 /** `[pi-start] fix the flaky test` → `fix the flaky test`, when the prefix matches. */
 function titleAfterPrefix(subject: string, prefix: string): string | undefined {
-	const trimmed = subject.trim()
+	const trimmed = stripReplyMarkers(subject)
 	if (!trimmed.startsWith("[")) return undefined
 	const close = trimmed.indexOf("]")
 	if (close === -1) return undefined
@@ -50,7 +65,10 @@ export function matchChannel(config: StarterConfig, input: ChannelInput): Channe
 	if (address) byAddress = input.to.some((value) => value.trim().toLowerCase() === address)
 	const byPrefix = prefix ? titleAfterPrefix(input.subject ?? "", prefix) : undefined
 
-	if (!byAddress && byPrefix === undefined) {
+	// Address and prefix are alternatives, never a union: with an address configured, prefixed mail sent
+	// *elsewhere* is someone else's channel.
+	const matched = address ? byAddress : byPrefix !== undefined
+	if (!matched) {
 		return { ours: false, reason: input.subject === undefined && address === "" ? "empty" : "not-this-channel" }
 	}
 	if (input.deviceInSubject && input.deviceInSubject.toLowerCase() !== input.device.toLowerCase()) {
@@ -58,6 +76,6 @@ export function matchChannel(config: StarterConfig, input: ChannelInput): Channe
 	}
 
 	// A dedicated address has no prefix to strip, so the whole subject is the title.
-	const title = byPrefix ?? (input.subject ?? "").trim()
+	const title = (address ? stripReplyMarkers(input.subject ?? "") : (byPrefix ?? "")).trim()
 	return { ours: true, title }
 }

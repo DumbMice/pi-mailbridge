@@ -8,23 +8,27 @@ import { join } from "node:path"
 
 import { type BootstrapPi, installBootstrap, readPromptFile } from "../src/starter/bootstrap.ts"
 
-function rig(env: Record<string, string>, options: { sendThrows?: boolean } = {}) {
+function rig(env: Record<string, string>, options: { sendThrows?: boolean; accept?: boolean } = {}) {
 	const sent: { text: string; extra: number }[] = []
 	let handler: (() => unknown) | undefined
+	const turnHandlers: (() => unknown)[] = []
 	const pi: BootstrapPi = {
 		on(event, fn) {
 			if (event === "session_start") handler = fn
+			else turnHandlers.push(fn)
 		},
 		// Count the arguments: `sendUserMessage(text, { expandPromptTemplates: true })` would dispatch a
 		// command, so the shape of the call is part of the contract, not an implementation detail.
 		sendUserMessage(...args: unknown[]) {
 			if (options.sendThrows) throw new Error("no model")
 			sent.push({ text: String(args[0]), extra: args.length - 1 })
+			// pi accepts the prompt by starting a turn; that event is what readiness now waits for.
+			if (options.accept !== false) for (const fn of turnHandlers) fn()
 		},
 	}
 	installBootstrap(pi, env)
 	assert.ok(handler, "the bootstrap must hook session_start")
-	return { sent, fire: () => handler!() }
+	return { sent, fire: () => handler!(), turnHandlers }
 }
 
 function dir(): string {
@@ -47,7 +51,7 @@ test("the prompt is sent verbatim, the file is consumed, and a readiness marker 
 	assert.equal(existsSync(prompt), false, "the prompt file is not left behind")
 	assert.equal(statSync(ready).mode & 0o777, 0o600, "the marker is private")
 	const marker = JSON.parse(readFileSync(ready, "utf8")) as { ok: boolean; requestId: string; bytes: number }
-	assert.equal(marker.ok, true)
+	assert.equal(marker.ok, true, "the marker is written when pi starts the turn, not on the call returning")
 	assert.equal(marker.requestId, "req-1")
 	assert.equal(marker.bytes, Buffer.byteLength(literal))
 })
@@ -113,3 +117,19 @@ test("readPromptFile reports the reason, with no file handle left open", () => {
 	assert.deepEqual(read, { ok: true, text: "hello", bytes: 5 })
 	chmodSync(prompt, 0o600)
 })
+
+test("a prompt pi never accepts is reported as not ready, not as started", () => {
+	// `sendUserMessage` returns before the turn exists and pi swallows a rejected prompt internally, so a
+	// live-but-idle session would otherwise be announced as started. Waiting for the timeout is the signal.
+	const base = dir()
+	const prompt = join(base, "prompt.txt")
+	const ready = join(base, "ready.json")
+	writeFileSync(prompt, "do the thing", { mode: 0o600 })
+	const { fire } = rig(
+		{ PI_MAILBRIDGE_START_PROMPT: prompt, PI_MAILBRIDGE_START_READY: ready, PI_MAILBRIDGE_START_REQUEST: "req-3" },
+		{ accept: false },
+	)
+	fire()
+	assert.equal(existsSync(ready), false, "nothing is claimed before the turn starts")
+})
+

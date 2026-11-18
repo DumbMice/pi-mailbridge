@@ -186,3 +186,31 @@ test("diagnostics strip escapes and cap the length", () => {
 	assert.ok(long.length <= 2001)
 	assert.ok(long.endsWith("…"))
 })
+
+test("stop refuses an id that now names a different session (tmux restart reuse)", async () => {
+	// `$N` is only unique while the server lives; after a restart it can belong to an unrelated session.
+	const calls: string[][] = []
+	const exec = async (argv: string[]) => {
+		calls.push(argv)
+		if (argv.includes("display-message")) return { code: 0, stdout: "someone-else", stderr: "" }
+		return { code: 0, stdout: "", stderr: "" }
+	}
+	const result = await stopSession("$2", { expectedName: "fix-auth", exec })
+	assert.equal(result.ok, false)
+	if (!result.ok) assert.equal(result.reason, "not-ours")
+	assert.equal(
+		calls.some((argv) => argv.includes("kill-session")),
+		false,
+		"nothing was killed",
+	)
+})
+
+test("stop still kills when the name matches", async () => {
+	const exec = async (argv: string[]) => {
+		if (argv.includes("display-message")) return { code: 0, stdout: "fix-auth", stderr: "" }
+		return { code: 0, stdout: "", stderr: "" }
+	}
+	const result = await stopSession("$2", { expectedName: "fix-auth", exec })
+	assert.equal(result.ok, true)
+})
+

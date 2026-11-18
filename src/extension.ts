@@ -35,6 +35,9 @@ import { sessionInstanceId } from "./core/instance.ts"
 
 
 
+/** Intent keys whose PI_MAILBRIDGE_SESSION_MODE has already been honoured or cleared. */
+const consumedEnvIntent = new Set<string>()
+
 const POLL_MS = 10_000
 /** How often the poll may try to start a dead daemon. */
 const RESPAWN_BACKOFF_MS = 60_000
@@ -197,6 +200,10 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 	// `globalAt` is undefined when the daemon could not report a stamp; `undefined === undefined` then
 	// re-applies the override, which is the safe direction (never silently un-mute a session).
 	let sessionMode: { mode: "on" | "off"; globalAt: number | undefined } | undefined
+	// The env var is an initial intent, consumed once - and the flag lives at module scope, because an
+	// extension reload creates a new runtime in the same process and must not resurrect a cleared override.
+	const intentKey = `${env.PI_MAILBRIDGE_START_REQUEST ?? ""}::${env.XDG_STATE_HOME ?? ""}`
+
 	/** Stable id for this pi process, used for claims and for liveness pings. */
 	const instanceId = sessionInstanceId()
 	/** Throttle for respawning a daemon that exited for idleness. */
@@ -686,14 +693,21 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		// A session started by mail is told to mail its human back through this variable. It is applied as
 		// *this session's* override - not the global switch - so `/mailbridge off` here still wins, the
 		// panel shows `(this session)`, and other sessions are untouched.
+		// The environment is an initial *intent*, consumed once: after `/mailbridge off --all` a reloaded
+		// runtime must not resurrect the override the user just cleared.
 		const requestedMode = env.PI_MAILBRIDGE_SESSION_MODE?.trim().toLowerCase()
-		if (sessionMode === undefined && (requestedMode === "on" || requestedMode === "off")) {
+		if (!consumedEnvIntent.has(intentKey) && sessionMode === undefined && (requestedMode === "on" || requestedMode === "off")) {
 			const stamped = await active.mode(instanceId)
 			const globalAt = stamped.ok ? stamped.data.globalUpdatedAt : undefined
 			const applied = await active
 				.setMode(requestedMode, { scope: "session", instanceId })
 				.catch(() => undefined)
-			if (applied?.ok) sessionMode = { mode: requestedMode, globalAt }
+			if (applied?.ok) {
+				// Consumed only once it took effect: a failed apply must be retried by the next runtime,
+				// unless a global decision has meanwhile made the intent moot.
+				consumedEnvIntent.add(intentKey)
+				sessionMode = { mode: requestedMode, globalAt }
+			}
 		}
 
 		const initialMode = await active.mode(instanceId)
@@ -1100,6 +1114,8 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		if (viaDaemon?.ok) {
 			// `--all` means every session, this one included: a stale local override would otherwise
 			// keep this session quiet after the user explicitly switched the machine on.
+			// A global write is a decision for the whole machine: the environment must not reopen it later.
+			if (effectiveScope === "global") consumedEnvIntent.add(intentKey)
 			sessionMode =
 				effectiveScope === "session"
 					// Whatever the daemon reported, including nothing: a fabricated 0 would compare

@@ -3519,3 +3519,101 @@ test("a session started by mail turns its own mail on, and /mailbridge off still
 	assert.match(notes.join("\n"), /started by mail, request req-42/, "the panel says where it came from")
 })
 
+test("the environment override is consumed: a rebuilt runtime stays off after `off --all`", async () => {
+	// Applying PI_MAILBRIDGE_SESSION_MODE on every runtime build resurrected the override the user had just
+	// cleared machine-wide. Counted *after* the global write, because the first runtime may legitimately
+	// re-apply its own override while its stamp settles.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "off" })
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	const env = {
+		XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test-consumed",
+		PI_MAILBRIDGE_SESSION_MODE: "on",
+		PI_MAILBRIDGE_START_REQUEST: "req-consumed-1",
+	}
+	const load = () =>
+		mailbridge(pi, {
+			env,
+			loadConfig: config,
+			secret: () => SECRET,
+			makeClient: () => daemon.client,
+			ensureDaemon: async () => true,
+			timers: t.timers,
+			pollMs: 60_000,
+		})
+	load()
+	await pi.fire("session_start")
+	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
+	assert.ok(
+		daemon.modeScopes.some((entry) => entry.scope === "session" && entry.mode === "on"),
+		"the env var is a session override on start",
+	)
+
+	await captured.get("mailbridge")!("off --all", ctx(notes))
+	const globalAt = daemon.modeScopes.findIndex((entry) => entry.scope === "global")
+	assert.ok(globalAt >= 0, "the global off was written")
+
+	// A rebuilt runtime is what an extension reload does; it must not re-apply the stale intent.
+	load()
+	await pi.fire("session_start")
+	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
+	const after = daemon.modeScopes.slice(globalAt + 1).filter((entry) => entry.scope === "session")
+	assert.deepEqual(after, [], "and never again after the global off")
+})
+
+test("a failed env apply does not outlive a later global off", async () => {
+	// The intent is only consumed by success, so the next runtime retries it - unless the user has since
+	// decided machine-wide, which the global write records.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "off" })
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	const env = {
+		XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test-failed",
+		PI_MAILBRIDGE_SESSION_MODE: "on",
+		PI_MAILBRIDGE_START_REQUEST: "req-failed-1",
+	}
+	const realSetMode = daemon.client.setMode
+	let failSession = true
+	daemon.client.setMode = async (mode, options) => {
+		if (failSession && options?.scope !== "global") throw new Error("daemon busy")
+		return realSetMode(mode, options)
+	}
+	const load = () =>
+		mailbridge(pi, {
+			env,
+			loadConfig: config,
+			secret: () => SECRET,
+			makeClient: () => daemon.client,
+			ensureDaemon: async () => true,
+			timers: t.timers,
+			pollMs: 60_000,
+		})
+	load()
+	await pi.fire("session_start")
+	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
+
+	failSession = false
+	await captured.get("mailbridge")!("off --all", ctx(notes))
+	const globalAt = daemon.modeScopes.findIndex((entry) => entry.scope === "global")
+	assert.ok(globalAt >= 0)
+
+	load()
+	await pi.fire("session_start")
+	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
+	assert.deepEqual(
+		daemon.modeScopes.slice(globalAt + 1).filter((entry) => entry.scope === "session"),
+		[],
+		"the stale intent must not reopen what the global off closed",
+	)
+})
+

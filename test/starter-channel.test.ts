@@ -16,7 +16,10 @@ test("the default channel is a subject prefix on the watched mailbox", () => {
 	assert.equal(matchChannel(STARTER_DEFAULTS, { subject: "[PI-START] x", to: [], device: "dev-1" }).ours, true)
 	assert.equal(matchChannel(STARTER_DEFAULTS, { subject: "  [ pi-start ]  x", to: [], device: "dev-1" }).ours, true)
 
-	for (const subject of ["[pi] x", "Re: [pi-start] x", "pi-start: x", "[pi-start", ""]) {
+	// "Re:" is how the documented reply-to-stop workflow comes back, so it is stripped, not rejected.
+	assert.equal(matchChannel(STARTER_DEFAULTS, { subject: "Re: [pi-start] x", to: [], device: "dev-1" }).ours, true)
+	assert.equal(matchChannel(STARTER_DEFAULTS, { subject: "RE: Fwd: [pi-start] x", to: [], device: "dev-1" }).ours, true)
+	for (const subject of ["[pi] x", "pi-start: x", "[pi-start", "", "x [pi-start] y"]) {
 		const result = matchChannel(STARTER_DEFAULTS, { subject, to: [], device: "dev-1" })
 		assert.equal(result.ours, false, `${JSON.stringify(subject)} must not be a request`)
 	}
@@ -29,6 +32,11 @@ test("a configured address is the channel, and does not need a prefix", () => {
 
 	const otherAddress = matchChannel(config, { subject: "fix the test", to: ["elsewhere@example.com"], device: "dev-1" })
 	assert.equal(otherAddress.ours, false)
+
+	// And the prefix is not a second way in once an address is configured: prefixed mail sent elsewhere
+	// belongs to someone else's channel, not this one.
+	const prefixedElsewhere = matchChannel(config, { subject: "[pi-start] fix the test", to: ["other@example.com"], device: "dev-1" })
+	assert.equal(prefixedElsewhere.ours, false)
 })
 
 test("a request tagged for another device is not ours, an untagged one is", () => {

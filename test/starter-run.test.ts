@@ -26,7 +26,7 @@ interface Rig extends ScanDeps {
 	saves: number
 }
 
-function rig(over: { journal?: JournalFile; throwOnFetch?: number } = {}): Rig {
+function rig(over: { journal?: JournalFile; throwOnFetch?: number; starter?: Partial<ResolvedConfig["starter"]> } = {}): Rig {
 	const base = mkdtempSync(join(tmpdir(), "pmb-run-"))
 	const env = { XDG_STATE_HOME: base, XDG_CONFIG_HOME: base }
 	const config: ResolvedConfig = {
@@ -41,7 +41,7 @@ function rig(over: { journal?: JournalFile; throwOnFetch?: number } = {}): Rig {
 		notify: { onSettled: true, debounceMs: 1, notifyOnAborted: false, maxAttachmentMb: 1 },
 		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
 		warnings: [],
-		starter: { ...STARTER_DEFAULTS, enabled: true, roots: [base] },
+		starter: { ...STARTER_DEFAULTS, enabled: true, roots: [base], ...over.starter },
 	}
 	const project = join(base, "project")
 	mkdirSync(project, { recursive: true })
@@ -217,3 +217,96 @@ test("IDLE and the sweep cannot overlap: a burst runs one scan, then at most one
 	assert.equal(r.spawnCalls, 1, "one message, one start")
 	assert.equal(r.cursor.read(r.env), 1)
 })
+
+test("a reserved record with no id but a live name is adopted, not refused", async () => {
+	// The real crash window: the record is saved before spawn() returns, so it has no $N to match on.
+	const r = rig({
+		journal: {
+			v: 1,
+			requests: {
+				"req-2": {
+					id: "req-2",
+					messageId: "<m2@x>",
+					uid: 7,
+					receivedAt: Date.now(),
+					state: "spawning",
+					at: Date.now(),
+					launchedAt: Date.now(),
+					name: "half-born",
+					tmuxName: "half-born",
+					cwd: "/tmp",
+					piSessionId: "pi-y",
+				},
+			},
+			sessions: {},
+		},
+	})
+	r.liveSessions = async () => [{ id: "$12", name: "half-born" }]
+	await scanOnce(r)
+	assert.equal(r.journal.requests["req-2"]?.state, "ready", "the child exists; adoption is the honest answer")
+	assert.equal(r.journal.sessions["half-born"]?.tmuxSessionId, "$12")
+
+	// and when nothing matches, the outcome is unknown, not a claim that no session was created
+	const r2 = rig({
+		journal: {
+			v: 1,
+			requests: {
+				"req-3": {
+					id: "req-3",
+					messageId: "<m3@x>",
+					uid: 8,
+					receivedAt: Date.now(),
+					state: "spawning",
+					at: Date.now(),
+					launchedAt: Date.now(),
+					name: "ghost",
+					tmuxName: "ghost",
+					cwd: "/tmp",
+				},
+			},
+			sessions: {},
+		},
+	})
+	r2.liveSessions = async () => []
+	await scanOnce(r2)
+	assert.equal(r2.journal.requests["req-3"]?.state, "uncertain")
+})
+
+test("a session that exited on its own frees the live cap", async () => {
+	const r = rig({ starter: { maxSessions: 1 } })
+	r.liveSessions = async () => []
+	r.journal.sessions.gone = { name: "gone", tmuxSessionId: "$3", piSessionId: "pi-z", requestId: "old", cwd: "/tmp", at: 1 }
+	r.journal.requests.old = { id: "old", messageId: "<o@x>", uid: 1, receivedAt: 1, state: "ready", at: 1, name: "gone", cwd: "/tmp" }
+	r.messages.set(2, {
+		uid: 2,
+		from: "me@e.com",
+		subject: "[pi-start] fresh",
+		text: "cwd: /tmp",
+		headers: { authResults: ["mx; dmarc=pass"], messageId: "<new@x>" },
+		receivedAt: Date.now(),
+	})
+	const summary = await scanOnce(r)
+	assert.equal(summary.swept, 1, "the dead session was swept")
+	assert.equal(summary.started, 1, "so the next start is not blocked by a slot nobody uses")
+})
+
+test("a mailing-list post and an auto-reply are robots to the starter too", async () => {
+	// The starter rebuilt the header shape and dropped List-Id and X-Auto-Response-Suppress, so the shared
+	// policy could not see them - a list post would start a session.
+	for (const headers of [{ listId: "<list.example.com>" }, { autoResponseSuppress: "OOF" }]) {
+		const r = rig()
+		r.messages.delete(1)
+		r.messages.set(3, {
+			uid: 3,
+			from: "me@e.com",
+			subject: "[pi-start] from a robot",
+			text: `cwd: ${r.config.starter.roots[0]}/project`,
+			headers: { authResults: ["mx; dmarc=pass"], messageId: "<robot@x>", ...headers },
+			receivedAt: Date.now(),
+		})
+		const summary = await scanOnce(r)
+		assert.equal(summary.started, 0, JSON.stringify(headers))
+		assert.equal(r.spawnCalls, 0, JSON.stringify(headers))
+	}
+})
+
