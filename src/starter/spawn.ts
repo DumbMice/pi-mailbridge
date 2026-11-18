@@ -158,6 +158,17 @@ export function buildKillIfOwnedArgv(tmuxSessionId: string, requestId: string, s
 	return ["tmux", "-L", socket, "if-shell", "-t", tmuxSessionId, test, `kill-session -t '${tmuxSessionId}'`]
 }
 
+/**
+ * Did the server *establish* that a session is gone, or could it not answer?
+ *
+ * `has-session` exits nonzero for both. Treating the second as absence marks a live session stopped, or
+ * deletes the evidence for a child that cleanup never proved it killed.
+ */
+export function sessionAbsent(result: { code: number; stdout: string; stderr: string }): boolean {
+	if (result.code === 0) return false
+	return /no such session|no server running|can't find session|no sessions/i.test(`${result.stderr}${result.stdout}`)
+}
+
 /** `#{session_name}` for one id: the ownership check, without relying on the numeric id. */
 export function buildNameArgv(tmuxSessionId: string, socket = DEFAULT_SOCKET): string[] {
 	return ["tmux", "-L", socket, "display-message", "-p", "-t", tmuxSessionId, "#{session_name}"]
@@ -233,7 +244,8 @@ export async function spawnSession(plan: SpawnPlan, deps: SpawnDeps = {}): Promi
 		// means the marker did not match (or could not be read): our cleanup killed nothing, and whether that
 		// session is ours is unresolved.
 		const still = await exec(["tmux", "-L", socket, "has-session", "-t", target])
-		return still.code === 0 ? "not-ours" : "killed"
+		if (still.code === 0) return "not-ours"
+		return sessionAbsent(still) ? "killed" : "unknown"
 	}
 
 	for (;;) {
@@ -329,6 +341,10 @@ export async function stopSession(
 		const still = await exec(["tmux", "-L", socket, "has-session", "-t", tmuxSessionId])
 		if (still.code === 0) {
 			return { ok: false, reason: "not-ours", detail: `${tmuxSessionId} did not match its ownership marker; nothing was killed` }
+		}
+		if (!sessionAbsent(still)) {
+			// The server could not tell us: do not record a session as stopped on that basis.
+			return { ok: false, reason: "unknown", detail: "tmux did not answer whether the session is gone" }
 		}
 		return { ok: true }
 	}

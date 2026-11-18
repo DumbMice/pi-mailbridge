@@ -11,7 +11,7 @@
 //     `pi-mailbridge starter unlock` (which re-checks that the holder is dead) clears it.
 
 import { randomBytes } from "node:crypto"
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 
 import { statePath } from "./paths.ts"
@@ -38,6 +38,29 @@ export function isAlive(pid: number): boolean {
 		return true
 	} catch (error) {
 		return (error as NodeJS.ErrnoException).code === "EPERM"
+	}
+}
+
+/**
+ * Exclusive recovery handle for one lock path.
+ *
+ * Returns a release function, or undefined when another recovery is in progress. Callers must re-read the
+ * lock under this handle before removing it: the checks that led them here may be stale.
+ */
+export function beginRecovery(env: NodeJS.ProcessEnv, fileName: string): (() => void) | undefined {
+	const mutex = `${statePath(env, fileName)}.recovery`
+	try {
+		mkdirSync(dirname(mutex), { recursive: true, mode: 0o700 })
+		writeFileSync(mutex, String(process.pid), { flag: "wx", mode: 0o600 })
+	} catch {
+		return undefined
+	}
+	return () => {
+		try {
+			unlinkSync(mutex)
+		} catch {
+			/* already gone */
+		}
 	}
 }
 
@@ -76,6 +99,11 @@ export function acquireLock(env: NodeJS.ProcessEnv, fileName: string): LockResul
 			return undefined
 		}
 	}
+
+	// A recovery (explicit `unlock`) holds a mutex on this lock path while it removes a dead holder's file.
+	// Acquirers respect it, so a removal can never be racing an acquisition that already decided to proceed:
+	// that race is how a newly acquired lock got deleted by a recoverer working from stale reads.
+	if (existsSync(`${path}.recovery`)) return { ok: false, holder: 0 }
 
 	const first = take()
 	if (first) return first

@@ -11,7 +11,7 @@ import { execFile, spawn } from "node:child_process"
 import type { ResolvedConfig } from "../core/config.ts"
 import { loadConfig } from "../core/config.ts"
 import { statePath } from "../store/paths.ts"
-import { type Lock, acquireLock, isAlive } from "../store/lock.ts"
+import { type Lock, acquireLock, beginRecovery, isAlive } from "../store/lock.ts"
 import { createCursorStore } from "../store/uid-cursor.ts"
 import { type JournalFile, JOURNAL_DEFAULTS, mergeJournals, readJournal, writeJournal } from "./journal.ts"
 import { buildSpawnArgv, listSessions, readOwnershipMarker, spawnSession, stopSession, type SpawnPlan } from "./spawn.ts"
@@ -482,10 +482,19 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 		const refused: string[] = []
 		for (const name of locks) {
 			const file = statePath(ctx.env, name)
+			// Recovery holds the lock path's mutex, so no acquirer can create a replacement while we remove a
+			// dead holder's file; without it, a check followed by an unlink can delete a fresh live lock.
+			const release = beginRecovery(ctx.env, name)
+			if (!release) {
+				refused.push(`${name} (another recovery is in progress)`)
+				continue
+			}
 			let content: string
 			try {
+				// Re-read under the mutex: what we saw before taking it may already be someone else's.
 				content = readFileSync(file, "utf8").trim()
 			} catch {
+				release()
 				continue
 			}
 			const holder = Number(content.split(" ")[0])
@@ -498,10 +507,12 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 			})()
 			if (holder > 0 && isAlive(holder)) {
 				refused.push(`${name} (pid ${holder} is alive)`)
+				release()
 				continue
 			}
 			if (fresh) {
 				refused.push(`${name} (recent; wait a minute)`)
+				release()
 				continue
 			}
 			try {
@@ -509,6 +520,8 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 				cleared.push(name)
 			} catch {
 				/* gone between the read and the unlink: nothing to clear */
+			} finally {
+				release()
 			}
 		}
 		for (const name of cleared) ctx.out(`cleared ${name}`)

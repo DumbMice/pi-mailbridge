@@ -1,5 +1,5 @@
 import { test } from "node:test"
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
@@ -3627,7 +3627,9 @@ test("no mail is enabled when the suppression receipt cannot be recorded", async
 	const pi = fakePi(ctx(notes))
 	const stateHome = mkdtempSync(join(tmpdir(), "pmb-intent-broken-"))
 	mkdirSync(join(stateHome, "pi-mailbridge"), { recursive: true })
+	// Both independent receipt locations are broken: only then is suppression genuinely unavailable.
 	writeFileSync(join(stateHome, "pi-mailbridge", "session-intents"), "not a directory")
+	writeFileSync(join(stateHome, "pi-mailbridge", "session-intents-fallback"), "not a directory")
 	const env = { XDG_STATE_HOME: stateHome, PI_MAILBRIDGE_SESSION_MODE: "on", PI_MAILBRIDGE_START_REQUEST: "req-broken" }
 	mailbridge(pi, {
 		env,
@@ -3644,6 +3646,30 @@ test("no mail is enabled when the suppression receipt cannot be recorded", async
 		daemon.modeScopes.filter((entry) => entry.scope === "session"),
 		[],
 		"nothing is enabled without a durable receipt",
+	)
+})
+
+test("a broken receipt directory is covered by the fallback, so a reload cannot re-enable", async () => {
+	// One broken location must not mean "unconsumed": the decision is recorded in the other.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "off" })
+	const pi = fakePi(ctx(notes))
+	const stateHome = mkdtempSync(join(tmpdir(), "pmb-intent-fallback-"))
+	mkdirSync(join(stateHome, "pi-mailbridge"), { recursive: true })
+	writeFileSync(join(stateHome, "pi-mailbridge", "session-intents"), "not a directory")
+	const env = { XDG_STATE_HOME: stateHome, PI_MAILBRIDGE_SESSION_MODE: "on", PI_MAILBRIDGE_START_REQUEST: "req-fallback" }
+	mailbridge(pi, { env, loadConfig: config, secret: () => SECRET, makeClient: () => daemon.client, ensureDaemon: async () => true, timers: t.timers, pollMs: 60_000 })
+	await pi.fire("session_start")
+	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
+	assert.ok(
+		daemon.modeScopes.some((entry) => entry.scope === "session" && entry.mode === "on"),
+		"the intent is honoured",
+	)
+	assert.equal(
+		existsSync(join(stateHome, "pi-mailbridge", "session-intents-fallback")),
+		true,
+		"and it is durably recorded in the working location",
 	)
 })
 

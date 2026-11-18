@@ -271,10 +271,12 @@ killing it would break every newer session on the machine, once a minute. The se
 (`protocolStuck`), drops its client and runner so it cannot consume a queue it cannot resolve, and
 asks for a restart of pi. `/mailbridge restart` cannot help there and does not pretend to.
 
-**Singleton.** `daemon.lock` in the state directory is the lock, with the owner's pid inside: a
-live holder makes the newcomer exit 0, and a file left by a crash is stolen by an atomic rename
-(not an unlink-then-retake, which lets two starters both win). The listening port is a second
-guard, for a foreign listener - a bind failure also exits 0. `ensureDaemon()` then probes `/health` and reuses the winner.
+**Singleton.** `daemon.lock` in the state directory is the lock, with the owner's pid and a random token
+inside: a live holder makes the newcomer exit 0, and a file left by a crash is **not** stolen — the
+newcomer reports the stale holder and points at `pi-mailbridge starter unlock`, which clears it only after
+confirming the pid is gone and the file is a minute old (under a recovery mutex, so a replacement lock
+cannot be removed by mistake). The listening port is a second guard, for a foreign listener - a bind
+failure also exits 0. `ensureDaemon()` then probes `/health` and reuses the winner.
 
 **Two versions, two clocks.** `/health` carries both: `apiVersion` (the wire contract, `API_VERSION`)
 and `version` (the package build, diagnostic). A session replaces a daemon whose `apiVersion`
@@ -385,8 +387,10 @@ session id); `stop` verifies the tmux id before killing anything, so a reused na
 operator started by hand.
 
 **A stale lock is not stolen.** A crashed starter leaves `starter.lock`; the next start refuses and says to
-run `starter unlock`, which clears it only after confirming the holder is dead. Stealing automatically is
-what lets two processes both believe they hold it.
+run `starter unlock`, which clears it only after confirming the holder is dead and the file is at least a
+minute old. Recovery holds `<lock>.recovery` while it removes the file and every acquirer respects it, so a
+removal cannot delete a lock that was acquired in the meantime. Stealing automatically is what lets two
+processes both believe they hold it.
 
 **Crash behaviour.** The reservation is written before the spawn, so a crash leaves a record that says what
 *should* exist: recovery adopts a matching live session, refuses a reserved request with no session, and

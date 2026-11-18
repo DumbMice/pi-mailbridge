@@ -248,7 +248,7 @@ test("stop refuses a session whose ownership marker names another request", asyn
 				: argv.includes("show-environment")
 					? { code: 0, stdout: "PI_MAILBRIDGE_REQUEST=req-mine", stderr: "" }
 					: argv.includes("has-session")
-						? { code: 1, stdout: "", stderr: "gone" }
+						? { code: 1, stdout: "", stderr: "no such session: $2" }
 						: { code: 0, stdout: "", stderr: "" },
 	})
 	assert.equal(mine.ok, true)
@@ -294,5 +294,21 @@ test("an unresolved cleanup after a failed readiness is uncertain, not definitiv
 	})
 	assert.equal(result.ok, false)
 	if (!result.ok) assert.equal(result.uncertain, true, "cleanup could not prove the session stopped")
+})
+
+test("an unanswerable has-session is not proof the session is gone", async () => {
+	// A timeout or permission failure must not be recorded as "stopped".
+	const result = await stopSession("$2", {
+		expectedName: "fix-auth",
+		expectedRequestId: "req-mine",
+		exec: async (argv: string[]) => {
+			if (argv.includes("display-message")) return { code: 0, stdout: "fix-auth", stderr: "" }
+			if (argv.includes("show-environment")) return { code: 0, stdout: "PI_MAILBRIDGE_REQUEST=req-mine", stderr: "" }
+			if (argv.includes("has-session")) return { code: 1, stdout: "", stderr: "error connecting to /tmp/tmux (Permission denied)" }
+			return { code: 0, stdout: "", stderr: "" }
+		},
+	})
+	assert.equal(result.ok, false)
+	if (!result.ok) assert.equal(result.reason, "unknown")
 })
 

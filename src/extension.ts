@@ -48,39 +48,50 @@ interface IntentReceipt {
  * interrupted write invalidated the whole file; a lost receipt lets an inherited `on` override survive a
  * global `off` after a reload. A per-key file is atomic and cannot clobber its neighbours.
  */
-function intentDir(env: NodeJS.ProcessEnv): string {
-	return join(dirname(statePath(env, "starter.log")), "session-intents")
+function intentDirs(env: NodeJS.ProcessEnv): string[] {
+	const root = dirname(statePath(env, "starter.log"))
+	// Two independent locations: whichever one is writable records the decision. A single broken directory
+	// must not turn into "this intent was never consumed", which is how a reload re-enables mail after the
+	// user switched it off.
+	return [join(root, "session-intents"), join(root, "session-intents-fallback")]
 }
 
 const consumedEnvIntent = new Set<string>()
 
-function intentFile(env: NodeJS.ProcessEnv, key: string): string {
-	return join(intentDir(env), `${createHash("sha256").update(key).digest("hex")}.json`)
+function intentFile(dir: string, key: string): string {
+	return join(dir, `${createHash("sha256").update(key).digest("hex")}.json`)
 }
 
 function intentConsumed(env: NodeJS.ProcessEnv, key: string): boolean {
 	if (consumedEnvIntent.has(key)) return true
-	try {
-		return JSON.parse(readFileSync(intentFile(env, key), "utf8")).key === key
-	} catch {
-		return false
-	}
+	return intentDirs(env).some((dir) => {
+		try {
+			return JSON.parse(readFileSync(intentFile(dir, key), "utf8")).key === key
+		} catch {
+			return false
+		}
+	})
 }
 
 /** Returns whether the decision is durable. An in-memory-only receipt does not survive `/reload`. */
 function consumeIntent(env: NodeJS.ProcessEnv, key: string): boolean {
-	consumedEnvIntent.add(key)
-	try {
-		const dir = intentDir(env)
-		mkdirSync(dir, { recursive: true, mode: 0o700 })
-		const file = intentFile(env, key)
-		const tmp = `${file}.${process.pid}.tmp`
-		writeFileSync(tmp, JSON.stringify({ key, at: Date.now() }), { mode: 0o600 })
-		renameSync(tmp, file)
-		return true
-	} catch {
-		return false
+	let durable = false
+	for (const dir of intentDirs(env)) {
+		try {
+			mkdirSync(dir, { recursive: true, mode: 0o700 })
+			const file = intentFile(dir, key)
+			const tmp = `${file}.${process.pid}.tmp`
+			writeFileSync(tmp, JSON.stringify({ key, at: Date.now() }), { mode: 0o600 })
+			renameSync(tmp, file)
+			durable = true
+		} catch {
+			/* try the other location */
+		}
 	}
+	// The memory set is only a convenience: it does not survive a reload, so it is not what makes this
+	// durable. Record it only when at least one location has the receipt.
+	if (durable) consumedEnvIntent.add(key)
+	return durable
 }
 
 const POLL_MS = 10_000
