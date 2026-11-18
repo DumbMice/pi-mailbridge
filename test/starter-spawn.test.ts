@@ -116,7 +116,7 @@ test("a marker that reports failure kills the session and says why", async () =>
 	})
 	assert.equal(result.ok, false)
 	if (!result.ok) assert.equal(result.reason, "unready")
-	assert.ok(calls.some((argv) => argv.includes("kill-session")), "the half-started session is killed")
+	assert.ok(calls.some((argv) => argv.includes("if-shell")), "the conditional kill is issued")
 })
 
 test("a start that never reports ready is killed, with the pane text as the detail", async () => {
@@ -142,7 +142,7 @@ test("a start that never reports ready is killed, with the pane text as the deta
 		assert.equal(result.reason, "unready")
 		assert.match(result.detail, /Unknown model/)
 	}
-	assert.ok(calls.some((argv) => argv.includes("kill-session")))
+	assert.ok(calls.some((argv) => argv.includes("if-shell")))
 })
 
 test("tmux failing to create the session is reported without trying to kill anything", async () => {
@@ -157,7 +157,7 @@ test("tmux failing to create the session is reported without trying to kill anyt
 	})
 	assert.equal(result.ok, false)
 	if (!result.ok) assert.equal(result.reason, "spawn-failed")
-	assert.equal(calls.some((argv) => argv.includes("kill-session")), false)
+	assert.equal(calls.some((argv) => argv.includes("if-shell")), false)
 })
 
 test("stop refuses anything that is not a tmux session id", async () => {
@@ -204,7 +204,7 @@ test("stop refuses an id that now names a different session (tmux restart reuse)
 	assert.equal(result.ok, false)
 	if (!result.ok) assert.equal(result.reason, "not-ours")
 	assert.equal(
-		calls.some((argv) => argv.includes("kill-session")),
+		calls.some((argv) => argv.includes("if-shell")),
 		false,
 		"nothing was killed",
 	)
@@ -268,10 +268,11 @@ test("cleanup never kills a name that now belongs to another request", async () 
 		sleep: async () => {},
 	})
 	assert.equal(result.ok, false)
-	assert.equal(
-		calls.some((argv) => argv.includes("kill-session")),
-		false,
-		"nothing is killed without proof it is ours",
-	)
+	// The kill is conditional *inside* the server: the client cannot re-check between the two, so the
+	// guarantee is the condition carrying our request id, not the absence of a kill command.
+	const conditional = calls.find((argv) => argv.includes("if-shell"))
+	assert.ok(conditional, "a conditional kill is issued")
+	assert.ok(conditional!.some((arg) => arg.includes("PI_MAILBRIDGE_REQUEST=req-1")), "conditioned on our marker")
+	assert.equal(calls.some((argv) => argv.includes("kill-session")), false, "never an unconditional kill-session")
 })
 

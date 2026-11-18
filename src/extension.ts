@@ -67,7 +67,8 @@ function intentConsumed(env: NodeJS.ProcessEnv, key: string): boolean {
 	}
 }
 
-function consumeIntent(env: NodeJS.ProcessEnv, key: string): void {
+/** Returns whether the decision is durable. An in-memory-only receipt does not survive `/reload`. */
+function consumeIntent(env: NodeJS.ProcessEnv, key: string): boolean {
 	consumedEnvIntent.add(key)
 	try {
 		const dir = intentDir(env)
@@ -76,8 +77,9 @@ function consumeIntent(env: NodeJS.ProcessEnv, key: string): void {
 		const tmp = `${file}.${process.pid}.tmp`
 		writeFileSync(tmp, JSON.stringify({ key, at: Date.now() }), { mode: 0o600 })
 		renameSync(tmp, file)
+		return true
 	} catch {
-		/* memory still holds the decision for this process */
+		return false
 	}
 }
 
@@ -745,10 +747,9 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			const applied = await active
 				.setMode(requestedMode, { scope: "session", instanceId })
 				.catch(() => undefined)
-			if (applied?.ok) {
-				// Consumed only once it took effect: a failed apply must be retried by the next runtime,
-				// unless a global decision has meanwhile made the intent moot.
-				consumeIntent(env, intentKey)
+			// Durable suppression first: if the receipt cannot be written, a reload would re-apply the
+			// inherited `on` after the user's later `off --all`, so the intent is not honoured at all.
+			if (applied?.ok && consumeIntent(env, intentKey)) {
 				sessionMode = { mode: requestedMode, globalAt }
 			}
 		}

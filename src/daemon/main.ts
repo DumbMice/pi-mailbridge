@@ -398,9 +398,10 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 			// Inside the try: since the stores rethrow a read fault, this line can fail, and outside it
 			// the failure would be swallowed by the scan queue with no log line at all.
 			const before = new Set(listPending().map((r) => r.uid))
+			// No `Boolean(subject)` in the exclusion: an address-channel request may carry no subject, and
+			// matchChannel already decides what belongs to the starter.
 			const result = await scanAndProcess(currentConfig, {
 				isStarterChannel: (subject, to) =>
-					Boolean(subject) &&
 					matchChannel(currentConfig.starter, { subject, to: to ?? [], device: currentConfig.device.name }).ours,
 				applyUidValidity: (env) =>
 					applyUidValidity(env, currentWatcher, (sessionId) => registry.release(sessionId)),

@@ -62,7 +62,8 @@ export interface SpawnDeps {
 
 export type SpawnResult =
 	| { ok: true; tmuxSessionId: string }
-	| { ok: false; reason: string; detail: string }
+	/** `uncertain`: the launch may have produced a session we cannot identify; recovery must look, not forget. */
+	| { ok: false; reason: string; detail: string; uncertain?: boolean }
 
 function defaultExec(argv: string[]): Promise<ExecResult> {
 	return new Promise((resolve) => {
@@ -146,6 +147,17 @@ export async function readOwnershipMarker(
 	return value || undefined
 }
 
+/**
+ * Kill only if the session's environment still names this request — evaluated *inside* the tmux server by a
+ * single `if-shell`, so a restart cannot swap the target between the check and the kill: the command and its
+ * condition run in the same server process, and a server that dies takes the command with it.
+ */
+export function buildKillIfOwnedArgv(tmuxSessionId: string, requestId: string, socket = DEFAULT_SOCKET): string[] {
+	const marker = `$(tmux -L ${socket} show-environment -t '${tmuxSessionId}' PI_MAILBRIDGE_REQUEST 2>/dev/null)`
+	const test = `test "${marker}" = "PI_MAILBRIDGE_REQUEST=${requestId}"`
+	return ["tmux", "-L", socket, "if-shell", "-t", tmuxSessionId, test, `kill-session -t '${tmuxSessionId}'`]
+}
+
 /** `#{session_name}` for one id: the ownership check, without relying on the numeric id. */
 export function buildNameArgv(tmuxSessionId: string, socket = DEFAULT_SOCKET): string[] {
 	return ["tmux", "-L", socket, "display-message", "-p", "-t", tmuxSessionId, "#{session_name}"]
@@ -213,10 +225,7 @@ export async function spawnSession(plan: SpawnPlan, deps: SpawnDeps = {}): Promi
 	const kill = async (): Promise<void> => {
 		const id = await exec(buildSessionIdArgv(plan.tmuxId, socket))
 		if (id.code !== 0) return
-		const tmuxSessionId = id.stdout.trim()
-		const owner = await readOwnershipMarker(tmuxSessionId, { exec, socket })
-		if (owner !== plan.requestId) return
-		await exec(buildKillArgv(tmuxSessionId, socket))
+		await exec(buildKillIfOwnedArgv(id.stdout.trim(), plan.requestId, socket))
 	}
 
 	for (;;) {
@@ -235,7 +244,12 @@ export async function spawnSession(plan: SpawnPlan, deps: SpawnDeps = {}): Promi
 			// Ready is a claim about *a* session; the marker says it is ours.
 			const owner = await readOwnershipMarker(tmuxSessionId, { exec, socket })
 			if (owner !== plan.requestId) {
-				return { ok: false, reason: "not-ours", detail: "the ready session carries another request's marker" }
+				return {
+					ok: false,
+					reason: "not-ours",
+					detail: "the ready session carries another request's marker",
+					uncertain: true,
+				}
 			}
 			return { ok: true, tmuxSessionId }
 		}

@@ -398,6 +398,16 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 		...(deps.socket ? { socket: deps.socket } : {}),
 	})
 	if (!result.ok) {
+		// An unreadable ownership marker means the child may exist and may be ours: refusing conclusively
+		// would orphan it. Keep the recovery evidence and let reconciliation look.
+		if (result.uncertain) {
+			transition(journal, id, { state: "uncertain", reason: `${result.reason}: ${result.detail}` }, deps.now())
+			deps.save(journal)
+			const sentUncertain = await reply(
+				`[pi-start] the session could not be identified after starting (${result.detail}); it needs a look — nothing else was started`,
+			)
+			return { action: "refused", code: result.reason, detail: result.detail, replied: sentUncertain }
+		}
 		// The bootstrap never read it, so it is a secret-bearing temp file nobody will consume.
 		deps.removePrompt?.(id)
 		transition(journal, id, { state: "refused", reason: `${result.reason}: ${result.detail}` }, deps.now())

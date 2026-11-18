@@ -6,11 +6,12 @@
 //   * `wx` makes the create atomic: two processes cannot both create the file.
 //   * the pid inside lets a later process tell a live holder (it is not locked out) from a crash (it is
 //     stolen), so a killed process never locks the machine out.
-//   * a stale lock is stolen by RENAMING it aside, not unlinking it: an unlink plus a retake lets two
-//     stealers both win.
+//   * a stale lock is NOT stolen. Moving a lock that another process may have just replaced is how two
+//     owners end up convinced they hold it; the holder is reported instead, and only an explicit
+//     `pi-mailbridge starter unlock` (which re-checks that the holder is dead) clears it.
 
 import { randomBytes } from "node:crypto"
-import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 
 import { statePath } from "./paths.ts"
@@ -26,10 +27,12 @@ export interface Lock {
 	verify: () => boolean
 }
 
-export type LockResult = { ok: true; lock: Lock } | { ok: false; holder: number }
+export type LockResult =
+	| { ok: true; lock: Lock }
+	| { ok: false; holder: number; stale?: boolean }
 
 /** Is `pid` a live process (or one we are not allowed to signal, which also counts as live)? */
-function isAlive(pid: number): boolean {
+export function isAlive(pid: number): boolean {
 	try {
 		process.kill(pid, 0)
 		return true
@@ -44,7 +47,7 @@ export function acquireLock(env: NodeJS.ProcessEnv, fileName: string): LockResul
 		try {
 			mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
 			// A token, not just the pid: two locks created by the same process (or a reused pid) must still be
-			// distinguishable, and `verify` is what turns a takeover into an abort instead of two owners.
+			// distinguishable, and `verify` is what turns a lost lock into an abort instead of two owners.
 			const token = `${process.pid} ${randomBytes(8).toString("hex")}`
 			writeFileSync(path, token, { flag: "wx", mode: 0o600 })
 			const mine = (): string | undefined => {
@@ -60,7 +63,7 @@ export function acquireLock(env: NodeJS.ProcessEnv, fileName: string): LockResul
 					path,
 					verify: () => mine() === token,
 					release: () => {
-						// Only remove our own: a stolen lock belongs to someone else now.
+						// Only remove our own: a replaced lock belongs to someone else now.
 						try {
 							if (mine() === token) unlinkSync(path)
 						} catch {
@@ -77,43 +80,18 @@ export function acquireLock(env: NodeJS.ProcessEnv, fileName: string): LockResul
 	const first = take()
 	if (first) return first
 
+	// No takeover. Renaming another process's lock away cannot be made safe: between judging it stale and
+	// moving it, its owner can replace it, leaving two processes convinced they hold the lock. A stale lock
+	// is therefore reported, and only an explicit operator action clears it (`starter unlock`, which
+	// re-checks that the holder is dead).
 	let holder = 0
+	let stale = false
 	try {
-		holder = Number(readFileSync(path, "utf8").trim().split(" ")[0])
+		const content = readFileSync(path, "utf8").trim()
+		holder = Number(content.split(" ")[0])
+		stale = !(holder > 0 && isAlive(holder))
 	} catch {
-		/* unreadable: treat as stale */
+		stale = true
 	}
-	if (holder > 0 && holder !== process.pid && isAlive(holder)) return { ok: false, holder }
-
-	// Stale: steal by renaming, so exactly one stealer gets the file.
-	const aside = `${path}.${process.pid}.stale`
-	try {
-		renameSync(path, aside)
-	} catch {
-		// Someone else moved it first; try again from the top once.
-		const retry = take()
-		return retry ?? { ok: false, holder }
-	}
-	let moved = Number.NaN
-	try {
-		moved = Number(readFileSync(aside, "utf8").trim().split(" ")[0])
-	} catch {
-		/* unreadable: it was a corpse anyway */
-	}
-	try {
-		unlinkSync(aside)
-	} catch {
-		/* best effort */
-	}
-	// If what we moved was not the corpse we judged dead, put it back and report the holder.
-	if (Number.isFinite(moved) && moved > 0 && moved !== holder && isAlive(moved)) {
-		try {
-			writeFileSync(path, String(moved), { flag: "wx", mode: 0o600 })
-		} catch {
-			/* another process won the retake; its lock is the live one */
-		}
-		return { ok: false, holder: moved }
-	}
-	const taken = take()
-	return taken ?? { ok: false, holder }
+	return { ok: false, holder, ...(stale ? { stale: true } : {}) }
 }

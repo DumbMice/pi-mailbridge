@@ -4,14 +4,14 @@
 // furniture a watcher needs: the lock, the log, prompt files, and the wiring of the IMAP watcher to the
 // scan loop.
 
-import { existsSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { execFile, spawn } from "node:child_process"
 
 import type { ResolvedConfig } from "../core/config.ts"
 import { loadConfig } from "../core/config.ts"
 import { statePath } from "../store/paths.ts"
-import { type Lock, acquireLock } from "../store/lock.ts"
+import { type Lock, acquireLock, isAlive } from "../store/lock.ts"
 import { createCursorStore } from "../store/uid-cursor.ts"
 import { type JournalFile, JOURNAL_DEFAULTS, mergeJournals, readJournal, writeJournal } from "./journal.ts"
 import { buildSpawnArgv, listSessions, readOwnershipMarker, spawnSession, stopSession, type SpawnPlan } from "./spawn.ts"
@@ -210,8 +210,16 @@ export function starterProblems(config: ResolvedConfig, env: NodeJS.ProcessEnv =
 	// operator the opposite of the code on the line they read to decide the configuration is safe.
 	if (config.starter.roots.length === 0) problems.push("starter.roots is empty — no mail could start a session")
 	for (const root of config.starter.roots) {
-		// `validateCwd` refuses `/` outright, so a root of `/` is a configuration that can never work.
-		if (root.replace(/\/+$/, "") === "") problems.push("starter.roots: / is refused — a root must be a directory a session can be inside")
+		// Canonicalise first: `validateCwd` resolves roots and skips `/`, so `/tmp/..` is the same unusable
+		// root as `/` even though the spelling differs.
+		const canonical = (() => {
+			try {
+				return realpathSync(root)
+			} catch {
+				return root
+			}
+		})()
+		if (canonical === "/") problems.push("starter.roots: / is refused — a root must be a directory a session can be inside")
 		else if (!existsSync(root)) problems.push(`starter.roots: ${root} does not exist`)
 		else if (!statSync(root).isDirectory()) problems.push(`starter.roots: ${root} is not a directory`)
 	}
@@ -298,7 +306,11 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 	// contender that starts scanning from stale history can double-reserve a name.
 	const lifetime = acquireLock(ctx.env, "starter.lock")
 	if (!lifetime.ok) {
-		ctx.err(`another starter is already running (pid ${lifetime.holder})`)
+		ctx.err(
+			lifetime.stale
+				? `the starter lock is stale (holder ${lifetime.holder || "unknown"} is gone); run \`pi-mailbridge starter unlock\` to clear it`
+				: `another starter is already running (pid ${lifetime.holder})`,
+		)
 		return once ? 1 : 0
 	}
 	try {
@@ -458,6 +470,29 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 		return 0
 	}
 
+	if (cmd === "unlock") {
+		// The only way a stale lock is cleared: it is never stolen automatically, because moving a lock that
+		// another process may have just replaced is how two owners end up convinced they hold it.
+		const file = statePath(ctx.env, "starter.lock")
+		let holder = 0
+		try {
+			holder = Number(readFileSync(file, "utf8").trim().split(" ")[0])
+		} catch {
+			ctx.out("no starter lock to clear")
+			return 0
+		}
+		if (holder > 0 && isAlive(holder)) {
+			ctx.err(`the lock is held by a live process (pid ${holder}); stop it first`)
+			return 1
+		}
+		try {
+			unlinkSync(file)
+		} catch {
+			/* already gone */
+		}
+		ctx.out(`cleared the stale starter lock (holder ${holder || "unknown"} was gone)`)
+		return 0
+	}
 	if (cmd === "repair") {
 		// The corrupt-journal refusal points here, so this has to exist: set the bad bytes aside, clear the
 		// marker, and say where the evidence went. It never deletes what it cannot read.

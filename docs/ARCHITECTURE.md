@@ -384,6 +384,10 @@ session); the human name is separate. The journal records the immutable tuple (r
 session id); `stop` verifies the tmux id before killing anything, so a reused name cannot kill a session the
 operator started by hand.
 
+**A stale lock is not stolen.** A crashed starter leaves `starter.lock`; the next start refuses and says to
+run `starter unlock`, which clears it only after confirming the holder is dead. Stealing automatically is
+what lets two processes both believe they hold it.
+
 **Crash behaviour.** The reservation is written before the spawn, so a crash leaves a record that says what
 *should* exist: recovery adopts a matching live session, refuses a reserved request with no session, and
 marks an unattributable one `uncertain` — never respawned automatically. Result delivery is tracked

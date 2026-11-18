@@ -523,3 +523,17 @@ test("the refusal is already persisted when the mail is being sent", async () =>
 	}
 })
 
+test("an unidentifiable child is uncertain, and its evidence is kept", async () => {
+	// Refusing conclusively would orphan a session that may be ours; recovery has to be able to look.
+	const r = rig()
+	const removed: string[] = []
+	r.deps.removePrompt = (id) => removed.push(id)
+	r.deps.spawn = async () => ({ ok: false, reason: "not-ours", detail: "no marker", uncertain: true })
+	const outcome = await handleMail(mail({ messageId: "<u@x>", uid: 81 }, r.project), r.deps)
+	assert.equal(outcome.action, "refused")
+	const record = Object.values(r.journal.requests).find((entry) => entry.messageId === "<u@x>")
+	assert.equal(record?.state, "uncertain")
+	assert.equal(removed.length, 0, "the prompt/receipt evidence is not deleted")
+	assert.equal(r.replies.length, 1, "and the operator is told it needs a look")
+})
+

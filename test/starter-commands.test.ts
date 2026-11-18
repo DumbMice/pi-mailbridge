@@ -358,6 +358,9 @@ test("check rejects a root of / and a default cwd it would refuse", () => {
 	// Both pass the old existence checks and then make every request impossible.
 	const slash = starterProblems(config({ roots: ["/"] }))
 	assert.ok(slash.some((line) => /roots: \/ is refused/.test(line)), slash.join("; "))
+	// Canonicalisation, not spelling: `/tmp/..` is the filesystem root too.
+	const canonical = starterProblems(config({ roots: ["/tmp/.."] }))
+	assert.ok(canonical.some((line) => /roots: \/ is refused/.test(line)), canonical.join("; "))
 	const outside = starterProblems(config({ roots: ["/tmp/pmb-none"], defaultCwd: "/etc" }))
 	assert.ok(outside.some((line) => /defaultCwd would be refused/.test(line)), outside.join("; "))
 })
