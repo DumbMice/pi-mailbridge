@@ -451,7 +451,25 @@ test("a journal save adopts the pruned result, not the merged superset", () => {
 		sessions: { gone: { name: "gone", tmuxSessionId: "$1", piSessionId: "pi", requestId: "gone", cwd: "/tmp", at: old, endedAt: old } },
 	}
 	journalStore(env, config())(journal)
+	const reread = readJournal(env)
+	assert.equal(reread.requests.gone, undefined, "and the file agrees")
 	assert.equal(journal.requests.gone, undefined, "the in-memory view forgets what the file forgot")
 	assert.equal(journal.sessions.gone, undefined)
+})
+
+test("a repair that throws releases both locks", async () => {
+	// A failed repair must not leave the state directory locked out until someone notices.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-repair-throw-")) }
+	const file = statePathForTest(env)
+	mkdirSync(dirname(file), { recursive: true })
+	writeFileSync(file, "{broken", { mode: 0o600 })
+	// A directory in the destination's place makes the rename fail (rename onto a non-empty directory).
+	const stamp = new Date().toISOString().replace(/[:.]/g, "-")
+	const target = `${file}.repair-${stamp}`
+	mkdirSync(target, { recursive: true })
+	writeFileSync(join(target, "x"), "occupied")
+	await runStarterCommand(["repair"], { config: config(), env, stdout: () => {}, stderr: () => {} }).catch(() => 1)
+	assert.equal(existsSync(statePath(env, "starter.lock")), false, "the lifetime lock is released")
+	assert.equal(existsSync(statePath(env, "starter-journal.lock")), false, "the journal lock is released")
 })
 

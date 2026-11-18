@@ -534,7 +534,11 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 		const transaction = acquireLock(ctx.env, "starter-journal.lock")
 		if (!transaction.ok) {
 			lifetime.lock.release()
-			ctx.err("the journal is being written right now; try again in a moment")
+			ctx.err(
+				transaction.stale
+					? "the journal lock is stale (its holder is gone); run `pi-mailbridge starter locks` and remove the file by hand, then retry"
+					: "the journal is being written right now; try again in a moment",
+			)
 			return 1
 		}
 		// The corrupt-journal refusal points here, so this has to exist: set the bad bytes aside, clear the
@@ -543,18 +547,23 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 		const marker = `${file}.failed`
 		const stamp = new Date().toISOString().replace(/[:.]/g, "-")
 		let moved: string | undefined
-		if (existsSync(file)) {
-			const target = `${file}.repair-${stamp}`
-			renameSync(file, target)
-			moved = target
-		}
 		try {
-			unlinkSync(marker)
-		} catch {
-			/* no marker: nothing to clear */
+			if (existsSync(file)) {
+				const target = `${file}.repair-${stamp}`
+				renameSync(file, target)
+				moved = target
+			}
+			try {
+				unlinkSync(marker)
+			} catch {
+				/* no marker: nothing to clear */
+			}
+		} finally {
+			// Both locks are released even when the rename throws: a failed repair must not leave the state
+			// directory locked out until someone notices by hand.
+			transaction.lock.release()
+			lifetime.lock.release()
 		}
-		transaction.lock.release()
-		lifetime.lock.release()
 		ctx.out(
 			moved
 				? `set aside ${moved}; the starter will start with an empty journal, which discards replay and session-ownership history`

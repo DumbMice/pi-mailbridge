@@ -412,8 +412,8 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 		deps.removePrompt?.(id)
 		transition(journal, id, { state: "refused", reason: `${result.reason}: ${result.detail}` }, deps.now())
 		deps.save(journal)
-		await reply(`[pi-start] refused — ${result.reason}: ${result.detail}`)
-		return { action: "refused", code: result.reason, detail: result.detail, replied: true }
+		const sentFailure = await reply(`[pi-start] refused — ${result.reason}: ${result.detail}`)
+		return { action: "refused", code: result.reason, detail: result.detail, replied: sentFailure }
 	}
 
 	// 11. Success, recorded before the mail: a crash leaves `ready, resultSent: false`, which is retried.

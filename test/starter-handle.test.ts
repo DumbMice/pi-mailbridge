@@ -552,3 +552,14 @@ test("list: and stop: report a failed reply, like every other branch", async () 
 	if (stop.action === "stopped") assert.equal(stop.replied, false)
 })
 
+test("a definitive spawn failure reports a reply that could not be sent", async () => {
+	const r = rig()
+	r.deps.spawn = async () => ({ ok: false, reason: "spawn-failed", detail: "tmux refused" })
+	r.deps.send = async () => {
+		throw new Error("smtp down")
+	}
+	const outcome = await handleMail(mail({ messageId: "<sf@x>", uid: 95 }, r.project), r.deps)
+	assert.equal(outcome.action, "refused")
+	if (outcome.action === "refused") assert.equal(outcome.replied, false)
+})
+

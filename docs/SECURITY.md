@@ -163,7 +163,8 @@ problem for `starter check`); the body grammar (a reply is read above its quote,
 reused from §2 rather than reimplemented; the mailbox's own echo markers; the channel (subject prefix, or a
 configured address — never both); replay (Message-ID, UID space) and freshness (INTERNALDATE); then the
 hourly budget and live session cap, the optional stage-B parse, path validation, model allowlist and name
-sanitising, and the reservation written before anything is spawned. Commands and refusals are recorded
+sanitising, and the reservation written before the **requested session** is spawned. (Stage B is a separate,
+read-only `pi --print` run that precedes the reservation and spawns no session.) Commands and refusals are recorded
 durably before they act or are mailed; a *start* is reserved only after validation, so no session can exist
 without a record of it.
 

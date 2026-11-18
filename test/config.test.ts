@@ -380,6 +380,10 @@ test("a malformed security boolean cannot disable DMARC or relax self-replies", 
 		)
 		const loaded = loadConfig(env)
 		assert.equal(loaded.security[key], expected, `${key}=${JSON.stringify(value)}`)
+		assert.ok(
+			loaded.warnings.some((line) => line.includes(`security.${key}`)),
+			`the malformed value is reported: ${JSON.stringify(value)}`,
+		)
 	}
 })
 
