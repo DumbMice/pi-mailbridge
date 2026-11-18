@@ -484,3 +484,27 @@ test("a stop that tmux refuses is journalled as settled", async () => {
 	assert.equal(again.action, "ignored", "one mail cannot ask twice")
 })
 
+test("a refusal is durable before its mail: a crash after the send cannot leave it replayable", async () => {
+	// The record was written after awaiting the reply, so a crash mid-send left no tombstone; and the
+	// validation refusals wrote none at all. Creating the directory later made the replay execute.
+	const r = rig()
+	const missing = `${r.project}/later`
+	const first = await handleMail(mail({ messageId: "<cr@x>", uid: 50, body: `cwd: ${missing}` }, r.project), r.deps)
+	assert.equal(first.action, "refused")
+	assert.ok(
+		Object.values(r.journal.requests).some((entry) => entry.state === "refused" && entry.messageId === "<cr@x>"),
+		"the refusal is in the journal",
+	)
+	mkdirSync(missing, { recursive: true })
+	const replay = await handleMail(mail({ messageId: "<cr@x>", uid: 50, body: `cwd: ${missing}` }, r.project), r.deps)
+	assert.equal(replay.action, "ignored", "the same mail cannot become executable later")
+})
+
+test("stop: all settles, so command records stay prunable", async () => {
+	const r = rig()
+	const outcome = await handleMail(mail({ messageId: "<sa@x>", uid: 51, body: "stop: all" }, r.project), r.deps)
+	assert.equal(outcome.action, "stopped")
+	const record = Object.values(r.journal.requests).find((entry) => entry.messageId === "<sa@x>")!
+	assert.equal(record.state, "ended", "an admitted command must reach a terminal state")
+})
+

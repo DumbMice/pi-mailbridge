@@ -161,11 +161,14 @@ export async function runSmoke(config: ResolvedConfig, deps: SmokeDeps = {}): Pr
 					// Classify on what the scanner actually uses: the marker, then our
 					// Message-ID. Claiming the Message-ID survived without checking it was the
 					// bug the live account exposed.
-					// Our own copy: the delivering provider's header, not a sender's. Safe to learn from.
-					// Only a syntactically valid authserv-id: a bare Microsoft header starts with `spf=pass`,
-					// which is a mechanism, not the receiving system's name.
+					// The trust anchor is learned only from a copy that carries *our* identifying stamp: a
+					// notification-looking message with someone else's Message-ID is not proof that this
+					// provider wrote the header in front of us. The permissive match above is only for
+					// "did the echo come back" reporting.
 					const candidate = /^authentication-results:\s*([^\s;]+)/im.exec(head)?.[1]
-					authservId = candidate && isAuthservId(candidate) ? candidate.toLowerCase() : undefined
+					if (stamped === undefined || stamped === wanted) {
+						if (candidate && isAuthservId(candidate)) authservId = candidate.toLowerCase()
+					}
 					if (/^x-pi-mailbridge:\s*notification/im.test(head)) seen = "marker"
 					else if (messageIdFromHeaders(head) === wanted) seen = "id"
 					else seen = "rewritten"

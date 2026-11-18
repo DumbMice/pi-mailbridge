@@ -157,11 +157,14 @@ or switch sessions.
 > An email from the allowlisted address can make this machine start a process, in a directory the operator
 > allows, running a prompt that email contains.
 
-The gates, in order: `starter.enabled` plus a non-empty `starter.roots` (a problem for `starter check`);
-the channel (subject prefix, or a configured address); `security.allowFrom` exact match and DMARC, reused
-from §2 rather than reimplemented; the mailbox's own echo markers; replay and freshness (Message-ID, UID
-space, INTERNALDATE); path validation; model allowlist; name sanitising; a per-hour start budget and a live
-session cap.
+The gates, in the order `handleMail()` applies them: `starter.enabled` plus a non-empty `starter.roots` (a
+problem for `starter check`); the body grammar (a reply is read above its quote, and a reply that is not
+`stop:`/`list:` is refused rather than treated as a request); `security.allowFrom` exact match and DMARC,
+reused from §2 rather than reimplemented; the mailbox's own echo markers; the channel (subject prefix, or a
+configured address — never both); replay (Message-ID, UID space) and freshness (INTERNALDATE); then a
+durable record of the mail as a command or refusal, and for a start the hourly budget and live session cap,
+the optional stage-B parse, path validation, model allowlist, name sanitising, and the reservation written
+before anything is spawned.
 
 **A starter request is authorized by address and DMARC, not by a routing token.** It cannot carry one — a
 fresh request has no reply headers, which is the one requirement the starter's authorization context

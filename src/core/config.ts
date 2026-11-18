@@ -543,7 +543,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 			.map((tool) => tool.trim())
 			.filter(Boolean)
 		const extra = tools.filter((tool) => !allowedTools.has(tool))
-		if (resolved.starter.parse.agent && extra.length > 0) {
+		// Unconditional: a mail containing `parse: agent` invokes stage B even when the config flag is off.
+		if (extra.length > 0) {
 			warnings.push(`starter.parse.tools must stay read-only (read,grep,find,ls); ignoring ${extra.join(",")}`)
 			resolved.starter = { ...resolved.starter, parse: { ...resolved.starter.parse, tools: "read,grep,find,ls" } }
 		}

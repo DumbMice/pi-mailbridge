@@ -141,7 +141,21 @@ async function reconcileInterrupted(record: ReturnType<typeof alreadySeen>, deps
 	const live = liveNow
 	// The marker is the only proof that survives a reused id *and* a reused name; adoption must demand it
 	// for the same reason stop does.
-	if (deps.ownerOf) {
+	if (!deps.ownerOf) {
+		// Without the marker there is no proof this live session is ours: adopting on a reusable id/name is
+		// the assumption the ownership marker exists to replace.
+		deps.journal.requests[record.id] = {
+			...record,
+			state: "uncertain",
+			reason: "ownership cannot be verified without the session marker",
+			at: deps.now(),
+		}
+		summary.uncertain += 1
+		deps.log(`uncertain ${record.id}: no ownership reader`)
+		deps.saveJournal(deps.journal)
+		return
+	}
+	{
 		const match = live.find((entry) => entry.name === (record.tmuxName ?? record.name) || entry.id === record.tmuxSessionId)
 		if (match) {
 			const owner = await deps.ownerOf(match.id)

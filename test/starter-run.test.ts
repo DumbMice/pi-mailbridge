@@ -122,6 +122,7 @@ test("a result that never went out is mailed once on the next scan, without re-s
 		},
 	})
 	r.liveSessions = async () => [{ id: "$4", name: "do-a-thing" }]
+	r.ownerOf = async () => "req-1"
 	const sent: { subject: string; text: string }[] = []
 	r.handle.send = async (message) => {
 		sent.push({ subject: message.subject, text: message.text })
@@ -185,6 +186,7 @@ test("an interrupted request is reconciled against what is running, not re-run",
 		},
 	})
 	r.liveSessions = async () => [{ id: "$4", name: "do-a-thing" }]
+	r.ownerOf = async () => "req-1"
 	const summary = await scanOnce(r)
 	assert.equal(summary.adopted, 1)
 	assert.equal(r.spawnCalls, 0, "adopting is not spawning")
@@ -243,6 +245,7 @@ test("a reserved record with no id but a live name is adopted, not refused", asy
 		},
 	})
 	r.liveSessions = async () => [{ id: "$12", name: "half-born" }]
+	r.ownerOf = async () => "req-2"
 	await scanOnce(r)
 	assert.equal(r.journal.requests["req-2"]?.state, "ready", "the child exists; adoption is the honest answer")
 	assert.equal(r.journal.sessions["half-born"]?.tmuxSessionId, "$12")

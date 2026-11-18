@@ -7,7 +7,8 @@
 An optional, separate process — `pi-mailbridge starter run` — watches a channel (by default the mailbox the
 bridge already watches, subject `[pi-start] …`) and starts a **detached pi session in tmux**. `cwd`,
 `model`, `thinking`, `name` and the first prompt come from the mail; the prompt defaults to `hi`. `stop:`
-and `list:` are the same channel; every request gets one reply: started or refused.
+and `list:` are the same channel. A request normally gets one reply — started or refused — subject to the
+hourly confirmation budget and to SMTP; a send that fails leaves the result owed rather than looping.
 
 The parts that make this safe rather than alarming: a session's cwd must be **inside** a configured root
 (realpath, hidden segments refused); the prompt never travels in argv (pi would parse `--continue`, read

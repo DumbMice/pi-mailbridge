@@ -210,6 +210,12 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 	const settle = (kind: string, patch: Partial<RequestRecord> = {}): void => {
 		record("ended", kind, patch)
 	}
+	/** Refuse: durable *before* the mail, so a crash during the send cannot leave the mail replayable. */
+	const refuse = async (code: string, detail: string, kind = "start"): Promise<Extract<Outcome, { action: "refused" }>> => {
+		record("refused", kind, { reason: `${code}: ${detail}` })
+		const replied = await reply(`[pi-start] refused — ${detail}`)
+		return { action: "refused", code, detail, replied }
+	}
 
 	// A reply is how `stop:` comes back (the result mail says so), but a non-command reply is a person
 	// answering a notification: starting a session from it would run the quoted history as the prompt.
@@ -276,7 +282,8 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 			deps.save(journal)
 			const said = results.map(([name, result]) => `${name} ${result}`).join(", ") || "nothing to stop"
 			await reply(`[pi-start] ${said}`)
-				return { action: "stopped", name: "all", replied: true }
+			settle("stop")
+			return { action: "stopped", name: "all", replied: true }
 		}
 		const result = await stopOne(target)
 		deps.save(journal)
@@ -294,10 +301,7 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 	}
 
 	if (!isCommand && startQuotaReached(config, journal, now)) {
-		const sent = await reply("[pi-start] refused — start budget or live-session cap reached; stop a session or wait")
-		// Recorded: a replay after the budget frees up must not execute the mail that was refused.
-		record("refused", "start", { reason: "quota" })
-		return { action: "refused", code: "quota", detail: "start budget or session cap", replied: sent }
+		return refuse("quota", "start budget or live-session cap reached; stop a session or wait")
 	}
 
 	// 7. Parsing, then the optional agent for a missing cwd. Explicit values are never repaired.
@@ -312,8 +316,7 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 	if (!fields.cwd && starter.defaultCwd) fields = { ...fields, cwd: starter.defaultCwd }
 	if (!fields.cwd) {
 		const detail = starter.parse.agent || wantsAgent ? "cwd is missing and could not be determined" : "cwd is required"
-		await reply(`[pi-start] refused — ${detail} (set "cwd:" or starter.defaultCwd)`)
-		return { action: "refused", code: "missing-cwd", detail, replied: true }
+		return refuse("missing-cwd", `${detail} (set "cwd:" or starter.defaultCwd)`)
 	}
 
 	// 8. Validation: the boundary.
@@ -322,20 +325,17 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 		reserved: [parentOf(configPath(deps.env)), parentOf(statePath(deps.env, "x"))],
 	})
 	if (!cwd.ok) {
-		await reply(`[pi-start] refused — ${cwd.code}: ${cwd.detail}`)
-		return { action: "refused", code: cwd.code, detail: cwd.detail, replied: true }
+		return refuse(cwd.code, cwd.detail)
 	}
 	if (fields.model) {
 		const model = validateModel(fields.model, starter.models)
 		if (!model.ok) {
-			await reply(`[pi-start] refused — ${model.code}: ${model.detail}`)
-			return { action: "refused", code: model.code, detail: model.detail, replied: true }
+			return refuse(model.code, model.detail)
 		}
 	} else if (starter.defaultModel) {
 		const model = validateModel(starter.defaultModel, [...starter.models, starter.defaultModel])
 		if (!model.ok) {
-			await reply(`[pi-start] refused — ${model.code}: ${model.detail} (starter.defaultModel)`)
-			return { action: "refused", code: model.code, detail: model.detail, replied: true }
+			return refuse(model.code, `${model.detail} (starter.defaultModel)`)
 		}
 	}
 	if (fields.thinking) {
@@ -348,8 +348,7 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 
 	const name = planName({ requested: fields.name, title: channel.title, taken: Object.keys(journal.sessions), now: new Date(now) })
 	if (!name.ok) {
-		await reply(`[pi-start] refused — ${name.code}: ${name.detail}`)
-		return { action: "refused", code: name.code, detail: name.detail, replied: true }
+		return refuse(name.code, name.detail)
 	}
 
 	// 9. Reserve before executing: the record says what should exist, before it exists.
@@ -371,6 +370,8 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 		// Ownership before existence: recovery matches a live child by this name, never by a `$N` that the
 		// tmux server may reuse after a restart.
 		tmuxName: name.value,
+		// Recovery reads this before calling an adopted child "started"; without it the check is skipped.
+		readyFile,
 		...(model ? { model } : {}),
 	}
 	deps.save(journal)

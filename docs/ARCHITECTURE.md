@@ -381,7 +381,8 @@ operator started by hand.
 **Crash behaviour.** The reservation is written before the spawn, so a crash leaves a record that says what
 *should* exist: recovery adopts a matching live session, refuses a reserved request with no session, and
 marks an unattributable one `uncertain` — never respawned automatically. Result delivery is tracked
-separately (`ready, resultSent: false` is retried once; it is not a re-spawn). An unreadable journal fails
+separately: a `ready, resultSent: false` record is mailed on the next scan and stays owed until it goes
+out — mail retries, spawning never does. An unreadable journal fails
 closed.
 
 **Honest limits, in SECURITY.md**: an allowed `cwd` is a launch restriction, not a sandbox; stage B's

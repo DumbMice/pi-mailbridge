@@ -8,6 +8,7 @@ import assert from "node:assert/strict"
 import { existsSync, mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { spawn } from "node:child_process"
 import { statePath } from "../src/store/paths.ts"
 
 import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
@@ -16,6 +17,21 @@ import { type JournalFile, readJournal } from "../src/starter/journal.ts"
 import { validateCwd } from "../src/starter/validate.ts"
 
 const statePathForTest = (env: NodeJS.ProcessEnv) => statePath(env, "starter-journal.json")
+
+/** A live process that holds nothing: its pid is all the test needs. */
+function spawnHolder(): { pid: number; kill: () => void } {
+	const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" })
+	return {
+		pid: child.pid ?? 0,
+		kill: () => {
+			try {
+				child.kill()
+			} catch {
+				/* already gone */
+			}
+		},
+	}
+}
 
 function config(over: Partial<typeof STARTER_DEFAULTS> = {}): ResolvedConfig {
 	const base = mkdtempSync(join(tmpdir(), "pmb-cmd-root-"))
@@ -268,10 +284,13 @@ test("the journal write is a transaction: a held lock refuses rather than overwr
 	// lost replay guard.
 	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-txn-")) }
 	const journal: JournalFile = { v: 1, requests: {}, sessions: {} }
-	// A live pid that is not ours: pid 1 is always alive, and `isAlive` counts EPERM as alive too.
+	// A real, separately controlled holder: a child process that is alive while the write is attempted.
+	// (The lock treats its own pid as stale, so the holder cannot be this process.)
+	const holder = spawnHolder()
 	mkdirSync(dirname(statePath(env, "starter-journal.lock")), { recursive: true })
-	writeFileSync(statePath(env, "starter-journal.lock"), "1", { mode: 0o600 })
+	writeFileSync(statePath(env, "starter-journal.lock"), String(holder.pid), { mode: 0o600 })
 	assert.throws(() => journalStore(env, config())(journal), /another process is writing the journal/)
+	holder.kill()
 	unlinkSync(statePath(env, "starter-journal.lock"))
 	assert.doesNotThrow(() => journalStore(env, config())(journal))
 })

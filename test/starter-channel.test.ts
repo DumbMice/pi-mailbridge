@@ -65,3 +65,9 @@ test("a display-name recipient matches the configured address", () => {
 	if (matched.ours) assert.equal(matched.title, "fix it")
 })
 
+test("a malformed configured address matches nothing, rather than every malformed recipient", () => {
+	// normalizeAddress returns undefined for both, and `undefined === undefined` admitted off-channel mail.
+	const config = { ...STARTER_DEFAULTS, channel: channel({ address: "not-an-address" }) }
+	assert.equal(matchChannel(config, { subject: "x", to: ["invalid recipient"], device: "dev-1" }).ours, false)
+})
+

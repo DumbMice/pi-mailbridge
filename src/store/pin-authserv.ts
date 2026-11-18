@@ -49,7 +49,9 @@ export function pinAuthservId(
 		return { pinned: false, reason: "no-config" }
 	}
 	const security = (parsed.security ?? {}) as Record<string, unknown>
-	if (security.requireDmarcPass !== true) return { pinned: false, reason: "not-required" }
+	// Omitted means the resolved default, which is true: reading only an explicit `true` refused to pin a
+	// configuration that does require DMARC.
+	if (security.requireDmarcPass === false) return { pinned: false, reason: "not-required" }
 	const current = typeof security.trustedAuthservId === "string" ? security.trustedAuthservId.trim() : ""
 	if (current) return { pinned: false, reason: "already-set" }
 

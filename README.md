@@ -107,8 +107,9 @@ read as part of the model id and refused. `model` is optional but must be on `st
 
 `prompt` defaults to `hi`, and the session name comes from the subject. A request normally gets one reply —
 `started` (with the `tmux attach` line and the exact `stop:` text) or `refused` with the reason — but replies
-are bound by `starter.confirmationsPerHour` and by SMTP itself, so a send that fails or a budget that is
-spent means **no** reply rather than a retry loop. A reply to a result that is not `stop:`/`list:` is
+are bound by `starter.confirmationsPerHour` and by SMTP itself. The two are not quite symmetric: a result
+mail that fails to send is recorded as still owed and is sent on a later scan, while a *refusal* the
+budget swallowed is not retried — send the mail again if you need it answered. A reply to a result that is not `stop:`/`list:` is
 answered with a refusal, never treated as a request: start sessions with a new mail. `list:` lists live
 sessions, and says "tmux did not answer" rather than "no sessions" when the socket is unavailable.
 

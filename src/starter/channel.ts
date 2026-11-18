@@ -63,7 +63,10 @@ export function matchChannel(config: StarterConfig, input: ChannelInput): Channe
 	let byAddress = false
 	// `To: Starter <start@example.com>` is the ordinary form; comparing the raw value with an addr-spec
 	// rejected it, so a dedicated alias only worked if the client sent a bare address.
-	if (address) byAddress = input.to.some((value) => normalizeAddress(value) === normalizeAddress(address))
+	const wanted = address ? normalizeAddress(address) : undefined
+	// `normalizeAddress` returns undefined for a malformed address; comparing those would admit anything
+	// sent to anything, so both sides must be valid.
+	if (wanted) byAddress = input.to.some((value) => normalizeAddress(value) === wanted)
 	const byPrefix = prefix ? titleAfterPrefix(input.subject ?? "", prefix) : undefined
 
 	// Address and prefix are alternatives, never a union: with an address configured, prefixed mail sent
