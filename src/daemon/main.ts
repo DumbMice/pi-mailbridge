@@ -22,6 +22,7 @@
 
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs"
 import { statePath } from "../store/paths.ts"
+import { acquireLock } from "../store/lock.ts"
 import { assertStateReadable } from "../store/schema.ts"
 import { dirname } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -200,89 +201,12 @@ async function prime(config: ResolvedConfig): Promise<number> {
 }
 
 /**
- * One daemon per state directory, whatever port it thinks it owns.
- *
- * `wx` makes the create atomic; the pid inside lets a later process tell a live holder from a
- * crash. A holder that is gone is stolen, so a killed daemon does not lock the machine out.
+ * One daemon per state directory, whatever port it thinks it owns. The algorithm lives in
+ * `store/lock.ts`, shared with the session starter so the two cannot drift.
  */
 function acquireDaemonLock(env: NodeJS.ProcessEnv): { ok: true; release: () => void } | { ok: false; pid: number } {
-	const path = statePath(env, "daemon.lock")
-	const take = (): { ok: true; release: () => void } | undefined => {
-		try {
-			mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
-			writeFileSync(path, String(process.pid), { flag: "wx", mode: 0o600 })
-			return {
-				ok: true,
-				release: () => {
-					// Only remove our own: a stolen lock belongs to someone else now.
-					try {
-						if (readFileSync(path, "utf8").trim() === String(process.pid)) unlinkSync(path)
-					} catch {
-						/* already gone */
-					}
-				},
-			}
-		} catch {
-			return undefined
-		}
-	}
-
-	const first = take()
-	if (first) return first
-
-	let holder = 0
-	try {
-		holder = Number(readFileSync(path, "utf8").trim())
-	} catch {
-		/* unreadable: treat as stale */
-	}
-	const alive = holder > 0 && holder !== process.pid && (() => {
-		try {
-			process.kill(holder, 0)
-			return true
-		} catch (error) {
-			return (error as NodeJS.ErrnoException).code === "EPERM"
-		}
-	})()
-	if (alive) return { ok: false, pid: holder }
-
-	// Stale: the holder is gone (a crash, or a reboot with a leftover file). Steal it by
-	// RENAMING it aside, not unlinking it: an unlink plus a retake lets two stealers both win -
-	// B unlinks the corpse, creates its own lock, then C unlinks *B's live lock* and creates
-	// its own. A rename is atomic, so exactly one stealer gets the file; the winner verifies it
-	// took the corpse it judged dead, and puts back anything that is not.
-	const aside = `${path}.${process.pid}.stale`
-	try {
-		renameSync(path, aside)
-	} catch {
-		// Someone else moved it first; try again from the top once.
-		const retry = take()
-		return retry ?? { ok: false, pid: holder }
-	}
-	let moved = Number.NaN
-	try {
-		moved = Number(readFileSync(aside, "utf8").trim())
-	} catch {
-		/* unreadable */
-	}
-	if (moved !== holder) {
-		// The file changed between the liveness check and our rename: restore it untouched and
-		// report the current holder rather than stealing a live lock.
-		try {
-			renameSync(aside, path)
-		} catch {
-			/* if we cannot put it back, leave it aside; the next start will judge it */
-		}
-		const retry = take()
-		return retry ?? { ok: false, pid: Number.isFinite(moved) ? moved : holder }
-	}
-	try {
-		unlinkSync(aside)
-	} catch {
-		/* already gone */
-	}
-	const second = take()
-	return second ?? { ok: false, pid: holder }
+	const result = acquireLock(env, "daemon.lock")
+	return result.ok ? { ok: true, release: result.lock.release } : { ok: false, pid: result.holder }
 }
 
 function argValue(argv: string[], flag: string): string | undefined {

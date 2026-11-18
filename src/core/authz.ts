@@ -31,6 +31,15 @@ export interface AuthzInput {
 	/** Raw `From:` header value, display name included. */
 	from: string | undefined
 	headers: HeaderLike
+	/**
+	 * `"reply"` (default) requires evidence of threading for self-addressed mail, because our own
+	 * notifications and a human's reply share the address in single-mailbox mode.
+	 *
+	 * `"request"` is for the session starter: a fresh request legitimately has no `In-Reply-To`, so that
+	 * one requirement is relaxed. Everything else - loop guard, robots, allowlist, DMARC - is unchanged,
+	 * and this is the only place the two contexts differ.
+	 */
+	context?: "reply" | "request"
 }
 
 export function authorize(input: AuthzInput, config: ResolvedConfig): AuthzResult {
@@ -59,7 +68,7 @@ export function authorize(input: AuthzInput, config: ResolvedConfig): AuthzResul
 		// Distinct from the self-echo guards (marker header, outbound Message-ID): this is a
 		// message from your own address with no reply evidence at all. The two are different
 		// problems for the user, so they get different names.
-		if (!threaded) return { ok: false, reason: "no-reply-evidence" }
+		if (!threaded && (input.context ?? "reply") === "reply") return { ok: false, reason: "no-reply-evidence" }
 	}
 
 	// 2. Never answer robots, and never act on a bounce: a null sender or a postmaster

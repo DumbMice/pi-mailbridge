@@ -403,6 +403,7 @@ src/
     routes.ts           short routing ids, TTL
     secret.ts           shared HMAC/bearer key, atomic 0600
     threads.ts          outbound Message-IDs: threading + reply chain
+    lock.ts             one holder per state directory (daemon and starter, one algorithm)
     uid-cursor.ts       cursor + UID space; resets when the mailbox is renumbered
 test/                   hermetic unit tests; no IMAP, no SMTP, loopback servers only
 ```
