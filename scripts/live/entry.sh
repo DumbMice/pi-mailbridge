@@ -97,6 +97,8 @@ dump() {
 	exit $code
 }
 trap dump EXIT
+# A timeout kills this script with SIGTERM; without this the EXIT trap never runs and the artefacts are lost.
+trap 'exit 143' TERM INT
 
 step "wait for the journal to record a started request"
 JOURNAL="$XDG_STATE_HOME/pi-mailbridge/starter-journal.json"

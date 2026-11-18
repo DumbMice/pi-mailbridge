@@ -157,8 +157,21 @@ export function journalStore(env: NodeJS.ProcessEnv, config: ResolvedConfig): (j
  * A watcher error is often an authentication failure wearing a generic message ("Command failed"). Say what
  * to check, because the operator's next step differs: a wrong authorisation code is not a network problem.
  */
-export function imapFailureHint(message: string): string | undefined {
-	if (/AUTHENTICATIONFAILED|authentication failed|login fail|EAUTH|invalid credentials|\b535\b/i.test(message)) {
+export function imapFailureHint(error: unknown): string | undefined {
+	// imapflow reports a rejected login on structured fields and leaves `message` as the useless
+	// "Command failed": the provider's own text is `responseText`, and `serverResponseCode` /
+	// `authenticationFailed` are the machine-readable evidence. Look at all of it, not just the message.
+	const fields = [
+		(error as { message?: unknown })?.message,
+		(error as { code?: unknown })?.code,
+		(error as { serverResponseCode?: unknown })?.serverResponseCode,
+		(error as { responseText?: unknown })?.responseText,
+		(error as { response?: unknown })?.response,
+	]
+		.filter((value): value is string => typeof value === "string")
+		.join(" ")
+	const failedFlag = (error as { authenticationFailed?: unknown })?.authenticationFailed === true
+	if (failedFlag || /AUTHENTICATIONFAILED|authentication failed|login fail|EAUTH|invalid credentials|\b535\b/i.test(fields)) {
 		return "authentication failed: check the account's authorisation code (QQ: Settings → Account → POP3/IMAP/SMTP → 授权码), not the web password"
 	}
 	return undefined
@@ -350,7 +363,7 @@ async function runLocked(ctx: Ctx, deps: CliDeps, once: boolean, lifetime: Lock)
 				onMail: () => wake(),
 				onReady: () => wake(),
 				onError: (error, nextDelayMs) => {
-					const hint = imapFailureHint(error.message)
+					const hint = imapFailureHint(error)
 					log(`imap error (${hint ?? error.message}); reconnecting in ${nextDelayMs}ms`)
 				},
 			})

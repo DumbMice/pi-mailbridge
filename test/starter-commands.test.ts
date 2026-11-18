@@ -492,9 +492,20 @@ test("check says it is offline, and an auth failure is named as one", () => {
 	}).then((code) => {
 		assert.equal(code, 0)
 		assert.match(out.join("\n"), /offline configuration check; it does not log in/)
-		assert.match(imapFailureHint("Command failed: AUTHENTICATIONFAILED") ?? "", /authorisation code/)
-		assert.match(imapFailureHint("Login fail. Account is abnormal") ?? "", /authorisation code/)
-		assert.equal(imapFailureHint("ECONNRESET"), undefined)
+		// The real imapflow shape: message is just "Command failed"; the reason is on the fields.
+		assert.match(
+			imapFailureHint({
+				message: "Command failed",
+				serverResponseCode: "AUTHENTICATIONFAILED",
+				responseText: "Login fail. Account is abnormal, service is not open, password is incorrect",
+				authenticationFailed: true,
+			}) ?? "",
+			/authorisation code/,
+		)
+		assert.match(imapFailureHint({ message: "Command failed", serverResponseCode: "AUTHENTICATIONFAILED" }) ?? "", /authorisation code/)
+		assert.match(imapFailureHint(new Error("Login fail. Account is abnormal")) ?? "", /authorisation code/)
+		assert.equal(imapFailureHint({ message: "Command failed", code: "ECONNRESET" }), undefined)
+		assert.equal(imapFailureHint(undefined), undefined)
 	})
 })
 
