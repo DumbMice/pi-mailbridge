@@ -98,6 +98,28 @@ function blockScalar(rest: string): string {
 		.replace(/\s+$/, "")
 }
 
+/** `Re:`, `Re[2]:`, `Fwd:`, `AW:` — the markers a mail client puts on a reply or forward. */
+export function isReplySubject(subject: string | undefined): boolean {
+	return /^(?:re|aw|sv|antw|fwd|fw|tr)\s*(?:\[\d+\])?\s*:/i.test(subject ?? "")
+}
+
+/**
+ * Drop quoted history: everything from the first `>`-quote, `On … wrote:` line or `-----Original` marker.
+ * A reply's body is the new text, and a `stop:` typed above the quote is the command; below it is history.
+ */
+export function stripQuotedText(body: string): string {
+	const lines = body.split("\n")
+	const kept: string[] = []
+	for (const line of lines) {
+		if (/^\s*>/.test(line)) break
+		if (/^\s*On\b.*\bwrote:\s*$/i.test(line)) break
+		if (/^\s*-{2,}\s*(original message|forwarded message)/i.test(line)) break
+		if (/^\s*_{5,}\s*$/.test(line)) break
+		kept.push(line)
+	}
+	return kept.join("\n").trimEnd()
+}
+
 export function parseRequest(body: string, options: { promptMaxChars: number }): GrammarResult {
 	const errors: GrammarError[] = []
 	const { block, rest, unknown } = splitBlock(body)

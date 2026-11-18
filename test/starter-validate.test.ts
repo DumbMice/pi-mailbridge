@@ -148,3 +148,16 @@ test("an absent prompt is the documented `hi`, and whitespace is not a prompt", 
 	assert.equal(resolvePrompt("   "), "hi")
 	assert.equal(resolvePrompt("  fix it  "), "fix it")
 })
+
+test("a 40-character name can still take a collision suffix", () => {
+	// Slicing after appending deleted the suffix, so a full-length name was unusable once its first
+	// session existed: every later request was refused as name-exhausted.
+	const long = "a".repeat(40)
+	const planned = planName({ requested: long, title: "", taken: [long], now: new Date(0) })
+	assert.equal(planned.ok, true)
+	if (planned.ok) {
+		assert.ok(planned.value.endsWith("-2"))
+		assert.ok(planned.value.length <= 40)
+	}
+})
+

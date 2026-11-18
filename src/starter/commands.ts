@@ -6,7 +6,7 @@
 
 import { existsSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { execFile } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 
 import type { ResolvedConfig } from "../core/config.ts"
 import { loadConfig } from "../core/config.ts"
@@ -56,29 +56,7 @@ function context(deps: CliDeps): Ctx {
 		out: deps.stdout ?? ((line) => console.log(line)),
 		err: deps.stderr ?? ((line) => console.error(line)),
 		journal: deps.readJournal ?? (() => readJournal(env)),
-		save:
-			deps.saveJournal ??
-			((journal) => {
-				// Read-merge-write: the CLI and a running starter both own parts of this file, and a plain
-				// overwrite from either erased the other's change.
-				let disk: JournalFile
-				try {
-					disk = readJournal(env)
-				} catch (error) {
-					// Untrusted on disk is not a licence to overwrite it with a partial view.
-					throw new Error(`refusing to save over an untrusted journal: ${(error as Error).message}`)
-				}
-				const merged = mergeJournals(disk, journal)
-				for (const key of Object.keys(journal.requests)) delete journal.requests[key]
-				Object.assign(journal.requests, merged.requests)
-				for (const key of Object.keys(journal.sessions)) delete journal.sessions[key]
-				Object.assign(journal.sessions, merged.sessions)
-				writeJournal(env, merged, {
-					...JOURNAL_DEFAULTS,
-					// The acceptance horizon is the replay guard; the journal must not forget before it.
-					requestMaxAgeHours: config.starter.requestMaxAgeHours,
-				})
-			}),
+		save: deps.saveJournal ?? journalStore(env, config),
 	}
 }
 
@@ -117,6 +95,34 @@ export function createStarterLog(config: ResolvedConfig, env: NodeJS.ProcessEnv)
 }
 
 /** One prompt file per request, in a private directory. */
+/**
+ * The journal's single write path: read, merge, write with the configured acceptance horizon.
+ *
+ * Both writers use it. The runner used to call `writeJournal` directly, which undid a CLI stop on its next
+ * save and pruned tombstones at the default 48 h even when the acceptance horizon was longer.
+ */
+export function journalStore(env: NodeJS.ProcessEnv, config: ResolvedConfig): (journal: JournalFile) => void {
+	return (journal) => {
+		let disk: JournalFile
+		try {
+			disk = readJournal(env)
+		} catch (error) {
+			// Untrusted on disk is not a licence to overwrite it with a partial view.
+			throw new Error(`refusing to save over an untrusted journal: ${(error as Error).message}`)
+		}
+		const merged = mergeJournals(disk, journal)
+		for (const key of Object.keys(journal.requests)) delete journal.requests[key]
+		Object.assign(journal.requests, merged.requests)
+		for (const key of Object.keys(journal.sessions)) delete journal.sessions[key]
+		Object.assign(journal.sessions, merged.sessions)
+		writeJournal(env, merged, {
+			...JOURNAL_DEFAULTS,
+			// The acceptance horizon is the replay guard; the journal must not forget before it.
+			requestMaxAgeHours: config.starter.requestMaxAgeHours,
+		})
+	}
+}
+
 export function createPromptWriter(env: NodeJS.ProcessEnv): {
 	write: (requestId: string, text: string) => { promptFile: string; readyFile: string }
 	/** Remove a request's files: the bootstrap consumes them, so a failed start must not leave them. */
@@ -263,7 +269,7 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 		cursor,
 		journal,
 		saveJournal: (next) => {
-			writeJournal(ctx.env, next, JOURNAL_DEFAULTS)
+			journalStore(ctx.env, ctx.config)(next)
 		},
 		handle: {
 			writePrompt: (id, text) => {
@@ -277,7 +283,7 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 				const result = await stopSession(id, { expectedName: name })
 				return result.ok ? { ok: true } : { ok: false, detail: result.detail }
 			},
-			list: async () => (await listSessions()).map((entry) => ({ id: entry.id, name: entry.name })),
+			list: async () => (await listSessions())?.map((entry) => ({ id: entry.id, name: entry.name })),
 			send: async (message) => {
 				// False means the budget swallowed it; the journal must keep the result owed.
 				const sent = await confirmer.send({ subject: message.subject, text: message.text, inReplyTo: message.inReplyTo })
@@ -347,13 +353,21 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 		} catch (error) {
 			problems.push((error as Error).message)
 		}
+		if (existsSync(`${statePath(ctx.env, "starter-journal.json")}.failed`)) {
+			problems.push("the journal is marked untrusted; inspect it, then run `starter repair`")
+		}
 		for (const problem of problems) ctx.err(`! ${problem}`)
 		ctx.out(problems.length === 0 ? "starter: ok" : `starter: ${problems.length} problem(s)`)
 		return problems.length === 0 ? 0 : 2
 	}
 
 	if (cmd === "list") {
+		// An unreadable live list is reported, not rendered as "no sessions".
 		const live = await (deps.listSessions ?? listSessions)()
+		if (live === undefined) {
+			ctx.err("could not list sessions: tmux did not answer")
+			return 1
+		}
 		const journal = ctx.journal()
 		ctx.out(
 			renderList(
@@ -367,6 +381,26 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 		return 0
 	}
 
+	if (cmd === "repair") {
+		// The corrupt-journal refusal points here, so this has to exist: set the bad bytes aside, clear the
+		// marker, and say where the evidence went. It never deletes what it cannot read.
+		const file = statePath(ctx.env, "starter-journal.json")
+		const marker = `${file}.failed`
+		const stamp = new Date().toISOString().replace(/[:.]/g, "-")
+		let moved: string | undefined
+		if (existsSync(file)) {
+			const target = `${file}.repair-${stamp}`
+			renameSync(file, target)
+			moved = target
+		}
+		try {
+			unlinkSync(marker)
+		} catch {
+			/* no marker: nothing to clear */
+		}
+		ctx.out(moved ? `set aside ${moved}; the starter will start with an empty journal` : "no journal to set aside; the starter will start with an empty journal")
+		return 0
+	}
 	if (cmd === "stop") {
 		const name = argv.filter((arg) => !arg.startsWith("--"))[1]
 		if (!name) {
@@ -379,7 +413,10 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 			ctx.err(`unknown-session ${name}`)
 			return 1
 		}
-		const stopped = await (deps.stopSession ?? stopSession)(record.tmuxSessionId)
+		// The name is the ownership proof: a reused `$N` after a tmux restart must not be killed from here
+		// either. Passing it is the whole difference between stopping this session and stopping a stranger.
+		const stop = deps.stopSession ?? stopSession
+		const stopped = await stop(record.tmuxSessionId, { expectedName: record.name })
 		if (!stopped.ok) {
 			ctx.err(`could not stop ${name}: ${stopped.reason}`)
 			return 1
@@ -387,7 +424,13 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 		journal.sessions[name] = { ...record, endedAt: Date.now() }
 		const request = journal.requests[record.requestId]
 		if (request) journal.requests[record.requestId] = { ...request, state: "ended", at: Date.now() }
-		ctx.save(journal)
+		try {
+			ctx.save(journal)
+		} catch (error) {
+			// The kill already happened: saying so is honest, and the sweep will reconcile the journal.
+			ctx.err(`stopped ${name}, but the journal was not updated: ${(error as Error).message}`)
+			return 0
+		}
 		ctx.out(`stopped ${name}`)
 		return 0
 	}
@@ -402,11 +445,15 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 			ctx.err("attach needs a terminal")
 			return 2
 		}
+		// `execFile` captures stdio; assigning the streams afterwards does not reconnect the descriptors, so
+		// attach gave a live view with no input. `spawn` with inherited stdio is the API that does this.
 		return new Promise<number>((resolve) => {
-			const child = execFile("tmux", ["-L", "pimail", "attach", "-t", name], (error) => resolve(error ? 1 : 0))
-			child.stdin = process.stdin
-			child.stdout = process.stdout
-			child.stderr = process.stderr
+			const child = spawn("tmux", ["-L", "pimail", "attach", "-t", name], { stdio: "inherit" })
+			child.on("error", (error) => {
+				ctx.err(`attach failed: ${error.message}`)
+				resolve(1)
+			})
+			child.on("exit", (code) => resolve(code ?? 0))
 		})
 	}
 

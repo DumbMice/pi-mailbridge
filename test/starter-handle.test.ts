@@ -12,7 +12,7 @@ import { join } from "node:path"
 
 import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
 import { handleMail, type HandleDeps, type StarterMail } from "../src/starter/handle.ts"
-import type { JournalFile } from "../src/starter/journal.ts"
+import { type JournalFile, readJournal, writeJournal } from "../src/starter/journal.ts"
 import type { SpawnPlan } from "../src/starter/spawn.ts"
 
 const env = () => ({ XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-handle-")), XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "pmb-cfg-")) })
@@ -64,12 +64,19 @@ interface Rig {
 	saved: number
 }
 
-function rig(over: { config?: ResolvedConfig; journal?: JournalFile; spawnResult?: { ok: true; tmuxSessionId: string } } = {}): Rig {
+function rig(
+	over: {
+		config?: ResolvedConfig
+		journal?: JournalFile
+		spawnResult?: { ok: true; tmuxSessionId: string }
+		starter?: Partial<typeof STARTER_DEFAULTS>
+	} = {},
+): Rig {
 	// The root is a temp dir and the session lives one level below it: a root is not itself a session.
 	const base = mkdtempSync(join(tmpdir(), "pmb-root-"))
 	const project = join(base, "project")
 	mkdirSync(project, { recursive: true })
-	const cfg = over.config ?? config({ roots: [base] })
+	const cfg = over.config ?? config({ roots: [base], ...over.starter })
 	const e = env()
 	const journal: JournalFile = over.journal ?? { v: 1, requests: {}, sessions: {} }
 	const spawned: SpawnPlan[] = []
@@ -298,6 +305,23 @@ test("a start budget of 0 disables the limit rather than forbidding every start"
 	assert.equal(outcome.action, "started")
 })
 
+test("launchedAt and tmuxName survive the journal round-trip", () => {
+	// Both fields were written and then dropped by normaliseRequest, so every restart refunded the budget
+	// and lost the name an interrupted spawn is matched by.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-rt-")) }
+	const journal: JournalFile = {
+		v: 1,
+		requests: {
+			r: { id: "r", messageId: "<r@x>", uid: 1, receivedAt: 1, state: "ready", at: 2, launchedAt: 2, tmuxName: "named" },
+		},
+		sessions: {},
+	}
+	writeJournal(env, journal)
+	const read = readJournal(env)
+	assert.equal(read.requests.r?.launchedAt, 2)
+	assert.equal(read.requests.r?.tmuxName, "named")
+})
+
 test("a stopped session does not refund the hourly budget", async () => {
 	// Counting surviving sessions made start/stop/start an unlimited loop; the attempt is the unit.
 	const r = rig({ config: config({ startsPerHour: 1 }) })
@@ -316,5 +340,46 @@ test("starter.enabled false refuses silently: no spawn, no parser, no reply", as
 	assert.equal(outcome.action, "ignored")
 	assert.equal(r.spawned.length, 0)
 	assert.equal(r.replies.length, 0)
+})
+
+test("a non-command reply never starts a session, even with a default cwd", async () => {
+	// The result mail says "reply with stop: …", so replies are the command channel. A person answering a
+	// notification sends prose plus quoted history; treating that as a start request ran the quote as the
+	// prompt. This is the P0 from round 2, and `defaultCwd` made it reachable in a directory nobody chose.
+	const r = rig({ config: config({ defaultCwd: "/tmp" }) })
+	const reply = mail({
+		messageId: "<reply@x>",
+		uid: 4,
+		subject: "Re: [pi-start] fix-the-auth-test",
+		body: 'thanks, looks good\n\nOn Mon, pi wrote:\n> cwd: /tmp/starter-e2e\n> stop: reply with "stop: fix-the-auth-test"',
+	})
+	const outcome = await handleMail(reply, r.deps)
+	assert.equal(outcome.action, "ignored")
+	if (outcome.action === "ignored") assert.equal(outcome.reason, "reply-without-command")
+	assert.equal(r.spawned.length, 0)
+	assert.equal(r.replies.length, 0)
+
+	// A command above the quote still works: that is the documented workflow.
+	const stop = mail({ messageId: "<stop@x>", uid: 5, subject: "Re: [pi-start] fix-the-auth-test", body: "stop: all\n\nOn Mon, pi wrote:\n> cwd: /tmp" })
+	r.journal.sessions.one = { name: "one", tmuxSessionId: "$1", piSessionId: "pi", requestId: "req", cwd: "/tmp", at: 1 }
+	const stopped = await handleMail(stop, r.deps)
+	assert.equal(stopped.action, "stopped")
+})
+
+test("a failed spawn still counts against the budget", async () => {
+	// A wrong model created and killed a tmux session and a pi process; retrying it without bound is a
+	// resource leak, so the attempt counts even though the record says refused.
+	const r = rig({ starter: { startsPerHour: 1 } })
+	let attempts = 0
+	r.deps.spawn = async () => {
+		attempts += 1
+		return { ok: false, reason: "unready", detail: "Unknown model" }
+	}
+	const first = await handleMail(mail({ messageId: "<f1@x>", uid: 1 }, r.project), r.deps)
+	assert.equal(first.action, "refused")
+	const second = await handleMail(mail({ messageId: "<f2@x>", uid: 2 }, r.project), r.deps)
+	assert.equal(second.action, "refused")
+	if (second.action === "refused") assert.equal(second.code, "quota")
+	assert.equal(attempts, 1, "the second attempt never reached spawn")
 })
 

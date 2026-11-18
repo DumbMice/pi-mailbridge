@@ -37,7 +37,7 @@ export interface ScanDeps {
 	saveJournal: (journal: JournalFile) => void
 	handle: Omit<HandleDeps, "journal" | "save" | "config" | "env">
 	/** Live tmux sessions, for reconciliation of interrupted requests. */
-	liveSessions: () => Promise<{ id: string; name: string }[]>
+	liveSessions: () => Promise<{ id: string; name: string }[] | undefined>
 	now: () => number
 	log: (line: string) => void
 }
@@ -128,7 +128,7 @@ async function reconcileInterrupted(record: ReturnType<typeof alreadySeen>, deps
 	if (!record || record.state === "refused" || record.state === "ended") return
 	// Already reconciled once: adopting it again would double-count, and there is nothing to learn.
 	if (record.state === "ready" && record.tmuxSessionId) return
-	const live = await deps.liveSessions()
+	const live = (await deps.liveSessions()) ?? []
 	const verdict = reconcile(
 		{ ...record, tmuxName: record.tmuxName ?? record.name },
 		live.map((entry) => ({ tmuxSessionId: entry.id, name: entry.name })),
@@ -195,8 +195,10 @@ export async function scanOnce(deps: ScanDeps): Promise<ScanSummary> {
 	// A session that exited on its own is still "owned" in the journal until someone notices. The live list
 	// is the only truth here, so the cap is computed against it - done below, once per scan.
 	const cursor = deps.cursor.read(deps.env)
-	const liveNow = new Map((await deps.liveSessions()).map((entry) => [entry.name, entry.id]))
-	for (const [name, session] of Object.entries(deps.journal.sessions)) {
+	const liveList = await deps.liveSessions()
+	const liveNow = new Map((liveList ?? []).map((entry) => [entry.name, entry.id]))
+	// An unreadable live list is not an empty one: sweeping then would end every session we own.
+	for (const [name, session] of liveList === undefined ? [] : Object.entries(deps.journal.sessions)) {
 		if (session.endedAt !== undefined || liveNow.has(name)) continue
 		deps.journal.sessions[name] = { ...session, endedAt: deps.now() }
 		if (deps.journal.requests[session.requestId]) {

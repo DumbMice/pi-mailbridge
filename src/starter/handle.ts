@@ -13,7 +13,7 @@ import type { ResolvedConfig } from "../core/config.ts"
 import { authorize } from "../core/authz.ts"
 import { normalizeAddress } from "../core/reply-parse.ts"
 import { matchChannel } from "./channel.ts"
-import { parseRequest, type StartFields } from "./grammar.ts"
+import { isReplySubject, parseRequest, stripQuotedText, type StartFields } from "./grammar.ts"
 import { type JournalFile, type RequestRecord, type SessionRecord, alreadySeen, isStale } from "./journal.ts"
 import { planName, resolvePrompt, validateCwd, validateModel, validateThinking } from "./validate.ts"
 import { type SpawnPlan, type SpawnResult } from "./spawn.ts"
@@ -59,7 +59,7 @@ export interface HandleDeps {
 	removePrompt?: (requestId: string) => void
 	spawn: (plan: SpawnPlan) => Promise<SpawnResult>
 	stop: (tmuxSessionId: string, expectedName?: string) => Promise<{ ok: boolean; detail?: string }>
-	list: () => Promise<{ id: string; name: string }[]>
+	list: () => Promise<{ id: string; name: string }[] | undefined>
 	send: (mail: OutcomeMail) => Promise<void>
 	now: () => number
 	env: NodeJS.ProcessEnv
@@ -106,9 +106,9 @@ function startQuotaReached(config: ResolvedConfig, journal: JournalFile, now: nu
 	const hourAgo = now - 60 * 60 * 1000
 	// Counted by *attempt*: a stop changes the state to ended, and refunding the budget would let a loop of
 	// start/stop/start run unbounded. Refusals never spawned, so they do not count.
-	const recent = Object.values(journal.requests).filter(
-		(r) => r.launchedAt !== undefined && r.launchedAt > hourAgo && r.state !== "refused",
-	)
+	// A failed spawn keeps its `launchedAt`: it created and killed a tmux session and a pi process, so a
+	// wrong model must not be retryable without bound. `launchedAt` itself separates attempt from refusal.
+	const recent = Object.values(journal.requests).filter((r) => r.launchedAt !== undefined && r.launchedAt > hourAgo)
 	// 0 disables the limit, like every other window in this file: a user who wants no starts at all has
 	// `starter.enabled: false`, and a silent "0 means never" would be a trap in the other direction.
 	return config.starter.startsPerHour > 0 && recent.length >= config.starter.startsPerHour
@@ -133,8 +133,13 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 	if (!starter.enabled) return { action: "ignored", reason: "disabled" }
 
 	// 1. Resource caps. Commands (`stop`, `list`) are exempt: a stop must work at the quota.
-	const grammared = parseRequest(mail.body, { promptMaxChars: starter.promptMaxChars })
+	const body = isReplySubject(mail.subject) ? stripQuotedText(mail.body) : mail.body
+	const grammared = parseRequest(body, { promptMaxChars: starter.promptMaxChars })
 	const isCommand = grammared.state === "complete" && (grammared.request.kind === "stop" || grammared.request.kind === "list")
+	// A reply is how `stop:` comes back (the result mail says so), but a non-command reply is a person
+	// answering a notification: its body is prose plus quoted history, and starting a session from it would
+	// run the quote as a prompt. The daemon never sees this mail, so the check has to live here.
+	if (isReplySubject(mail.subject) && !isCommand) return { action: "ignored", reason: "reply-without-command" }
 
 	// 2. Authentication, in the request context. A self-addressed request has no reply headers by design.
 	const auth = authorize(
@@ -190,7 +195,7 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 
 	// 6. Commands: stop and list are not starts, so the caps do not apply to them.
 	if (grammared.state === "complete" && grammared.request.kind === "list") {
-		const live = await deps.list()
+		const live = (await deps.list()) ?? []
 		const rows = live.map((entry) => {
 			const record = journal.sessions[entry.name]
 			return `${entry.name} ${entry.id}${record?.cwd ? ` ${record.cwd}` : ""}`

@@ -250,11 +250,18 @@ export async function stopSession(
 	return { ok: true }
 }
 
-/** Live sessions on our socket, as `{ id, name }`. An empty list when the server is not running. */
-export async function listSessions(deps: Pick<SpawnDeps, "exec"> & { socket?: string } = {}): Promise<{ id: string; name: string }[]> {
+/**
+ * Live sessions on our socket, as `{ id, name }`.
+ *
+ * `[]` means the server is simply not running (tmux exits 1 for that). A failure we cannot interpret returns
+ * `undefined`, because a timed-out or broken `tmux` must not be read as "every session ended".
+ */
+export async function listSessions(
+	deps: Pick<SpawnDeps, "exec"> & { socket?: string } = {},
+): Promise<{ id: string; name: string }[] | undefined> {
 	const exec = deps.exec ?? defaultExec
 	const listed = await exec(buildListArgv(deps.socket ?? DEFAULT_SOCKET))
-	if (listed.code !== 0) return []
+	if (listed.code !== 0) return /no server( running)?|no sessions|error connecting/i.test(`${listed.stderr}${listed.stdout}`) ? [] : undefined
 	return listed.stdout
 		.split("\n")
 		.map((line) => line.trim())

@@ -142,6 +142,10 @@ function normaliseRequest(raw: unknown): RequestRecord | undefined {
 		...(typeof raw.piSessionId === "string" ? { piSessionId: raw.piSessionId } : {}),
 		...(typeof raw.tmuxId === "string" ? { tmuxId: raw.tmuxId } : {}),
 		...(typeof raw.tmuxSessionId === "string" ? { tmuxSessionId: raw.tmuxSessionId } : {}),
+		// Both are recovery/budget facts, not decoration: dropping them on read made every restart refund the
+		// hourly budget and lose the name an interrupted spawn is matched by.
+		...(typeof raw.tmuxName === "string" ? { tmuxName: raw.tmuxName } : {}),
+		...(typeof raw.launchedAt === "number" ? { launchedAt: raw.launchedAt } : {}),
 		...(typeof raw.name === "string" ? { name: raw.name } : {}),
 		...(typeof raw.cwd === "string" ? { cwd: raw.cwd } : {}),
 		...(typeof raw.model === "string" ? { model: raw.model } : {}),
@@ -221,6 +225,14 @@ export function readJournal(env: NodeJS.ProcessEnv = process.env): JournalFile {
 	const sessions: Record<string, SessionRecord> = {}
 	// A malformed entry is not a reason to forget it: dropping one silently changes what recovery knows,
 	// and the file is the only evidence of what may be running. Refuse, and name the entry.
+	// A present-but-wrong section is corruption, not an empty one: silently emptying it forgets the dedupe
+	// state, which is the direction this whole file is meant to fail away from.
+	if (parsed.requests !== undefined && !isRecord(parsed.requests)) {
+		throw new JournalUntrustedError("starter journal's `requests` is not an object")
+	}
+	if (parsed.sessions !== undefined && !isRecord(parsed.sessions)) {
+		throw new JournalUntrustedError("starter journal's `sessions` is not an object")
+	}
 	const rawRequests = isRecord(parsed.requests) ? parsed.requests : {}
 	for (const [id, value] of Object.entries(rawRequests)) {
 		const record = normaliseRequest(value)

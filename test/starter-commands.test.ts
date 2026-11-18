@@ -5,14 +5,17 @@
 
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdirSync, mkdtempSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { statePath } from "../src/store/paths.ts"
 
 import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
-import { createPromptWriter, createStarterLog, runStarterCommand, starterMailConfig, starterProblems, watcherCallbacks } from "../src/starter/commands.ts"
-import type { JournalFile } from "../src/starter/journal.ts"
+import { createPromptWriter, createStarterLog, journalStore, runStarterCommand, starterMailConfig, starterProblems, watcherCallbacks } from "../src/starter/commands.ts"
+import { type JournalFile, readJournal } from "../src/starter/journal.ts"
 import { validateCwd } from "../src/starter/validate.ts"
+
+const statePathForTest = (env: NodeJS.ProcessEnv) => statePath(env, "starter-journal.json")
 
 function config(over: Partial<typeof STARTER_DEFAULTS> = {}): ResolvedConfig {
 	const base = mkdtempSync(join(tmpdir(), "pmb-cmd-root-"))
@@ -204,5 +207,59 @@ test("an empty roots list is reported as fail-closed, matching the containment r
 	const outcome = validateCwd("/tmp", { roots: [], reserved: [] })
 	assert.equal(outcome.ok, false)
 	if (!outcome.ok) assert.equal(outcome.code, "outside-root")
+})
+
+test("CLI stop passes the recorded name, so a reused tmux id is not killed", async () => {
+	// The runner had the ownership check; the operator's own path did not, which is the documented one.
+	const base = config()
+	const seen: { id: string; expectedName?: string }[] = []
+	const code = await runStarterCommand(["stop", "fix-auth"], {
+		config: base,
+		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-stop-")) },
+		stdout: () => {},
+		stderr: () => {},
+		readJournal: () => ({
+			v: 1,
+			requests: { req: { id: "req", messageId: "<m@x>", uid: 1, receivedAt: 1, state: "ready", at: 1 } },
+			sessions: { "fix-auth": { name: "fix-auth", tmuxSessionId: "$3", piSessionId: "pi", requestId: "req", cwd: "/tmp", at: 1 } },
+		}),
+		stopSession: async (id: string, options?: { expectedName?: string }) => {
+			seen.push({ id, ...(options?.expectedName ? { expectedName: options.expectedName } : {}) })
+			return { ok: true }
+		},
+	})
+	assert.equal(code, 0)
+	assert.deepEqual(seen, [{ id: "$3", expectedName: "fix-auth" }])
+})
+
+test("`repair` sets the unreadable journal aside and clears the marker", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "pmb-repair-"))
+	const env = { XDG_STATE_HOME: dir }
+	const file = statePathForTest(env)
+	mkdirSync(dirname(file), { recursive: true })
+	writeFileSync(file, "{broken", { mode: 0o600 })
+	writeFileSync(`${file}.failed`, "not valid JSON", { mode: 0o600 })
+	const out: string[] = []
+	const code = await runStarterCommand(["repair"], { config: config(), env, stdout: (l: string) => out.push(l), stderr: () => {} })
+	assert.equal(code, 0)
+	assert.match(out.join("\n"), /set aside/)
+	assert.equal(existsSync(file), false, "the bad bytes were moved, not deleted")
+	assert.equal(existsSync(`${file}.failed`), false, "and the marker is gone, so the starter can start")
+})
+
+test("journalStore prunes at the configured horizon, not the default 48 hours", () => {
+	// The runner used to call writeJournal directly with JOURNAL_DEFAULTS, so a 72-hour acceptance horizon
+	// still forgot tombstones at 48 - the replay guard was only as long as the smaller number.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-horizon-")) }
+	const hour = 60 * 60 * 1000
+	const ended = Date.now() - 49 * hour
+	const journal: JournalFile = {
+		v: 1,
+		requests: { old: { id: "old", messageId: "<old@x>", uid: 1, receivedAt: ended, state: "ended", at: ended } },
+		sessions: {},
+	}
+	journalStore(env, config({ requestMaxAgeHours: 72 } as never))(journal)
+	const read = readJournal(env)
+	assert.ok(read.requests.old, "still a tombstone, so the mail is still a replay")
 })
 

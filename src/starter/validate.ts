@@ -104,6 +104,9 @@ export function sanitiseName(raw: string, max = 40): string {
 		.replace(/[^A-Za-z0-9._-]+/g, "-")
 		.replace(/-{2,}/g, "-")
 		.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "")
+	if (collapsed.length <= max) return collapsed.replace(/[^A-Za-z0-9]+$/g, "")
+	// Truncate the base *before* a collision suffix is appended, or a full-length name can never be
+	// suffixed and every later request is refused as `name-exhausted`.
 	return collapsed.slice(0, max).replace(/[^A-Za-z0-9]+$/g, "")
 }
 
@@ -121,7 +124,8 @@ export function planName(options: { requested?: string; title: string; taken: st
 	const taken = new Set(options.taken)
 	if (!taken.has(base)) return { ok: true, value: base }
 	for (let n = 2; n <= 99; n++) {
-		const candidate = `${base}-${n}`.slice(0, 40).replace(/[^A-Za-z0-9]+$/g, "")
+		// Trim the base first: slicing after the suffix removed the suffix itself for a 40-char name.
+		const candidate = `${base.slice(0, 40 - String(n).length - 1)}-${n}`.replace(/[^A-Za-z0-9]+$/g, "")
 		if (!taken.has(candidate)) return { ok: true, value: candidate }
 	}
 	return invalid("name-exhausted", base)
