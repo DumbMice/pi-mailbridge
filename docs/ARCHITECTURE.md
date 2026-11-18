@@ -369,6 +369,9 @@ src/
     smoke.ts            end-to-end send-and-read-back check
     token.ts            HMAC sign/verify, subjects
     token-source.ts     XOAUTH2 command tokens
+  starter/
+    channel.ts          which mail is a request, and for which device
+    grammar.ts          the deterministic body grammar (complete / incomplete / invalid)
   daemon/
     api.ts              the wire contract: API_VERSION, capabilities, endpoint list
     imapflow.ts         imapflow adapter
