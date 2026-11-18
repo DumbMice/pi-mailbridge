@@ -5,7 +5,7 @@
 
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { statePath } from "../src/store/paths.ts"
@@ -261,5 +261,18 @@ test("journalStore prunes at the configured horizon, not the default 48 hours", 
 	journalStore(env, config({ requestMaxAgeHours: 72 } as never))(journal)
 	const read = readJournal(env)
 	assert.ok(read.requests.old, "still a tombstone, so the mail is still a replay")
+})
+
+test("the journal write is a transaction: a held lock refuses rather than overwriting", () => {
+	// Two unlocked read-merge-writes can each drop the other's reservation, and a lost reservation is a
+	// lost replay guard.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-txn-")) }
+	const journal: JournalFile = { v: 1, requests: {}, sessions: {} }
+	// A live pid that is not ours: pid 1 is always alive, and `isAlive` counts EPERM as alive too.
+	mkdirSync(dirname(statePath(env, "starter-journal.lock")), { recursive: true })
+	writeFileSync(statePath(env, "starter-journal.lock"), "1", { mode: 0o600 })
+	assert.throws(() => journalStore(env, config())(journal), /another process is writing the journal/)
+	unlinkSync(statePath(env, "starter-journal.lock"))
+	assert.doesNotThrow(() => journalStore(env, config())(journal))
 })
 

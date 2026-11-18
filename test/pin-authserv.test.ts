@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { pinAuthservId } from "../src/store/pin-authserv.ts"
+import { isAuthservId, pinAuthservId } from "../src/store/pin-authserv.ts"
 import { configPath } from "../src/store/paths.ts"
 
 function envWith(config: Record<string, unknown>): { env: NodeJS.ProcessEnv; path: string } {
@@ -49,3 +49,13 @@ test("does nothing when DMARC is not required, or when the copy carried no heade
 		reason: "no-config",
 	})
 })
+
+test("a bare Microsoft mechanism is not an authserv-id", () => {
+	// `spf=pass` is the first token of a header with no authserv-id; pinning it would trust nothing while
+	// looking like it trusted something.
+	assert.equal(isAuthservId("spf=pass"), false)
+	assert.equal(isAuthservId("mx.example.com"), true)
+	assert.equal(isAuthservId("[2001:db8::1]"), true)
+	assert.equal(pinAuthservId(envWith({ security: { requireDmarcPass: true } }).env, "spf=pass").reason, "no-value")
+})
+

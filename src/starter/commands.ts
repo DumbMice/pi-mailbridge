@@ -11,10 +11,10 @@ import { execFile, spawn } from "node:child_process"
 import type { ResolvedConfig } from "../core/config.ts"
 import { loadConfig } from "../core/config.ts"
 import { statePath } from "../store/paths.ts"
-import { acquireLock } from "../store/lock.ts"
+import { type Lock, acquireLock } from "../store/lock.ts"
 import { createCursorStore } from "../store/uid-cursor.ts"
 import { type JournalFile, JOURNAL_DEFAULTS, mergeJournals, readJournal, writeJournal } from "./journal.ts"
-import { buildSpawnArgv, listSessions, spawnSession, stopSession, type SpawnPlan } from "./spawn.ts"
+import { buildSpawnArgv, listSessions, readOwnershipMarker, spawnSession, stopSession, type SpawnPlan } from "./spawn.ts"
 import { createStarterRunner, type StarterSource } from "./run.ts"
 import { createConfirmer, renderList } from "./confirm.ts"
 import { parseFieldsWithAgent } from "./parse-agent.ts"
@@ -101,9 +101,30 @@ export function createStarterLog(config: ResolvedConfig, env: NodeJS.ProcessEnv)
  * Both writers use it. The runner used to call `writeJournal` directly, which undid a CLI stop on its next
  * save and pruned tombstones at the default 48 h even when the acceptance horizon was longer.
  */
+/** Blocking sleep, for a synchronous store that still has to wait for a transaction lock. */
+function sleepSync(ms: number): void {
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+/** Take the journal's transaction lock, retrying briefly: a scan and a CLI stop are short. */
+function acquireJournalLock(env: NodeJS.ProcessEnv): Lock | undefined {
+	const deadline = Date.now() + 2_000
+	for (;;) {
+		const attempt = acquireLock(env, "starter-journal.lock")
+		if (attempt.ok) return attempt.lock
+		if (Date.now() >= deadline) return undefined
+		sleepSync(20)
+	}
+}
+
 export function journalStore(env: NodeJS.ProcessEnv, config: ResolvedConfig): (journal: JournalFile) => void {
 	return (journal) => {
-		let disk: JournalFile
+		// A transaction, not a best-effort merge: two processes that both read the old file and then write
+		// would each drop the other's addition, losing a reservation (and with it replay protection).
+		const lock = acquireJournalLock(env)
+		if (!lock) throw new Error("another process is writing the journal")
+		try {
+			let disk: JournalFile
 		try {
 			disk = readJournal(env)
 		} catch (error) {
@@ -115,11 +136,14 @@ export function journalStore(env: NodeJS.ProcessEnv, config: ResolvedConfig): (j
 		Object.assign(journal.requests, merged.requests)
 		for (const key of Object.keys(journal.sessions)) delete journal.sessions[key]
 		Object.assign(journal.sessions, merged.sessions)
-		writeJournal(env, merged, {
-			...JOURNAL_DEFAULTS,
-			// The acceptance horizon is the replay guard; the journal must not forget before it.
-			requestMaxAgeHours: config.starter.requestMaxAgeHours,
-		})
+			writeJournal(env, merged, {
+				...JOURNAL_DEFAULTS,
+				// The acceptance horizon is the replay guard; the journal must not forget before it.
+				requestMaxAgeHours: config.starter.requestMaxAgeHours,
+			})
+		} finally {
+			lock.release()
+		}
 	}
 }
 
@@ -307,6 +331,7 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 			},
 		},
 		liveSessions: () => listSessions(),
+		ownerOf: (id) => readOwnershipMarker(id),
 		now: Date.now,
 		log,
 	})

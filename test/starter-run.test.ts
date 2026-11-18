@@ -402,3 +402,20 @@ test("an oversized or undated message never becomes a start request", async () =
 	assert.equal(s2.started, 0, "no arrival time, no freshness proof, no start")
 })
 
+test("adoption refuses a live name whose ownership marker belongs to another request", async () => {
+	// A tmux restart can reuse both the id and the display name; only the request id in the session's
+	// environment distinguishes our child.
+	const r = rig({
+		journal: {
+			v: 1,
+			requests: { req: { id: "req", messageId: "<m@x>", uid: 1, receivedAt: Date.now(), state: "spawning", at: Date.now(), launchedAt: Date.now(), name: "x", tmuxName: "x", cwd: "/tmp" } },
+			sessions: {},
+		},
+	})
+	r.liveSessions = async () => [{ id: "$1", name: "x" }]
+	r.ownerOf = async () => "someone-else"
+	const summary = await scanOnce(r)
+	assert.equal(summary.adopted, 0)
+	assert.equal(r.journal.requests.req?.state, "uncertain")
+})
+

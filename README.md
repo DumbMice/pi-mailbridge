@@ -121,6 +121,32 @@ sessions, and says "tmux did not answer" rather than "no sessions" when the sock
 }
 ```
 
+Every starter key, with the behaviour it controls:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `starter.enabled` | `false` | The switch. `false` ignores all starter mail (silently); `starter check` refuses while it is off |
+| `starter.roots` | `[]` | A session's `cwd` must be *inside* one of these; empty means **no** mail can start a session |
+| `starter.channel.subjectPrefix` | `"pi-start"` | The subject tag that addresses this starter |
+| `starter.channel.address` | `""` | A dedicated address; when set it replaces the prefix rather than adding to it |
+| `starter.channel.folder` | `""` | A separate folder for the starter to watch; empty means `mail.imap.folder` |
+| `starter.defaultCwd` | `""` | Used when a request has no `cwd:`; still validated against `roots` |
+| `starter.models` | `[]` | An explicit `model:` must be on this list |
+| `starter.defaultModel` | `""` | Used when a request names no model; must be `provider/model` |
+| `starter.maxSessions` | `4` | Live sessions; a swept-dead session frees its slot |
+| `starter.startsPerHour` | `6` | Attempts per hour, counted by launch (a stop does not refund); `0` disables the limit |
+| `starter.parserAttemptsPerHour` | `6` | Budget for stage B (the optional parser), separately |
+| `starter.confirmationsPerHour` | `12` | Result mails per hour; `0` disables the limit |
+| `starter.promptMaxChars` | `8000` | Longer prompts are refused, not truncated |
+| `starter.autoEnableMail` | `true` | The started session mails you back (`PI_MAILBRIDGE_SESSION_MODE=on`) |
+| `starter.requestMaxAgeHours` | `48` | Freshness window *and* the minimum tombstone lifetime; `0` means unlimited |
+| `starter.scanIntervalSecs` | `60` | The sweep; IDLE is the fast path |
+| `starter.parse.agent` | `false` | Stage B: one isolated pi run proposes a missing `cwd` |
+| `starter.parse.model` | `""` | Required when `parse.agent` is on; stage B never inherits a default |
+| `starter.parse.tools` | `"read,grep,find,ls"` | Validated against the read-only set; anything else is ignored with a warning |
+| `starter.parse.timeoutMs` | `120000` | Must be positive |
+| `starter.log.maxBytes` / `.keep` | `5` MB / `3` | Rotated append-only log in the state directory |
+
 Setup and surgery:
 
 ```bash

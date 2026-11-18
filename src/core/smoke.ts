@@ -6,6 +6,7 @@
 
 import type { ResolvedConfig } from "./config.ts"
 import { sendMail } from "./mailer.ts"
+import { isAuthservId } from "../store/pin-authserv.ts"
 import { createImapflowFactory } from "../daemon/imapflow.ts"
 import { messageIdFromHeaders, stampedIdFromHeaders } from "./sent-index.ts"
 
@@ -161,7 +162,10 @@ export async function runSmoke(config: ResolvedConfig, deps: SmokeDeps = {}): Pr
 					// Message-ID. Claiming the Message-ID survived without checking it was the
 					// bug the live account exposed.
 					// Our own copy: the delivering provider's header, not a sender's. Safe to learn from.
-					authservId = /^authentication-results:\s*([^\s;]+)/im.exec(head)?.[1]?.toLowerCase()
+					// Only a syntactically valid authserv-id: a bare Microsoft header starts with `spf=pass`,
+					// which is a mechanism, not the receiving system's name.
+					const candidate = /^authentication-results:\s*([^\s;]+)/im.exec(head)?.[1]
+					authservId = candidate && isAuthservId(candidate) ? candidate.toLowerCase() : undefined
 					if (/^x-pi-mailbridge:\s*notification/im.test(head)) seen = "marker"
 					else if (messageIdFromHeaders(head) === wanted) seen = "id"
 					else seen = "rewritten"

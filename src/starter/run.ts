@@ -39,6 +39,8 @@ export interface ScanDeps {
 	handle: Omit<HandleDeps, "journal" | "save" | "config" | "env">
 	/** Live tmux sessions, for reconciliation of interrupted requests. */
 	liveSessions: () => Promise<{ id: string; name: string }[] | undefined>
+	/** The request id stored in a session's environment, when the caller can read it. */
+	ownerOf?: (tmuxSessionId: string) => Promise<string | undefined>
 	now: () => number
 	log: (line: string) => void
 }
@@ -137,6 +139,26 @@ async function reconcileInterrupted(record: ReturnType<typeof alreadySeen>, deps
 		return
 	}
 	const live = liveNow
+	// The marker is the only proof that survives a reused id *and* a reused name; adoption must demand it
+	// for the same reason stop does.
+	if (deps.ownerOf) {
+		const match = live.find((entry) => entry.name === (record.tmuxName ?? record.name) || entry.id === record.tmuxSessionId)
+		if (match) {
+			const owner = await deps.ownerOf(match.id)
+			if (owner !== record.id) {
+				deps.journal.requests[record.id] = {
+					...record,
+					state: "uncertain",
+					reason: `the live session's ownership marker names ${owner ?? "nothing"}, not this request`,
+					at: deps.now(),
+				}
+				summary.uncertain += 1
+				deps.log(`uncertain ${record.id}: ownership marker mismatch`)
+				deps.saveJournal(deps.journal)
+				return
+			}
+		}
+	}
 	const verdict = reconcile(
 		{ ...record, tmuxName: record.tmuxName ?? record.name },
 		live.map((entry) => ({ tmuxSessionId: entry.id, name: entry.name })),
@@ -337,6 +359,8 @@ export function createStarterRunner(deps: RunnerDeps) {
 	let sweep: unknown
 	let running = false
 	let queued = false
+	/** The scan that may be inside an await right now, so a shutdown can wait for it. */
+	let inFlight: Promise<void> | undefined
 
 	let lastSummary: ScanSummary | undefined
 	const guarded = async (): Promise<void> => {
@@ -346,7 +370,7 @@ export function createStarterRunner(deps: RunnerDeps) {
 			return
 		}
 		running = true
-		try {
+		const work = (async (): Promise<void> => {
 			const summary = await scanOnce(deps)
 			lastSummary = summary
 			if (summary.examined > 0) {
@@ -354,11 +378,16 @@ export function createStarterRunner(deps: RunnerDeps) {
 					`scan: examined ${summary.examined}, started ${summary.started}, refused ${summary.refused}, ignored ${summary.ignored}`,
 				)
 			}
-		} catch (error) {
+		})()
+		inFlight = work.catch((error) => {
 			// The cursor was not advanced past the failure, so the next scan retries the same UIDs.
 			deps.log(`scan failed: ${(error as Error).message}`)
+		})
+		try {
+			await inFlight
 		} finally {
 			running = false
+			inFlight = undefined
 			if (queued) {
 				queued = false
 				await guarded()
@@ -389,6 +418,10 @@ export function createStarterRunner(deps: RunnerDeps) {
 		async stop(): Promise<void> {
 			if (sweep !== undefined) timers.clearTimeout(sweep)
 			sweep = undefined
+			queued = false
+			// Join the scan in progress: releasing the lifetime lock while a spawn or a journal save is still
+			// in flight lets the next process read a state that is about to change.
+			if (inFlight) await inFlight
 			await deps.source.stop?.()
 		},
 	}

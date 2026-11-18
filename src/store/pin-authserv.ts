@@ -20,11 +20,27 @@ export interface PinResult {
 	reason?: "already-set" | "not-required" | "no-config" | "no-value"
 }
 
+/**
+ * Is this a plausible authserv-id?
+ *
+ * An authserv-id names the receiving system: a host/domain token (letters, digits, dot, dash, underscore,
+ * and an optional IPv6 literal). `spf=pass` — the first token of a bare Microsoft header — is not one, and
+ * pinning it would trust nothing while looking like it trusted something.
+ */
+export function isAuthservId(value: string): boolean {
+	const token = value.trim()
+	if (!token || token.length > 255) return false
+	if (token.includes("=") || token.includes(";") || token.includes(" ")) return false
+	if (token.startsWith("[")) return /^\[[0-9A-Fa-f:.]+\]$/.test(token)
+	return /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(token)
+}
+
 export function pinAuthservId(
 	env: NodeJS.ProcessEnv,
 	candidate: string | undefined,
 ): PinResult {
 	if (!candidate?.trim()) return { pinned: false, reason: "no-value" }
+	if (!isAuthservId(candidate)) return { pinned: false, reason: "no-value" }
 	const path = configPath(env)
 	let parsed: Record<string, unknown>
 	try {
