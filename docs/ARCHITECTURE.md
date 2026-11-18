@@ -374,6 +374,7 @@ src/
     channel.ts          which mail is a request, and for which device
     grammar.ts          the deterministic body grammar (complete / incomplete / invalid)
     validate.ts         the boundary: cwd under a root, model allowlist, name, prompt
+    parse-agent.ts      stage B: one isolated read-only pi run, proposals only
     journal.ts          durable requests: reservations, reconciliation, retention
     bootstrap.ts        shipped extension: the literal first prompt + readiness marker
     spawn.ts            tmux argv (no prompt), readiness wait, verified stop

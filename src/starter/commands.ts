@@ -17,6 +17,7 @@ import { type JournalFile, JOURNAL_DEFAULTS, readJournal, writeJournal } from ".
 import { buildSpawnArgv, listSessions, spawnSession, stopSession, type SpawnPlan } from "./spawn.ts"
 import { createStarterRunner, type StarterSource } from "./run.ts"
 import { createConfirmer, renderList } from "./confirm.ts"
+import { parseFieldsWithAgent } from "./parse-agent.ts"
 import { resolveBootstrapPath } from "./bootstrap-path.ts"
 import { buildTokenProvider } from "../core/token-source.ts"
 import { createImapflowFactory } from "../daemon/imapflow.ts"
@@ -181,6 +182,7 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 	const bootstrapPath = resolveBootstrapPath(import.meta.url)
 	const confirmer = createConfirmer(ctx.config, { log })
 	const source = await (deps.createSource ?? createImapSource)(ctx.config)
+	const parserAttempts: number[] = []
 
 	const runner = createStarterRunner({
 		config: ctx.config,
@@ -208,6 +210,18 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 			log,
 			now: Date.now,
 			bootstrapPath,
+			// Stage B: one isolated parser run, bounded by its own budget, and only for a missing cwd.
+			parseWithAgent: async (mail) => {
+				const now = Date.now()
+				while (parserAttempts.length > 0 && parserAttempts[0]! < now - 3_600_000) parserAttempts.shift()
+				if (ctx.config.starter.parserAttemptsPerHour > 0 && parserAttempts.length >= ctx.config.starter.parserAttemptsPerHour) {
+					log("parser budget reached; refusing to run stage B")
+					return { error: "parser budget reached" }
+				}
+				parserAttempts.push(now)
+				const parsed = await parseFieldsWithAgent(ctx.config, { subject: mail.subject, body: mail.body })
+				return parsed.ok ? { ...(parsed.fields.cwd ? { cwd: parsed.fields.cwd } : {}) } : { error: parsed.error }
+			},
 		},
 		liveSessions: () => listSessions(),
 		now: Date.now,
