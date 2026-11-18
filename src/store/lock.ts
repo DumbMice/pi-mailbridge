@@ -8,10 +8,10 @@
 //     stolen), so a killed process never locks the machine out.
 //   * a stale lock is NOT stolen. Moving a lock that another process may have just replaced is how two
 //     owners end up convinced they hold it; the holder is reported instead, and only an explicit
-//     `pi-mailbridge starter unlock` (which re-checks that the holder is dead) clears it.
+//     `pi-mailbridge starter locks` names it, and an operator removes it after confirming the pid is gone.
 
 import { randomBytes } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 
 import { statePath } from "./paths.ts"
@@ -38,29 +38,6 @@ export function isAlive(pid: number): boolean {
 		return true
 	} catch (error) {
 		return (error as NodeJS.ErrnoException).code === "EPERM"
-	}
-}
-
-/**
- * Exclusive recovery handle for one lock path.
- *
- * Returns a release function, or undefined when another recovery is in progress. Callers must re-read the
- * lock under this handle before removing it: the checks that led them here may be stale.
- */
-export function beginRecovery(env: NodeJS.ProcessEnv, fileName: string): (() => void) | undefined {
-	const mutex = `${statePath(env, fileName)}.recovery`
-	try {
-		mkdirSync(dirname(mutex), { recursive: true, mode: 0o700 })
-		writeFileSync(mutex, String(process.pid), { flag: "wx", mode: 0o600 })
-	} catch {
-		return undefined
-	}
-	return () => {
-		try {
-			unlinkSync(mutex)
-		} catch {
-			/* already gone */
-		}
 	}
 }
 
@@ -100,18 +77,13 @@ export function acquireLock(env: NodeJS.ProcessEnv, fileName: string): LockResul
 		}
 	}
 
-	// A recovery (explicit `unlock`) holds a mutex on this lock path while it removes a dead holder's file.
-	// Acquirers respect it, so a removal can never be racing an acquisition that already decided to proceed:
-	// that race is how a newly acquired lock got deleted by a recoverer working from stale reads.
-	if (existsSync(`${path}.recovery`)) return { ok: false, holder: 0 }
-
 	const first = take()
 	if (first) return first
 
-	// No takeover. Renaming another process's lock away cannot be made safe: between judging it stale and
-	// moving it, its owner can replace it, leaving two processes convinced they hold the lock. A stale lock
-	// is therefore reported, and only an explicit operator action clears it (`starter unlock`, which
-	// re-checks that the holder is dead).
+	// No takeover, and no automatic removal either: in user space there is no primitive that removes *this*
+	// file only if it is unchanged, so any "clear the stale lock" helper can delete a lock that was acquired
+	// in the meantime. A stale lock is therefore reported with its pid and path, and an operator who has
+	// confirmed the pid is gone removes the file themselves. Failing closed is the only honest option here.
 	let holder = 0
 	let stale = false
 	try {

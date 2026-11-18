@@ -365,32 +365,29 @@ test("check rejects a root of / and a default cwd it would refuse", () => {
 	assert.ok(outside.some((line) => /defaultCwd would be refused/.test(line)), outside.join("; "))
 })
 
-test("unlock clears a dead holder's locks and refuses a live one", async () => {
-	// The starter, the journal transaction and the daemon all can strand a lock; recovery must cover all
-	// three, and must never clear a lock a live process owns.
-	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-unlock-")) }
+test("locks reports a stale lock and never removes it", async () => {
+	// Removing a stale lock in user space can delete a lock acquired in the meantime, so the command only
+	// reports; the operator removes the file after confirming the pid is gone.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-locks-")) }
 	const holder = spawnHolder()
 	const dir = dirname(statePath(env, "x"))
 	mkdirSync(dir, { recursive: true })
 	const write = (name: string, pid: number) => {
 		const file = statePath(env, name)
 		writeFileSync(file, `${pid} token`, { mode: 0o600 })
-		// Old enough that "recent" does not apply.
-		const old = new Date(Date.now() - 3_600_000)
-		utimesSync(file, old, old)
 		return file
 	}
-	const dead = write("starter.lock", 999_999)
+	const stale = write("starter.lock", 999_999)
 	const live = write("daemon.lock", holder.pid)
-	const journal = write("starter-journal.lock", 999_998)
 	const out: string[] = []
 	const errs: string[] = []
-	const code = await runStarterCommand(["unlock"], { config: config(), env, stdout: (l: string) => out.push(l), stderr: (l: string) => errs.push(l) })
+	const code = await runStarterCommand(["locks"], { config: config(), env, stdout: (l: string) => out.push(l), stderr: (l: string) => errs.push(l) })
 	holder.kill()
-	assert.equal(code, 1, "a live holder makes the command fail")
-	assert.equal(existsSync(dead), false)
-	assert.equal(existsSync(journal), false)
-	assert.equal(existsSync(live), true, "a live daemon lock is not touched")
-	assert.match(errs.join("\n"), /daemon\.lock/)
+	assert.equal(code, 1, "a stale lock makes the report fail")
+	assert.equal(existsSync(stale), true, "nothing is removed")
+	assert.equal(existsSync(live), true)
+	assert.match(out.join("\n"), /STALE/)
+	assert.match(out.join("\n"), /held by pid/)
+	assert.match(errs.join("\n"), /remove the file\(s\) above by hand/)
 })
 

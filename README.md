@@ -155,7 +155,7 @@ Setup and surgery:
 ```bash
 pi-mailbridge starter check            # config, roots, tmux, pi, DMARC — refuses on a problem
 pi-mailbridge starter repair           # after an unreadable journal: set it aside, keep the bytes
-pi-mailbridge starter unlock           # clear locks left by a crashed starter/daemon (holder dead, file >1 min old)
+pi-mailbridge starter locks             # report stale locks (path + pid); removal is yours to make
 pi-mailbridge starter run              # the watcher (singleton; run it under a supervisor)
 pi-mailbridge starter list             # live sessions
 pi-mailbridge starter stop <name>      # stop one, by its recorded session id

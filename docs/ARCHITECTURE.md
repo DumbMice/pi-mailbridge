@@ -273,9 +273,8 @@ asks for a restart of pi. `/mailbridge restart` cannot help there and does not p
 
 **Singleton.** `daemon.lock` in the state directory is the lock, with the owner's pid and a random token
 inside: a live holder makes the newcomer exit 0, and a file left by a crash is **not** stolen — the
-newcomer reports the stale holder and points at `pi-mailbridge starter unlock`, which clears it only after
-confirming the pid is gone and the file is a minute old (under a recovery mutex, so a replacement lock
-cannot be removed by mistake). The listening port is a second guard, for a foreign listener - a bind
+newcomer reports the stale holder; `pi-mailbridge starter locks` names the file and pid, and an operator who
+confirms the pid is gone removes it by hand. The listening port is a second guard, for a foreign listener - a bind
 failure also exits 0. `ensureDaemon()` then probes `/health` and reuses the winner.
 
 **Two versions, two clocks.** `/health` carries both: `apiVersion` (the wire contract, `API_VERSION`)
@@ -386,11 +385,11 @@ session); the human name is separate. The journal records the immutable tuple (r
 session id); `stop` verifies the tmux id before killing anything, so a reused name cannot kill a session the
 operator started by hand.
 
-**A stale lock is not stolen.** A crashed starter leaves `starter.lock`; the next start refuses and says to
-run `starter unlock`, which clears it only after confirming the holder is dead and the file is at least a
-minute old. Recovery holds `<lock>.recovery` while it removes the file and every acquirer respects it, so a
-removal cannot delete a lock that was acquired in the meantime. Stealing automatically is what lets two
-processes both believe they hold it.
+**A stale lock is neither stolen nor cleared automatically.** A crashed starter leaves `starter.lock`; the
+next start refuses and points at `starter locks`, which reports the path and the pid and removes nothing.
+In user space there is no primitive that removes *this* file only if it is unchanged, so any helper that
+clears a stale lock can delete a lock another process acquired in the meantime — the operator, who can
+confirm the pid is gone, does the removal.
 
 **Crash behaviour.** The reservation is written before the spawn, so a crash leaves a record that says what
 *should* exist: recovery adopts a matching live session, refuses a reserved request with no session, and

@@ -659,10 +659,10 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 	const lock = acquireDaemonLock(process.env)
 	if (!lock.ok) {
 		// Stealing a stale lock is gone: two daemons must never both believe they hold it, so a crashed
-		// predecessor requires one explicit `starter unlock`.
+		// predecessor requires an operator to confirm the pid is gone and remove the file.
 		log(
 			lock.stale
-				? `the daemon lock is stale (holder ${lock.pid || "unknown"} is gone); run \`pi-mailbridge starter unlock\` to clear it`
+				? `the daemon lock is stale (holder ${lock.pid || "unknown"} is gone); run \`pi-mailbridge starter locks\`, confirm the pid is gone, and remove the file by hand`
 				: `another daemon is already running (pid ${lock.pid}); exiting`,
 		)
 		process.exit(0)

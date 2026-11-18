@@ -11,7 +11,7 @@ import { execFile, spawn } from "node:child_process"
 import type { ResolvedConfig } from "../core/config.ts"
 import { loadConfig } from "../core/config.ts"
 import { statePath } from "../store/paths.ts"
-import { type Lock, acquireLock, beginRecovery, isAlive } from "../store/lock.ts"
+import { type Lock, acquireLock, isAlive } from "../store/lock.ts"
 import { createCursorStore } from "../store/uid-cursor.ts"
 import { type JournalFile, JOURNAL_DEFAULTS, mergeJournals, readJournal, writeJournal } from "./journal.ts"
 import { buildSpawnArgv, listSessions, readOwnershipMarker, spawnSession, stopSession, type SpawnPlan } from "./spawn.ts"
@@ -308,7 +308,7 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 	if (!lifetime.ok) {
 		ctx.err(
 			lifetime.stale
-				? `the starter lock is stale (holder ${lifetime.holder || "unknown"} is gone); run \`pi-mailbridge starter unlock\` to clear it`
+				? `the starter lock is stale (holder ${lifetime.holder || "unknown"} is gone); run \`pi-mailbridge starter locks\` for the path, confirm the pid is gone, and remove the file by hand`
 				: `another starter is already running (pid ${lifetime.holder})`,
 		)
 		return once ? 1 : 0
@@ -470,63 +470,32 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 		return 0
 	}
 
-	if (cmd === "unlock") {
-		// The only way a stale lock is cleared: it is never stolen automatically, because moving a lock that
-		// another process may have just replaced is how two owners end up convinced they hold it.
-		//
-		// Every lock this package can strand is covered — the starter's own, the journal transaction's, and
-		// the daemon's — and each is cleared only after confirming its holder is gone. A lock is also left
-		// alone when it is younger than a minute: a just-started process may not be visible to `kill(0)` yet.
-		const locks = ["starter.lock", "starter-journal.lock", "daemon.lock"]
-		const cleared: string[] = []
-		const refused: string[] = []
-		for (const name of locks) {
+	if (cmd === "locks") {
+		// Report, never remove. A helper that clears a stale lock can delete a lock acquired in the meantime;
+		// removing a file is the operator's decision, made after confirming the pid is gone.
+		const names = ["starter.lock", "starter-journal.lock", "daemon.lock"]
+		let stale = 0
+		for (const name of names) {
 			const file = statePath(ctx.env, name)
-			// Recovery holds the lock path's mutex, so no acquirer can create a replacement while we remove a
-			// dead holder's file; without it, a check followed by an unlink can delete a fresh live lock.
-			const release = beginRecovery(ctx.env, name)
-			if (!release) {
-				refused.push(`${name} (another recovery is in progress)`)
-				continue
-			}
 			let content: string
 			try {
-				// Re-read under the mutex: what we saw before taking it may already be someone else's.
 				content = readFileSync(file, "utf8").trim()
 			} catch {
-				release()
+				ctx.out(`${name}: free`)
 				continue
 			}
 			const holder = Number(content.split(" ")[0])
-			const fresh = (() => {
-				try {
-					return Date.now() - statSync(file).mtimeMs < 60_000
-				} catch {
-					return false
-				}
-			})()
-			if (holder > 0 && isAlive(holder)) {
-				refused.push(`${name} (pid ${holder} is alive)`)
-				release()
-				continue
-			}
-			if (fresh) {
-				refused.push(`${name} (recent; wait a minute)`)
-				release()
-				continue
-			}
-			try {
-				unlinkSync(file)
-				cleared.push(name)
-			} catch {
-				/* gone between the read and the unlink: nothing to clear */
-			} finally {
-				release()
-			}
+			const alive = holder > 0 && isAlive(holder)
+			if (!alive) stale += 1
+			ctx.out(`${name}: ${alive ? `held by pid ${holder}` : `STALE (pid ${holder || "unknown"} is gone)`} — ${file}`)
 		}
-		for (const name of cleared) ctx.out(`cleared ${name}`)
-		for (const name of refused) ctx.err(`kept ${name}`)
-		return refused.length > 0 ? 1 : 0
+		if (stale > 0) {
+			ctx.err(
+				`${stale} stale lock(s). Confirm the pid is gone, then remove the file(s) above by hand; nothing clears them automatically.`,
+			)
+			return 1
+		}
+		return 0
 	}
 	if (cmd === "repair") {
 		// The corrupt-journal refusal points here, so this has to exist: set the bad bytes aside, clear the
