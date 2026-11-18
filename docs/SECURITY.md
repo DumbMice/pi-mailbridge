@@ -147,6 +147,41 @@ Beyond sending, the token can `GET /pending` (this device's reply bodies and att
 and `/ack` a record this device scanned — which *discards* a queued reply without delivering it —
 flip the mode, and shut the daemon down. Treat `secret.key` as equivalent to the mailbox password.
 
+## 4a. Mail that starts processes (the session starter)
+
+The starter is off by default and is a **separate process**; the daemon and the extension still never create
+or switch sessions.
+
+> An email from the allowlisted address can make this machine start a process, in a directory the operator
+> allows, running a prompt that email contains.
+
+The gates, in order: `starter.enabled` plus a non-empty `starter.roots` (a problem for `starter check`);
+the channel (subject prefix, or a configured address); `security.allowFrom` exact match and DMARC, reused
+from §2 rather than reimplemented; the mailbox's own echo markers; replay and freshness (Message-ID, UID
+space, INTERNALDATE); path validation; model allowlist; name sanitising; a per-hour start budget and a live
+session cap.
+
+**A starter request is authorized by address and DMARC, not by a routing token.** It cannot carry one — a
+fresh request has no reply headers, which is the one requirement the starter's authorization context
+relaxes. In a same-mailbox layout that is the whole gate, and `starter check` says so when
+`requireDmarcPass` is off.
+
+**Two limits stated rather than implied:**
+
+- A permitted `cwd` is a **launch restriction, not a sandbox**. The started session has pi's normal powers:
+  it can leave that directory, read credentials, and start more processes. `maxSessions` bounds tracked tmux
+  sessions, not descendants or spend.
+- Stage B's read-only tools (`read,grep,find,ls`, anywhere) are a **confidentiality grant**: anything they
+  read is disclosed to the model provider. A validator that checks the returned `cwd` cannot un-read a
+  secret. `starter.parse.agent` is off by default and requires an explicit model.
+
+**Stopping.** `stop:` is accepted only for sessions recorded in the starter's journal, and only kills them
+by their immutable tmux session id — a name that has since been reused cannot kill a session the operator
+started by hand. `stop: all` applies to the snapshot of sessions the journal says it owns.
+
+**Refusals are mailed only to authenticated requests.** Unauthenticated, robot, echo and off-channel mail is
+dropped without a reply (backscatter is itself a policy, see §3).
+
 ## 5. Mailbox hygiene
 
 - Prefer a **dedicated account or a filtered folder**. Do not point this at a

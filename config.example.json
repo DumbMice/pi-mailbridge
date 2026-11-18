@@ -50,5 +50,35 @@
     "idleRenewMs": 1500000,
     "backoffInitialMs": 1000,
     "backoffMaxMs": 60000
+  },
+  "starter": {
+    "enabled": false,
+    "channel": {
+      "subjectPrefix": "pi-start",
+      "address": "",
+      "folder": ""
+    },
+    "roots": [],
+    "defaultCwd": "",
+    "models": [],
+    "defaultModel": "",
+    "maxSessions": 4,
+    "startsPerHour": 6,
+    "parserAttemptsPerHour": 6,
+    "confirmationsPerHour": 12,
+    "promptMaxChars": 8000,
+    "autoEnableMail": true,
+    "requestMaxAgeHours": 48,
+    "scanIntervalSecs": 60,
+    "parse": {
+      "agent": false,
+      "model": "",
+      "tools": "read,grep,find,ls",
+      "timeoutMs": 120000
+    },
+    "log": {
+      "maxBytes": 5000000,
+      "keep": 3
+    }
   }
 }

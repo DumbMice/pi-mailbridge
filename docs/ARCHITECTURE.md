@@ -238,14 +238,16 @@ Each session reads its *own* effective mode on its poll tick — `GET /mode?inst
 bare endpoint, which answers with the global switch. The daemon scans when the global switch is on
 **or** an attached session overrode itself on; with nobody attached it follows the global switch.
 
-## 6. Deliberately out of scope: creating sessions
+## 6. Creating sessions: only through the starter process
 
 `ctx.newSession()` **replaces** the active session in-process, and only a
 command handler can call it — which is why `opencode-afk` needs a two-phase
 `create`→`resume` dance and why `pi-wechat-assistant` gates on `ctx.isIdle()`.
 
-pi-mailbridge does not create or switch sessions. It notifies about, and
-resumes, sessions the human already started. Anything else needs a different
+The daemon and the extension do not create or switch sessions: they notify about, and resume, sessions the
+human already started. Creating one is a **separate process** with its own lock, cursor, log and CLI — the
+session starter (§7a) — because `ctx.newSession()` is a different architecture and because
+creating a session executes a mail-chosen directory and prompt. Anything else needs a different
 process topology (an RPC supervisor owning `pi --mode rpc` children).
 
 ## 6a. Lifetime: singleton, and it stops when you do
@@ -325,6 +327,45 @@ There is deliberately no switch to keep it resident: with no sessions it scans b
 so a daemon that outlived pi would read a mailbox for nobody. Idleness is measured from the
 daemon's own start until a session pings, so a hand-started daemon gets one full grace period and
 then exits - it is not exempt.
+
+## 7a. The session starter (mail → detached session)
+
+A separate process (`pi-mailbridge starter run`), with its own lock (`starter.lock`), IMAP connection,
+cursor (`starter-cursor.json`), journal (`starter-journal.json`), log (`starter.log`) and prompt files
+(`starter-prompts/`). It must run with neither pi nor the daemon up, which is why it does not borrow the
+daemon's connection.
+
+**What a request is.** An email from an allowlisted address on the configured channel — by default the
+mailbox the bridge already watches, subject `[<prefix>] …`; optionally a dedicated address. The body is a
+`key: value` block (`cwd`, `model`, `thinking`, `name`, `prompt`, `parse`), or the commands `stop:` /
+`list:`. Three parse states matter: **complete**, **incomplete** (a missing `cwd`), and **invalid** (an
+explicit value is wrong). Stage B — one isolated read-only pi run — may fill *only* a missing field, and its
+answer is validated like a human's.
+
+**The order is the security design.** Caps → self-echo/robot/authentication (`authorize()` in a *request*
+context: a fresh request has no reply headers, and that single requirement is the only relaxation) → channel
+and device → replay and freshness (Message-ID, UID space, `INTERNALDATE`) → parse → optional agent →
+validation → **durable reservation of the session identity** → spawn → result mail.
+
+**No prompt in argv.** pi parses positional prompts as options (`--continue`), reads `@path` as a file after
+`--`, and dispatches `/cmd`; a mail saying `/mailbridge setup …` would have run a command in the new
+session. The prompt travels in a per-request `0600` file named by an env var, and the shipped bootstrap
+extension calls `sendUserMessage(text)` without `expandPromptTemplates`. The bootstrap then writes a
+readiness marker: success is that marker plus a live tmux session, never a pane scrape.
+
+**Ownership.** A fresh pi session id is minted per request (`--session-id` would otherwise *resume* an old
+session); the human name is separate. The journal records the immutable tuple (request, pi session id, tmux
+session id); `stop` verifies the tmux id before killing anything, so a reused name cannot kill a session the
+operator started by hand.
+
+**Crash behaviour.** The reservation is written before the spawn, so a crash leaves a record that says what
+*should* exist: recovery adopts a matching live session, refuses a reserved request with no session, and
+marks an unattributable one `uncertain` — never respawned automatically. Result delivery is tracked
+separately (`ready, resultSent: false` is retried once; it is not a re-spawn). An unreadable journal fails
+closed.
+
+**Honest limits, in SECURITY.md**: an allowed `cwd` is a launch restriction, not a sandbox; stage B's
+read-only tools are a confidentiality grant (read anywhere = disclose anywhere to the provider).
 
 ## 7. Failure modes
 

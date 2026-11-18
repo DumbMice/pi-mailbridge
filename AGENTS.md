@@ -119,7 +119,9 @@ compression or redirects, add them here rather than switching back to `fetch`.
 
 ## Scope boundary
 
-This package **does not create or switch sessions.** `ctx.newSession()` replaces
+This package's **daemon and extension do not create or switch sessions**; that is the session starter's
+job, in its own process (§7a of ARCHITECTURE.md), and it is the only exception. Do not add session creation
+to the extension: `ctx.newSession()` replaces
 the active session in-process, which is a different architecture (an RPC
 supervisor owning `pi --mode rpc` children). Do not add it here without a design
 doc.

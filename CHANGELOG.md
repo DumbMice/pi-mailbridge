@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Start a session by mail
+
+An optional, separate process — `pi-mailbridge starter run` — watches a channel (by default the mailbox the
+bridge already watches, subject `[pi-start] …`) and starts a **detached pi session in tmux**. `cwd`,
+`model`, `thinking`, `name` and the first prompt come from the mail; the prompt defaults to `hi`. `stop:`
+and `list:` are the same channel; every request gets one reply: started or refused.
+
+The parts that make this safe rather than alarming: a session's cwd must be **inside** a configured root
+(realpath, hidden segments refused); the prompt never travels in argv (pi would parse `--continue`, read
+`@file`, or dispatch `/cmd`) but in a per-request `0600` file read by a shipped bootstrap extension; the
+session identity is reserved in a durable journal **before** the spawn, so a crash adopts or refuses rather
+than double-starting; `stop` kills by immutable tmux session id; and unauthenticated mail gets no reply at
+all. Optional stage B runs one isolated, read-only pi to fill a missing `cwd`, and its answer is validated
+like a human's.
+
 ### DMARC pinning no longer needs a human to read headers
 
 `security.trustedAuthservId` is the receiving provider's own `authserv-id`, and it exists only in a

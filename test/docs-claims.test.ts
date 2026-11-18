@@ -1489,3 +1489,37 @@ test("the daemon injects the UIDVALIDITY check into every scan", () => {
 	)
 })
 
+test("the docs no longer claim the package never creates sessions, and say what the starter is", () => {
+	// §6 and AGENTS.md used to state it unconditionally; the starter is the exception, and a doc that
+	// denies it would be read as "this cannot happen" by exactly the person auditing it.
+	for (const { file, text } of allProse()) {
+		assert.doesNotMatch(text, /pi-mailbridge does not create or switch sessions/i, `${file} still denies it flatly`)
+	}
+	const arch = flat(doc("docs/ARCHITECTURE.md"))
+	assert.match(arch, /## 7a\. The session starter/)
+	assert.match(arch, /No prompt in argv/i, "the transport rule is stated where the design is")
+	assert.match(arch, /reservation of the session identity/i, "and the crash contract")
+
+	const security = flat(doc("docs/SECURITY.md"))
+	assert.match(security, /## 4a\. Mail that starts processes/)
+	assert.match(security, /launch restriction, not a sandbox/i)
+	assert.match(security, /confidentiality grant/i, "stage B's read-only tools are described honestly")
+	assert.match(security, /authorized by address and DMARC, not by a routing token/i)
+
+	const readme = flat(doc("README.md"))
+	assert.match(readme, /pi-mailbridge starter run/)
+	assert.match(readme, /cwd must be INSIDE one of these/i)
+})
+
+test("the starter's config is documented as example keys and in the README", () => {
+	const example = JSON.parse(doc("config.example.json")) as { starter?: Record<string, unknown> }
+	assert.ok(example.starter, "config.example.json has the section")
+	for (const key of ["enabled", "roots", "models", "maxSessions", "startsPerHour", "parse"]) {
+		assert.ok(key in (example.starter ?? {}), `config.example.json: ${key}`)
+	}
+	const readme = flat(doc("README.md"))
+	for (const key of ["enabled", "roots", "models", "autoEnableMail"]) {
+		assert.match(readme, new RegExp(`"${key}"`), `README documents starter.${key}`)
+	}
+})
+

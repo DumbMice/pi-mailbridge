@@ -87,7 +87,51 @@ interval at which each session re-reads its mode — and every session you start
 off, so installing never mails you unprompted. `/mailbridge status` shows both when they differ:
 `mode: off (this session) · global on`.
 
+## Start a session by mail
+
+Optional, off by default, and a **separate process** — `pi-mailbridge starter run`. Mail it a request and it
+starts a detached pi session in tmux; mail it `stop:` and it closes one.
+
+```
+To:      your mailbox (or the `starter.channel.address` you configure)
+Subject: [pi-start] fix the flaky auth test
+
+cwd:   ~/Work/myapp
+model: deepseek/deepseek-flash      # optional; must be on starter.models
+prompt: |
+  The auth test is flaky on CI. Reproduce it, fix it, run the suite.
+```
+
+`prompt` defaults to `hi`, and the session name comes from the subject. You get one reply: `started` (with
+the `tmux attach` line and the exact `stop:` text) or `refused` with the reason. `list:` lists live sessions.
+
+```jsonc
+"starter": {
+  "enabled": false,                       // on only when you say so
+  "roots": ["~/Work"],                    // a session's cwd must be INSIDE one of these
+  "models": ["deepseek/deepseek-flash"],  // an explicit `model:` must be on this list
+  "autoEnableMail": true                  // the started session mails you back
+}
+```
+
+Setup and surgery:
+
+```bash
+pi-mailbridge starter check            # config, roots, tmux, pi, DMARC — refuses on a problem
+pi-mailbridge starter run              # the watcher (singleton; run it under a supervisor)
+pi-mailbridge starter list             # live sessions
+pi-mailbridge starter stop <name>      # stop one, by its recorded session id
+pi-mailbridge starter attach <name>    # tmux attach
+pi-mailbridge starter once --dry-run   # show what an interrupted request would run; starts nothing
+```
+
+**This turns a mailbox into a way to launch processes**, so read `docs/SECURITY.md` §4a first: the `roots`
+list is a launch restriction (not a sandbox), and a request is authorized by your address and DMARC — there
+is no routing token to steal, and none to rely on either. The starter needs its own IMAP connection and runs
+whether or not pi is up.
+
 ## Quick start
+
 
 Inside pi:
 
