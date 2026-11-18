@@ -26,6 +26,7 @@ import { daemonBaseUrl, ensureDaemon, createDaemonClient, type DaemonClient } fr
 import { completeSubcommand, parseMailbridgeCommand, USAGE, type ArgCompletion } from "./core/commands.ts"
 import { runSetup } from "./core/setup.ts"
 import { runSmoke } from "./core/smoke.ts"
+import { pinAuthservId } from "./store/pin-authserv.ts"
 import { buildTokenProvider } from "./core/token-source.ts"
 import { createOpenidClient } from "./core/oauth-openid.ts"
 import { fileTokenStore } from "./store/oauth-store.ts"
@@ -1393,10 +1394,20 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						const result = await runSmoke(config, {
 							...(provider ? { getAccessToken: () => provider.getToken() } : {}),
 						})
+						// Pin DMARC to the provider's own authserv-id: it is only observable in a
+						// delivered message, and this copy is one we sent ourselves.
+						const pinned = pinAuthservId(env, result.authservId)
+						if (pinned.pinned) {
+							config = load()
+							c.ui.notify(`mailbridge: pinned security.trustedAuthservId to ${result.authservId}`, "info")
+						}
 						c.ui.notify(
 							[
 								...result.steps.map((s) => `${s.step} ${s.ok ? "ok" : "FAILED"}: ${s.detail}`),
 								...result.steps.filter((s) => s.hint).map((s) => `hint: ${s.hint}`),
+								...(!pinned.pinned && pinned.reason === "no-value"
+									? ["note: the delivered copy carried no Authentication-Results header, so DMARC could not be pinned"]
+									: []),
 							].join("\n"),
 							result.ok ? "info" : "error",
 						)

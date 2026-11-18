@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### DMARC pinning no longer needs a human to read headers
+
+`security.trustedAuthservId` is the receiving provider's own `authserv-id`, and it exists only in a
+delivered message - so asking a person to copy it out of an `Authentication-Results` header was the
+weakest link in the gate. `pi-mailbridge --smoke` (and `/mailbridge smoke`) now reads it from the copy
+of the mail it just sent itself - the one place the value is observable and is the provider's work
+rather than a sender's - and writes it once, when the field is unset and DMARC is required. An
+explicit pin is never overwritten.
+
 ## 0.2.2 — 2026-11-17
 
 ### Tab completion could rewrite the command

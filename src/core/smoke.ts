@@ -22,6 +22,14 @@ export interface SmokeStep {
 export interface SmokeResult {
 	ok: boolean
 	steps: SmokeStep[]
+	/**
+	 * The `authserv-id` of the topmost `Authentication-Results` header on the copy that came back.
+	 *
+	 * This is a fact only the provider can tell us: it is the receiving server's own name, and the
+	 * thing `security.trustedAuthservId` should be pinned to. Learned from mail we sent ourselves, so
+	 * it cannot be an attacker's choice.
+	 */
+	authservId?: string
 }
 
 export interface SmokeDeps {
@@ -79,6 +87,8 @@ export async function runSmoke(config: ResolvedConfig, deps: SmokeDeps = {}): Pr
 	const send = deps.send ?? sendMail
 	/** The Message-ID we stamped, so the echo probe can look for it. */
 	let lastMessageId: string | undefined
+	/** Learned from our own copy's headers: the receiving provider's authserv-id. */
+	let authservId: string | undefined
 
 	// --- SMTP ---
 	try {
@@ -150,6 +160,8 @@ export async function runSmoke(config: ResolvedConfig, deps: SmokeDeps = {}): Pr
 					// Classify on what the scanner actually uses: the marker, then our
 					// Message-ID. Claiming the Message-ID survived without checking it was the
 					// bug the live account exposed.
+					// Our own copy: the delivering provider's header, not a sender's. Safe to learn from.
+					authservId = /^authentication-results:\s*([^\s;]+)/im.exec(head)?.[1]?.toLowerCase()
 					if (/^x-pi-mailbridge:\s*notification/im.test(head)) seen = "marker"
 					else if (messageIdFromHeaders(head) === wanted) seen = "id"
 					else seen = "rewritten"
@@ -203,5 +215,5 @@ export async function runSmoke(config: ResolvedConfig, deps: SmokeDeps = {}): Pr
 		await connection?.close()
 	}
 
-	return { ok: steps.every((s) => s.ok), steps }
+	return { ok: steps.every((s) => s.ok), steps, ...(authservId ? { authservId } : {}) }
 }

@@ -226,3 +226,37 @@ test("the echo step reports what actually survived, including a rewritten Messag
 	assert.equal(kept?.ok, true)
 	assert.match(kept!.detail, /Message-ID survived/)
 })
+
+test("smoke reports the authserv-id of the copy that came back", async () => {
+	// This is the only place the value exists. Without it the pin is a no-op and DMARC stays pinned to
+	// whatever is topmost, which is a sender-writable header.
+	const { runSmoke } = await import("../src/core/smoke.ts")
+	// The echo probe only runs in the single-mailbox layout, which is where the copy comes back.
+	const base = config()
+	const singleMailbox: ResolvedConfig = {
+		...base,
+		mail: { ...base.mail, to: "pi@example.com", imap: { ...base.mail.imap, user: "pi@example.com" } },
+	}
+	const result = await runSmoke(singleMailbox, {
+		send: async () => ({ messageId: "<abc@example.com>" }),
+		connect: async () => ({
+			count: async () => 1,
+			// Our own copy, with the provider's header above anything a sender wrote.
+			recentSources: async () => [
+				Buffer.from(
+					[
+						"Authentication-Results: mx.qq.com; dkim=pass; dmarc=pass",
+						"X-Pi-Mailbridge: notification",
+						"Message-ID: <abc@example.com>",
+						"",
+						"body",
+					].join("\r\n"),
+				),
+			],
+			close: async () => {},
+		}),
+		sleep: async () => {},
+		echoRetryDelaysMs: [1],
+	})
+	assert.equal(result.authservId, "mx.qq.com")
+})

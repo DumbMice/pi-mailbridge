@@ -53,8 +53,12 @@ From: <the same address>, genuinely sent through a relay that stamps nothing    
 It is a quiet failure in both directions at once: a spoofed message gets in *and* real mail appears
 broken, which invites turning `requireDmarcPass` off entirely — the worst response. Two defences:
 
-1. **Pin it.** Set `security.trustedAuthservId` to your provider's authserv-id (the token before
-   the first `;` in its header). A message without that header then fails closed instead of
+1. **Pin it.** `security.trustedAuthservId` is your provider's authserv-id (the token before the
+   first `;` in its header). You should not have to supply it: `pi-mailbridge --smoke` (and
+   `/mailbridge smoke`) reads it from the copy of the mail it just sent itself, which is the one place
+   the value is both observable and not a sender's choice, and writes it once when the field is unset.
+   Set it by hand only if you are pinning a different relay than the one your smoke mail came back
+   through. A message without that header then fails closed instead of
    trusting whatever is topmost. Do not pin Microsoft consumer accounts — outlook.com emits bare
    headers with no authserv-id (rule 3 below).
 2. **Measure it.** `pi-mailbridge --smoke` sends one real mail and re-opens the folder; read the

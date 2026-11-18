@@ -389,6 +389,7 @@ src/
     oauth-store.ts      refresh tokens, 0600
     paths.ts            XDG dirs
     pending-store.ts    durable pending + claim/ack state machine
+    pin-authserv.ts     pins security.trustedAuthservId from the provider's own header
     registry.ts         one outstanding decision per session
     schema.ts           on-disk schema version: refuse newer, migrate older
     routes.ts           short routing ids, TTL

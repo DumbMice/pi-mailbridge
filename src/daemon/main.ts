@@ -52,6 +52,7 @@ import { createImapflowFactory } from "./imapflow.ts"
 import { createDaemonService, type DaemonService } from "./service.ts"
 import type { MailSource } from "./process.ts"
 import { runSmoke } from "../core/smoke.ts"
+import { pinAuthservId } from "../store/pin-authserv.ts"
 import { runSetup } from "../core/setup.ts"
 import { listPending } from "../store/pending-store.ts"
 import { advanceCursor, isPrimed, markPrimed, readCursor } from "../store/uid-cursor.ts"
@@ -135,6 +136,11 @@ async function smoke(config: ResolvedConfig): Promise<number> {
 		if (step.hint) log(`  hint: ${step.hint}`)
 	}
 	if (!result.ok) return EXIT_AUTH
+	// Pin DMARC to the provider's authserv-id, learned from our own copy's headers: nobody should
+	// have to read an Authentication-Results header to make the gate strong.
+	const pinned = pinAuthservId(process.env, result.authservId)
+	if (pinned.pinned) log(`pinned security.trustedAuthservId to ${result.authservId}`)
+	else if (pinned.reason === "no-value") log("note: no Authentication-Results header in the delivered copy, so DMARC stayed unpinned")
 	log("smoke ok: both directions work")
 	return 0
 }
@@ -377,7 +383,7 @@ async function check(config: ResolvedConfig): Promise<number> {
 	}
 
 	if (config.security.requireDmarcPass && !config.security.trustedAuthservId) {
-		log("note: security.trustedAuthservId unset — trusting the topmost Authentication-Results header")
+		log("note: security.trustedAuthservId unset — trusting the topmost Authentication-Results header; `pi-mailbridge --smoke` pins it from the provider's own header")
 	}
 
 	try {
