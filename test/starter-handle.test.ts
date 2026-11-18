@@ -537,3 +537,18 @@ test("an unidentifiable child is uncertain, and its evidence is kept", async () 
 	assert.equal(r.replies.length, 1, "and the operator is told it needs a look")
 })
 
+test("list: and stop: report a failed reply, like every other branch", async () => {
+	const r = rig()
+	r.deps.send = async () => {
+		throw new Error("smtp down")
+	}
+	r.deps.list = async () => [{ id: "$1", name: "x" }]
+	const listed = await handleMail(mail({ messageId: "<l2@x>", uid: 91, body: "list:" }, r.project), r.deps)
+	assert.equal(listed.action, "listed")
+	if (listed.action === "listed") assert.equal(listed.replied, false)
+
+	const stop = await handleMail(mail({ messageId: "<s2@x>", uid: 92, body: "stop: all" }, r.project), r.deps)
+	assert.equal(stop.action, "stopped")
+	if (stop.action === "stopped") assert.equal(stop.replied, false)
+})
+

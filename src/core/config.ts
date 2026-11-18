@@ -345,6 +345,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 		resolved.security = { ...resolved.security, allowFrom: rawAllow.map((v) => String(v).trim()).filter(Boolean) }
 	}
 
+	// Security booleans must be real booleans. `null`, `0`, `""` and `"false"` are all truthy/falsy in ways
+	// that can *disable* a check, so only an explicit `false` turns one off; anything else stays on and says
+	// why. `allowSelfReplies` is normalized too: a truthy `"false"` would relax the self-reply guard.
+	const truthyByDefault = (value: unknown, name: string, dflt: boolean): boolean => {
+		if (typeof value === "boolean") return value
+		if (value !== undefined) warnings.push(`security.${name} must be true or false — using ${dflt ? "true" : "false"}`)
+		return dflt
+	}
+	resolved.security = {
+		...resolved.security,
+		requireDmarcPass: truthyByDefault(resolved.security.requireDmarcPass, "requireDmarcPass", true),
+		allowSelfReplies: truthyByDefault(resolved.security.allowSelfReplies, "allowSelfReplies", false),
+	}
+
 	// A quoted or non-numeric delay silently disables debouncing (setTimeout coerces it).
 	const rawDebounce: unknown = resolved.notify?.debounceMs
 	const debounce = typeof rawDebounce === "number" ? rawDebounce : Number.NaN

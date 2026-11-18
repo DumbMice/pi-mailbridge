@@ -362,3 +362,24 @@ test("parse.agent must be a boolean, or a string typo enables the parser", () =>
 	assert.equal(loadConfig(env).starter.parse.agent, false)
 })
 
+test("a malformed security boolean cannot disable DMARC or relax self-replies", () => {
+	// `null`/0/"" are falsy and a truthy "false" is truly truthy: either one silently turns a check off.
+	for (const [key, value, expected] of [
+		["requireDmarcPass", null, true],
+		["requireDmarcPass", 0, true],
+		["requireDmarcPass", "", true],
+		["requireDmarcPass", "false", true],
+		["allowSelfReplies", "false", false],
+	] as const) {
+		const env = { XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "pmb-sec-")) }
+		mkdirSync(join(env.XDG_CONFIG_HOME, "pi-mailbridge"), { recursive: true })
+		writeFileSync(
+			join(env.XDG_CONFIG_HOME, "pi-mailbridge", "config.json"),
+			JSON.stringify({ security: { [key]: value } }),
+			{ mode: 0o600 },
+		)
+		const loaded = loadConfig(env)
+		assert.equal(loaded.security[key], expected, `${key}=${JSON.stringify(value)}`)
+	}
+})
+

@@ -249,17 +249,17 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 		const live = await deps.list()
 		if (live === undefined) {
 			// `undefined` is "tmux did not answer", not "nothing is running".
-			await reply("[pi-start] could not list sessions: tmux did not answer")
+			const sentList = await reply("[pi-start] could not list sessions: tmux did not answer")
 			settle("list")
-			return { action: "listed", count: 0, replied: true }
+			return { action: "listed", count: 0, replied: sentList }
 		}
 		const rows = live.map((entry) => {
 			const record = journal.sessions[entry.name]
 			return `${entry.name} ${entry.id}${record?.cwd ? ` ${record.cwd}` : ""}`
 		})
-		await reply(rows.length ? `[pi-start] sessions\n${rows.join("\n")}` : "[pi-start] no sessions")
+		const sentRows = await reply(rows.length ? `[pi-start] sessions\n${rows.join("\n")}` : "[pi-start] no sessions")
 		settle("list")
-		return { action: "listed", count: live.length, replied: true }
+		return { action: "listed", count: live.length, replied: sentRows }
 	}
 	if (grammared.state === "complete" && grammared.request.kind === "stop") {
 		// Admitted before the kill: a replayed stop must not stop whatever holds that name later.
@@ -283,13 +283,13 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 			const results = await Promise.all(ownedNames(journal).map(async (name) => [name, await stopOne(name)] as const))
 			deps.save(journal)
 			const said = results.map(([name, result]) => `${name} ${result}`).join(", ") || "nothing to stop"
-			await reply(`[pi-start] ${said}`)
+			const sentAll = await reply(`[pi-start] ${said}`)
 			settle("stop")
-			return { action: "stopped", name: "all", replied: true }
+			return { action: "stopped", name: "all", replied: sentAll }
 		}
 		const result = await stopOne(target)
 		deps.save(journal)
-		await reply(
+		const sentStop = await reply(
 			result === "stopped"
 				? `[pi-start] stopped ${target}`
 				: result === "unknown"
@@ -298,8 +298,8 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 		)
 		settle("stop")
 		return result === "stopped"
-			? { action: "stopped", name: target, replied: true }
-			: { action: "refused", code: result === "unknown" ? "unknown-session" : "kill-failed", detail: target, replied: true }
+			? { action: "stopped", name: target, replied: sentStop }
+			: { action: "refused", code: result === "unknown" ? "unknown-session" : "kill-failed", detail: target, replied: sentStop }
 	}
 
 	if (!isCommand && startQuotaReached(config, journal, now)) {

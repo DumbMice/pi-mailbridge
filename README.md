@@ -115,6 +115,20 @@ sessions, and says "tmux did not answer" rather than "no sessions" when the sock
 a session ends the session, not the delivery of its result: if the "started" mail never went out, it is
 still sent on a later scan.
 
+Operational limits worth knowing before you turn it on:
+
+- **One machine, one channel.** There is no device tag; two starters watching the same mailbox will both
+  act on the same request. Give each machine its own prefix, address or folder.
+- **`starter-journal.json` has one budget of 500 records** shared by starts, commands and refusals. If it
+  fills, admission fails closed — including a mailed `stop:` — until old enough records age out or you run
+  `starter repair` (which discards replay history).
+- **Receipts grow without bound** by design: one tiny `.handled` file per request and one intent receipt per
+  started session. They are what makes a reload safe; deleting them reopens what a reload would reapply.
+- **A crash can need a human.** A `SIGKILL` leaves a lock file; nothing clears it automatically. Use
+  `starter locks`, confirm the pid is gone, and remove the file by hand.
+- **Result delivery is retryable, not exactly-once.** A crash after SMTP accepted a result but before it was
+  recorded can duplicate that mail.
+
 ```jsonc
 "starter": {
   "enabled": false,                       // on only when you say so

@@ -407,3 +407,51 @@ test("an unreadable lock is unknown, not free", () => {
 	})
 })
 
+test("repair refuses while the starter or a journal write is active", async () => {
+	// Repair renamed the authoritative journal with no locks, racing a watcher save or a CLI stop.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-repair-lock-")) }
+	const file = statePathForTest(env)
+	mkdirSync(dirname(file), { recursive: true })
+	writeFileSync(file, "{broken", { mode: 0o600 })
+	const starterLock = acquireLock(env, "starter.lock")
+	assert.equal(starterLock.ok, true)
+	if (starterLock.ok) {
+		const code = await runStarterCommand(["repair"], { config: config(), env, stdout: () => {}, stderr: () => {} })
+		assert.equal(code, 1)
+		assert.equal(existsSync(file), true, "nothing moved while the starter holds its lock")
+		starterLock.lock.release()
+	}
+	const journalLock = acquireLock(env, "starter-journal.lock")
+	assert.equal(journalLock.ok, true)
+	if (journalLock.ok) {
+		const code = await runStarterCommand(["repair"], { config: config(), env, stdout: () => {}, stderr: () => {} })
+		assert.equal(code, 1)
+		assert.equal(existsSync(file), true, "nothing moved while a journal write is active")
+		journalLock.lock.release()
+	}
+	const code = await runStarterCommand(["repair"], { config: config(), env, stdout: () => {}, stderr: () => {} })
+	assert.equal(code, 0, "and it works once the locks are free")
+	assert.equal(existsSync(file), false)
+})
+
+test("check rejects configuration that cannot deliver a result", () => {
+	const noSmtp = config()
+	const problems = starterProblems({ ...noSmtp, mail: { ...noSmtp.mail, smtp: { ...noSmtp.mail.smtp, host: "" }, to: "" } })
+	assert.ok(problems.some((line) => /mail\.smtp\.host is empty/.test(line)), problems.join("; "))
+	assert.ok(problems.some((line) => /mail\.to is empty/.test(line)), problems.join("; "))
+})
+
+test("a journal save adopts the pruned result, not the merged superset", () => {
+	// A long-running watcher kept expired names in memory and eventually refused new ones as exhausted.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-prune-mem-")) }
+	const old = Date.now() - 365 * 24 * 3_600_000
+	const journal: JournalFile = {
+		v: 1,
+		requests: { gone: { id: "gone", messageId: "<g@x>", uid: 1, receivedAt: old, state: "ended", at: old } },
+		sessions: { gone: { name: "gone", tmuxSessionId: "$1", piSessionId: "pi", requestId: "gone", cwd: "/tmp", at: old, endedAt: old } },
+	}
+	journalStore(env, config())(journal)
+	assert.equal(journal.requests.gone, undefined, "the in-memory view forgets what the file forgot")
+	assert.equal(journal.sessions.gone, undefined)
+})
+

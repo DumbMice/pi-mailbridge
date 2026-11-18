@@ -136,15 +136,17 @@ export function journalStore(env: NodeJS.ProcessEnv, config: ResolvedConfig): (j
 		}
 		if (!lock.verify()) throw new Error("the journal lock was taken over; not writing")
 		const merged = mergeJournals(disk, journal)
+		// The write prunes; the caller's maps adopt what was actually written, or a long-running watcher keeps
+		// expired entries in memory and allocates names against sessions that no longer exist on disk.
+		const written = writeJournal(env, merged, {
+			...JOURNAL_DEFAULTS,
+			// The acceptance horizon is the replay guard; the journal must not forget before it.
+			requestMaxAgeHours: config.starter.requestMaxAgeHours,
+		})
 		for (const key of Object.keys(journal.requests)) delete journal.requests[key]
-		Object.assign(journal.requests, merged.requests)
+		Object.assign(journal.requests, written.requests)
 		for (const key of Object.keys(journal.sessions)) delete journal.sessions[key]
-		Object.assign(journal.sessions, merged.sessions)
-			writeJournal(env, merged, {
-				...JOURNAL_DEFAULTS,
-				// The acceptance horizon is the replay guard; the journal must not forget before it.
-				requestMaxAgeHours: config.starter.requestMaxAgeHours,
-			})
+		Object.assign(journal.sessions, written.sessions)
 		} finally {
 			lock.release()
 		}
@@ -232,6 +234,9 @@ export function starterProblems(config: ResolvedConfig, env: NodeJS.ProcessEnv =
 		void base
 		if (!check.ok) problems.push(`starter.defaultCwd would be refused: ${check.code}: ${check.detail}`)
 	}
+	// Results are mailed: without SMTP the starter runs sessions it can never report on.
+	if (!config.mail.smtp.host.trim()) problems.push("mail.smtp.host is empty — results could not be mailed")
+	if (!config.mail.to.trim()) problems.push("mail.to is empty — there is nowhere to send results")
 	if (config.starter.defaultModel.trim() && !config.starter.defaultModel.includes("/")) {
 		problems.push("starter.defaultModel must be provider/model")
 	}
@@ -515,6 +520,23 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 		return 0
 	}
 	if (cmd === "repair") {
+		// Surgery on the authoritative journal must not race a watcher's save or a CLI stop: hold the same two
+		// locks the writers respect, in the same order, and refuse rather than "repair" a live journal.
+		const lifetime = acquireLock(ctx.env, "starter.lock")
+		if (!lifetime.ok) {
+			ctx.err(
+				lifetime.stale
+					? "the starter lock is stale; run `pi-mailbridge starter locks` and remove the file by hand first"
+					: `the starter is running (pid ${lifetime.holder}); stop it before repairing the journal`,
+			)
+			return 1
+		}
+		const transaction = acquireLock(ctx.env, "starter-journal.lock")
+		if (!transaction.ok) {
+			lifetime.lock.release()
+			ctx.err("the journal is being written right now; try again in a moment")
+			return 1
+		}
 		// The corrupt-journal refusal points here, so this has to exist: set the bad bytes aside, clear the
 		// marker, and say where the evidence went. It never deletes what it cannot read.
 		const file = statePath(ctx.env, "starter-journal.json")
@@ -531,7 +553,13 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 		} catch {
 			/* no marker: nothing to clear */
 		}
-		ctx.out(moved ? `set aside ${moved}; the starter will start with an empty journal` : "no journal to set aside; the starter will start with an empty journal")
+		transaction.lock.release()
+		lifetime.lock.release()
+		ctx.out(
+			moved
+				? `set aside ${moved}; the starter will start with an empty journal, which discards replay and session-ownership history`
+				: "no journal to set aside; the starter will start with an empty journal, which discards replay and session-ownership history",
+		)
 		return 0
 	}
 	if (cmd === "stop") {
