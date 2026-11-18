@@ -3480,4 +3480,42 @@ test("a session's override does not follow it into the next session in the same 
 	)
 })
 
+test("a session started by mail turns its own mail on, and /mailbridge off still wins", async () => {
+	// The starter sets PI_MAILBRIDGE_SESSION_MODE=on in the started session. It must become a *session*
+	// override: the global switch stays off, other sessions are untouched, and the session can still
+	// silence itself.
+	const t = fakeTimers()
+	const notes: string[] = []
+	const daemon = fakeDaemon({ mode: "off" })
+	const captured = new Map<string, (args: string, c: ExtensionCtxLike) => Promise<void>>()
+	const pi = fakePi(ctx(notes))
+	pi.registerCommand = (name, spec) => {
+		captured.set(name, spec.handler)
+	}
+	mailbridge(pi, {
+		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test", PI_MAILBRIDGE_SESSION_MODE: "on", PI_MAILBRIDGE_START_REQUEST: "req-42" },
+		loadConfig: config,
+		secret: () => SECRET,
+		makeClient: () => daemon.client,
+		ensureDaemon: async () => true,
+		timers: t.timers,
+		pollMs: 60_000,
+	})
+	await pi.fire("session_start")
+	for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r))
+
+	assert.equal(daemon.modeScopes.at(-1)?.scope, "session", "the env var is a session override")
+	assert.equal(daemon.modeScopes.at(-1)?.mode, "on")
+	assert.deepEqual(daemon.modes, [], "the global switch is untouched")
+
+	await captured.get("mailbridge")!("off", ctx(notes))
+	assert.deepEqual(
+		{ mode: daemon.modeScopes.at(-1)?.mode, scope: daemon.modeScopes.at(-1)?.scope },
+		{ mode: "off", scope: "session" },
+		"and the session can still turn itself off",
+	)
+	notes.length = 0
+	await captured.get("mailbridge")!("status", ctx(notes))
+	assert.match(notes.join("\n"), /started by mail, request req-42/, "the panel says where it came from")
+})
 

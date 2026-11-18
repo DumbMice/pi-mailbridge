@@ -683,6 +683,19 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		if (!client) return false
 		const active = client
 
+		// A session started by mail is told to mail its human back through this variable. It is applied as
+		// *this session's* override - not the global switch - so `/mailbridge off` here still wins, the
+		// panel shows `(this session)`, and other sessions are untouched.
+		const requestedMode = env.PI_MAILBRIDGE_SESSION_MODE?.trim().toLowerCase()
+		if (sessionMode === undefined && (requestedMode === "on" || requestedMode === "off")) {
+			const stamped = await active.mode(instanceId)
+			const globalAt = stamped.ok ? stamped.data.globalUpdatedAt : undefined
+			const applied = await active
+				.setMode(requestedMode, { scope: "session", instanceId })
+				.catch(() => undefined)
+			if (applied?.ok) sessionMode = { mode: requestedMode, globalAt }
+		}
+
 		const initialMode = await active.mode(instanceId)
 		let effectiveMode: "on" | "off" | undefined = initialMode.ok ? (initialMode.data.mode === "on" ? "on" : "off") : undefined
 		if (sessionMode) {
@@ -1226,7 +1239,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 						`device: ${config.device.name}`,
 						`mode: ${modeLine}`,
 						`imap: ${health?.ok ? (health.data as { imap?: string }).imap ?? "unknown" : "(unknown)"}`,
-						`session: ${ctx?.sessionManager.getSessionId() ?? "(none)"}`,
+						`session: ${ctx?.sessionManager.getSessionId() ?? "(none)"}${env.PI_MAILBRIDGE_START_REQUEST ? ` (started by mail, request ${env.PI_MAILBRIDGE_START_REQUEST})` : ""}`,
 						`secret: ${secret ? "present" : "missing"}`,
 						`mailbox: ${config.mail.to || "(unset)"}`,
 						`allowlist: ${config.security.allowFrom.join(", ") || "(empty — denies all)"}`,
