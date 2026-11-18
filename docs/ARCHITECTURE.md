@@ -349,6 +349,7 @@ src/
     commands.ts         /mailbridge parsing + usage text
     config.ts           layered config, env overrides, type validation
     config-freshness.ts  is the daemon's config older than the file?
+    containment.ts      is this path inside that directory? (attachments and the starter)
     deliveries.ts       claim → inject → ack, serialized per process
     discover.ts         account autodiscovery
     header-encoding.ts  RFC 2047 decode/encode
@@ -372,6 +373,7 @@ src/
   starter/
     channel.ts          which mail is a request, and for which device
     grammar.ts          the deterministic body grammar (complete / incomplete / invalid)
+    validate.ts         the boundary: cwd under a root, model allowlist, name, prompt
   daemon/
     api.ts              the wire contract: API_VERSION, capabilities, endpoint list
     imapflow.ts         imapflow adapter

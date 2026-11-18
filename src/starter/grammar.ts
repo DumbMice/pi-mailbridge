@@ -48,7 +48,7 @@ export type GrammarResult =
 const KEYS = ["cwd", "model", "thinking", "name", "prompt", "parse", "stop", "list"] as const
 type Key = (typeof KEYS)[number]
 
-const KNOWN_THINKING = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+export const KNOWN_THINKING: readonly string[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
 
 /**
  * Split the body into its key block and the remainder.

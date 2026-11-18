@@ -33,6 +33,7 @@ import { readFileSync, realpathSync, statSync } from "node:fs"
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path"
 import { homedir } from "node:os"
 import { configDir, stateDir } from "../store/paths.ts"
+import { contains, hasHiddenSegmentBelow } from "./containment.ts"
 
 export interface InlineAttachment {
 	filename: string
@@ -217,18 +218,11 @@ function insideRoot(path: string, rootReal: string | undefined): RootVerdict {
 	// never attached. `~/.ssh`, `~/.config`, `~/.local`, `~/.aws` and every `.env` live behind a
 	// dot, and a legitimate artifact almost never does - while the config/state refusal above
 	// still covers the daemon's own files by name.
-	const rel = relative(rootReal, target)
-	const segments = rel.split(/[\\/]/).filter((part) => part && part !== ".")
-	if (segments.some((part) => part.startsWith("."))) return "hidden-path"
+	if (hasHiddenSegmentBelow(rootReal, target)) return "hidden-path"
 
 	return "ok"
 }
 
-/** Does `parent` contain `child`? Separator-agnostic and not fooled by a shared prefix. */
-function contains(parent: string, child: string): boolean {
-	const rel = relative(parent, child)
-	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))
-}
 
 /** realpath of a directory plus one unresolved name. */
 function joinResolved(dir: string, name: string): string {
