@@ -96,6 +96,46 @@ function rig(over: { journal?: JournalFile; throwOnFetch?: number } = {}): Rig {
 	return rig
 }
 
+test("a result that never went out is mailed once on the next scan, without re-spawning", async () => {
+	// `ready` is written before the mail and `resultSent` after it: a crash between them leaves a session
+	// that exists and a human who was never told. Retrying the mail is the point of tracking them apart.
+	const r = rig({
+		journal: {
+			v: 1,
+			requests: {
+				"req-1": {
+					id: "req-1",
+					messageId: "<m1@x>",
+					uid: 1,
+					uidValidity: 1111,
+					receivedAt: Date.now(),
+					state: "ready",
+					at: Date.now(),
+					name: "do-a-thing",
+					cwd: "/tmp",
+					tmuxSessionId: "$4",
+					piSessionId: "pi-x",
+				},
+			},
+			sessions: {},
+		},
+	})
+	r.liveSessions = async () => [{ id: "$4", name: "do-a-thing" }]
+	const sent: { subject: string; text: string }[] = []
+	r.handle.send = async (message) => {
+		sent.push({ subject: message.subject, text: message.text })
+	}
+
+	await scanOnce(r)
+	assert.equal(sent.length, 1, "the result went out")
+	assert.match(sent[0]!.text, /delayed: the starter stopped/)
+	assert.equal(r.journal.requests["req-1"]?.resultSent, true)
+
+	await scanOnce(r)
+	assert.equal(sent.length, 1, "and only once")
+	assert.equal(r.spawnCalls, 0, "recovery never re-spawns")
+})
+
 test("a scan handles each message once and advances the cursor past it", async () => {
 	const r = rig()
 	const summary = await scanOnce(r)

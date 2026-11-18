@@ -49,6 +49,7 @@ export interface ScanSummary {
 	ignored: number
 	adopted: number
 	uncertain: number
+	resultsFlushed: number
 }
 
 function toStarterMail(message: RawMessage, uidValidity: number | undefined): StarterMail {
@@ -70,6 +71,41 @@ function toStarterMail(message: RawMessage, uidValidity: number | undefined): St
 		...(uidValidity === undefined ? {} : { uidValidity }),
 		receivedAt: message.receivedAt,
 		body: message.text,
+	}
+}
+
+/**
+ * Send the results a crash prevented, once.
+ *
+ * The journal writes `ready` before the mail and `resultSent` after it, so a crash between the two leaves a
+ * session that exists and a human who was never told. Retrying the *mail* (never the spawn) is the whole
+ * point of tracking the two separately.
+ */
+async function flushUnsentResults(deps: ScanDeps, summary: ScanSummary): Promise<void> {
+	const unsent = Object.values(deps.journal.requests).filter((record) => record.state === "ready" && !record.resultSent)
+	for (const record of unsent) {
+		const name = record.name ?? record.id
+		try {
+			await deps.handle.send({
+				subject: `[pi-start] ${name}`,
+				text: [
+					`[pi-start] started ${name}`,
+					...(record.cwd ? [`cwd: ${record.cwd}`] : []),
+					...(record.model ? [`model: ${record.model}`] : []),
+					`attach: tmux -L ${deps.handle.socket ?? "pimail"} attach -t ${name}`,
+					`stop: reply with "stop: ${name}"`,
+					"",
+					"(this result was delayed: the starter stopped between starting the session and mailing you)",
+				].join("\n"),
+				inReplyTo: record.messageId,
+			})
+			deps.journal.requests[record.id] = { ...record, resultSent: true }
+			deps.saveJournal(deps.journal)
+			summary.resultsFlushed += 1
+			deps.log(`flushed the result for ${name}`)
+		} catch (error) {
+			deps.log(`could not flush the result for ${name}: ${(error as Error).message}`)
+		}
 	}
 }
 
@@ -113,7 +149,7 @@ async function reconcileInterrupted(record: ReturnType<typeof alreadySeen>, deps
  * a transient IMAP error never skips mail.
  */
 export async function scanOnce(deps: ScanDeps): Promise<ScanSummary> {
-	const summary: ScanSummary = { examined: 0, started: 0, refused: 0, ignored: 0, adopted: 0, uncertain: 0 }
+	const summary: ScanSummary = { examined: 0, started: 0, refused: 0, ignored: 0, adopted: 0, uncertain: 0, resultsFlushed: 0 }
 	const cursor = deps.cursor.read(deps.env)
 	const uidValidity = deps.source.uidValidity?.()
 	deps.cursor.sync(deps.env, uidValidity)
@@ -151,6 +187,7 @@ export async function scanOnce(deps: ScanDeps): Promise<ScanSummary> {
 		// journal recognises it.
 		deps.cursor.advance(deps.env, uid)
 	}
+	await flushUnsentResults(deps, summary)
 	void cursor
 	return summary
 }
@@ -223,7 +260,7 @@ export function createStarterRunner(deps: RunnerDeps) {
 		/** One scan, for `once` and for tests. Returns the summary of the scan it ran (or the last one). */
 		once: async (): Promise<ScanSummary> => {
 			await guarded()
-			return lastSummary ?? { examined: 0, started: 0, refused: 0, ignored: 0, adopted: 0, uncertain: 0 }
+			return lastSummary ?? { examined: 0, started: 0, refused: 0, ignored: 0, adopted: 0, uncertain: 0, resultsFlushed: 0 }
 		},
 		async start(): Promise<void> {
 			deps.log("starter: watching")

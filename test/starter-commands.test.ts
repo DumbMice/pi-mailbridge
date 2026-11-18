@@ -10,7 +10,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
-import { createPromptWriter, createStarterLog, runStarterCommand, starterProblems } from "../src/starter/commands.ts"
+import { createPromptWriter, createStarterLog, runStarterCommand, starterProblems, watcherCallbacks } from "../src/starter/commands.ts"
 import type { JournalFile } from "../src/starter/journal.ts"
 
 function config(over: Partial<typeof STARTER_DEFAULTS> = {}): ResolvedConfig {
@@ -163,3 +163,20 @@ test("prompt files are per request and private", () => {
 	assert.notEqual(a.promptFile, b.promptFile)
 	assert.match(a.readyFile, /req-a\.ready$/)
 })
+
+test("IDLE and ready both wake the runner, and errors reach the log", () => {
+	// Empty callbacks made IDLE cosmetic: mail waited for the sweep, a minute late. This pins the wiring.
+	const calls: string[] = []
+	const errors: string[] = []
+	const callbacks = watcherCallbacks({
+		onMail: () => calls.push("mail"),
+		onReady: () => calls.push("ready"),
+		onError: (error) => errors.push(error.message),
+	})
+	callbacks.onReady()
+	callbacks.onMail()
+	callbacks.onError?.(new Error("connection reset"), 1000)
+	assert.deepEqual(calls, ["ready", "mail"])
+	assert.deepEqual(errors, ["connection reset"])
+})
+

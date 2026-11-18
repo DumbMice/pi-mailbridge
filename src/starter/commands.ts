@@ -161,17 +161,35 @@ function which(binary: string): Promise<boolean> {
 }
 
 /** The real IMAP source: the daemon's watcher, wired through the starter's own cursor and loop. */
-export async function createImapSource(config: ResolvedConfig): Promise<StarterSource> {
+export interface SourceHooks {
+	onMail?: () => void
+	onReady?: () => void
+	onError?: (error: Error, nextDelayMs: number) => void
+}
+
+/**
+ * The watcher callbacks the runner depends on. Pure, so the wiring can be tested: empty hooks made IDLE
+ * cosmetic - new mail then only appeared on the sweep, a minute late.
+ */
+export function watcherCallbacks(hooks: SourceHooks): {
+	onReady: () => void
+	onMail: () => void
+	onError?: (error: Error, nextDelayMs: number) => void
+} {
+	return {
+		// The runner owns serialisation (a burst queues one follow-up scan), so both may fire freely.
+		onReady: () => hooks.onReady?.(),
+		onMail: () => hooks.onMail?.(),
+		...(hooks.onError ? { onError: hooks.onError } : {}),
+	}
+}
+
+export async function createImapSource(config: ResolvedConfig, hooks: SourceHooks = {}): Promise<StarterSource> {
 	const provider = await buildTokenProvider(config)
-	const watcher = createImapWatcher(config, {
+	return createImapWatcher(config, {
 		factory: createImapflowFactory({ getAccessToken: provider ? () => provider.getToken() : undefined }),
-		callbacks: {
-			// The runner owns serialisation, so both hooks can fire freely.
-			onReady: () => {},
-			onMail: () => {},
-		},
+		callbacks: watcherCallbacks(hooks),
 	})
-	return watcher
 }
 
 async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> {
@@ -181,7 +199,14 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 	const prompts = createPromptWriter(ctx.env)
 	const bootstrapPath = resolveBootstrapPath(import.meta.url)
 	const confirmer = createConfirmer(ctx.config, { log })
-	const source = await (deps.createSource ?? createImapSource)(ctx.config)
+	let wake = (): void => {}
+	const source = deps.createSource
+		? await deps.createSource(ctx.config)
+		: await createImapSource(ctx.config, {
+				onMail: () => wake(),
+				onReady: () => wake(),
+				onError: (error, nextDelayMs) => log(`imap error (${error.message}); reconnecting in ${nextDelayMs}ms`),
+			})
 	const parserAttempts: number[] = []
 
 	const runner = createStarterRunner({
@@ -227,6 +252,9 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 		now: Date.now,
 		log,
 	})
+
+	// IDLE, the sweep and `once` all funnel through the runner, which serialises them.
+	wake = () => void runner.once()
 
 	if (once) {
 		const summary = await runner.once()
