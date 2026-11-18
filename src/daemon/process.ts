@@ -103,6 +103,11 @@ export interface ScanDeps {
 	/** Injected by tests: the document writer, so a failed write can be exercised. */
 	saveFiles?: typeof saveInboundFiles
 	/**
+	 * Does this subject belong to the session starter's channel? Injected so `process.ts` does not import
+	 * the starter's config (the daemon only needs to know "not ours to deliver").
+	 */
+	isStarterChannel?: (subject: string | undefined) => boolean
+	/**
 	 * Injected by the daemon: the UIDVALIDITY check (`source-proxy.applyUidValidity`). It lives there
 	 * because that module drops records from the old space and releases their slots; `process.ts` may
 	 * not import it (they import each other). Absent in tests that do not care.
@@ -213,6 +218,16 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		if (message.headers.piMailbridge) {
 			result.rejected++
 			bump(result.reasons, "self-echo")
+			result.cursor = advanceCursor(env, uid)
+			continue
+		}
+
+		// The session starter watches the same mailbox on its own cursor. Its channel is addressed to a
+		// human who happens to write "cwd:" in the body; treating that as a broken reply filled
+		// `rejections:` with `no-token` noise and told nobody anything. Recognise it and move on: the
+		// starter is the only reader that acts on it.
+		if (deps.isStarterChannel?.(message.subject)) {
+			bump(result.reasons, "starter-request")
 			result.cursor = advanceCursor(env, uid)
 			continue
 		}

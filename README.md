@@ -433,6 +433,7 @@ proof the channel is open.
 | `other-device` | the notification came from another pi machine, or `device.name` changed | reply to a notification from this machine |
 | `self` | single-mailbox mode with `security.allowSelfReplies: false` | set it `true` |
 | `self-echo` | our own notification looping back — the guard working | nothing |
+| `starter-request` | mail for the session starter's channel (`[pi-start] …`), which the daemon deliberately does not deliver — the starter reads it on its own cursor | nothing |
 | `expired` | a queued reply aged out under queue pressure — reported on its own `aged out under queue pressure:` line, not under `rejections:` | send it again; the original never arrived |
 | `no-reply-evidence` | a self-addressed mail with no threading headers | reply to the notification instead |
 | `empty-body` from a `From:`/`>`-leading reply | the first line starts with a quote marker, so the whole body is treated as quoted | write your text above the quote, or paste logs after a sentence |

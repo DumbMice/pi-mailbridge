@@ -1021,3 +1021,19 @@ test("a deferred batch is not counted as a rejection", async () => {
 	assert.equal(r.rejected, 0, "and nothing was refused")
 })
 
+test("starter-channel mail is recognised and skipped, not counted as a broken reply", async () => {
+	// The starter watches the same mailbox. Without this, every request it acts on would also be
+	// classified here as a reply with no route - `no-token` noise that explains nothing.
+	const e = env()
+	const r = await scanAndProcess(config(), {
+		source: source([msg(71, { text: "cwd: /tmp\nprompt: fix it", subject: "[pi-start] fix it" })]),
+		secret: SECRET,
+		env: e,
+		isStarterChannel: (subject) => (subject ?? "").toLowerCase().startsWith("[pi-start]"),
+	})
+	assert.equal(r.reasons["starter-request"], 1)
+	assert.equal(r.rejected, 0, "not a refusal")
+	assert.equal(listPending(e).length, 0, "and nothing is queued for a session")
+	assert.equal(readCursor(e), 71, "the cursor moves past it")
+})
+
