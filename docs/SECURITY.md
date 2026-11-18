@@ -54,9 +54,11 @@ It is a quiet failure in both directions at once: a spoofed message gets in *and
 broken, which invites turning `requireDmarcPass` off entirely — the worst response. Two defences:
 
 1. **Pin it.** `security.trustedAuthservId` is your provider's authserv-id (the token before the
-   first `;` in its header). You should not have to supply it: `pi-mailbridge --smoke` (and
-   `/mailbridge smoke`) reads it from the copy of the mail it just sent itself, which is the one place
-   the value is both observable and not a sender's choice, and writes it once when the field is unset.
+   first `;` in its header). In a **single-mailbox** layout `pi-mailbridge --smoke` (and
+   `/mailbridge smoke`) can read it from the copy of the mail it just sent itself — the one place the
+   value is both observable and not a sender's choice — and writes it once when the field is unset. In
+   the recommended **two-mailbox** layout the probe is sent elsewhere and that read-back does not
+   happen, so pin the value by hand.
    Set it by hand only if you are pinning a different relay than the one your smoke mail came back
    through. A message without that header then fails closed instead of
    trusting whatever is topmost. Do not pin Microsoft consumer accounts — outlook.com emits bare
@@ -171,7 +173,8 @@ relaxes. In a same-mailbox layout that is the whole gate, and `starter check` sa
 - A permitted `cwd` is a **launch restriction, not a sandbox**. The started session has pi's normal powers:
   it can leave that directory, read credentials, and start more processes. `maxSessions` bounds tracked tmux
   sessions, not descendants or spend.
-- Stage B's read-only tools (`read,grep,find,ls`, anywhere) are a **confidentiality grant**: anything they
+- Stage B's tools (`read,grep,find,ls`; `starter.parse.tools` is validated against that set) are a
+  **confidentiality grant**: anything they
   read is disclosed to the model provider. A validator that checks the returned `cwd` cannot un-read a
   secret. `starter.parse.agent` is off by default and requires an explicit model.
 

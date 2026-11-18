@@ -366,7 +366,12 @@ later, and a refusal is terminal: a replay after the budget frees up does not ex
 `--`, and dispatches `/cmd`; a mail saying `/mailbridge setup …` would have run a command in the new
 session. The prompt travels in a per-request `0600` file named by an env var, and the shipped bootstrap
 extension calls `sendUserMessage(text)` without `expandPromptTemplates`. The bootstrap then writes a
-readiness marker: success is that marker plus a live tmux session, never a pane scrape.
+readiness marker on pi's `turn_start`; success is that marker plus a live tmux session, never a pane scrape.
+(Stage B is the exception: its extraction prompt *is* in argv, because it runs with `--print` and no
+session, and its stdin is not used. It never sees the reply path.)
+
+A result that a crash prevented is mailed on the next scan, not once: `ready` is written before the mail and
+`resultSent` after it, so an undelivered result stays owed until it goes out.
 
 **Ownership.** A fresh pi session id is minted per request (`--session-id` would otherwise *resume* an old
 session); the human name is separate. The journal records the immutable tuple (request, pi session id, tmux
