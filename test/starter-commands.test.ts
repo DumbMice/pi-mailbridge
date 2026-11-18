@@ -3,9 +3,9 @@
 // The dry run matters most: it must print the exact argv and start nothing, because it is what an operator
 // uses to see what a mail would do before enabling the feature.
 
-import { test } from "node:test"
+import { mock, test } from "node:test"
 import assert from "node:assert/strict"
-import { existsSync, mkdirSync, mkdtempSync, unlinkSync, utimesSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, unlinkSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { spawn, spawnSync } from "node:child_process"
@@ -458,18 +458,25 @@ test("a journal save adopts the pruned result, not the merged superset", () => {
 })
 
 test("a repair that throws releases both locks", async () => {
-	// A failed repair must not leave the state directory locked out until someone notices.
-	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-repair-throw-")) }
-	const file = statePathForTest(env)
-	mkdirSync(dirname(file), { recursive: true })
-	writeFileSync(file, "{broken", { mode: 0o600 })
-	// A directory in the destination's place makes the rename fail (rename onto a non-empty directory).
-	const stamp = new Date().toISOString().replace(/[:.]/g, "-")
-	const target = `${file}.repair-${stamp}`
-	mkdirSync(target, { recursive: true })
-	writeFileSync(join(target, "x"), "occupied")
-	await runStarterCommand(["repair"], { config: config(), env, stdout: () => {}, stderr: () => {} }).catch(() => 1)
-	assert.equal(existsSync(statePath(env, "starter.lock")), false, "the lifetime lock is released")
-	assert.equal(existsSync(statePath(env, "starter-journal.lock")), false, "the journal lock is released")
+	// A failed repair must not leave the state directory locked out. The clock is frozen so the destination
+	// the test occupies is exactly the one production computes; otherwise a crossed millisecond makes the
+	// rename succeed and the test passes without exercising the failure.
+	mock.timers.enable({ apis: ["Date"], now: 1_700_000_000_000 })
+	try {
+		const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-repair-throw-")) }
+		const file = statePathForTest(env)
+		mkdirSync(dirname(file), { recursive: true })
+		writeFileSync(file, "{broken", { mode: 0o600 })
+		const stamp = new Date().toISOString().replace(/[:.]/g, "-")
+		const target = `${file}.repair-${stamp}`
+		mkdirSync(target, { recursive: true })
+		writeFileSync(join(target, "x"), "occupied")
+		await assert.rejects(runStarterCommand(["repair"], { config: config(), env, stdout: () => {}, stderr: () => {} }))
+		assert.equal(readFileSync(file, "utf8"), "{broken", "the journal was not moved")
+		assert.equal(existsSync(statePath(env, "starter.lock")), false, "the lifetime lock is released")
+		assert.equal(existsSync(statePath(env, "starter-journal.lock")), false, "the journal lock is released")
+	} finally {
+		mock.timers.reset()
+	}
 })
 
