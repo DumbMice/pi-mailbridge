@@ -15,7 +15,7 @@
 // idle with no message and nothing reported. A missing or oversized prompt produces a diagnostic message
 // and a `ok: false` marker instead.
 
-import { readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs"
 
 /** The small part of pi's extension API this module uses. Typed locally: no import means no coupling. */
 export interface BootstrapPi {
@@ -89,6 +89,10 @@ export function readPromptFile(env: BootstrapEnv): { ok: true; text: string; byt
 /** Wire the bootstrap into an extension. Exported for tests; the default export is what pi loads. */
 export function installBootstrap(pi: BootstrapPi, env: BootstrapEnv = process.env): void {
 	pi.on("session_start", () => {
+		// `/reload` emits another session_start. The marker means this request was already delivered, so a
+		// second run must neither re-inject a diagnostic nor claim readiness again - the prompt file is gone.
+		const ready = env.PI_MAILBRIDGE_START_READY
+		if (ready && existsSync(ready)) return
 		const requestId = env.PI_MAILBRIDGE_START_REQUEST
 		const prompt = readPromptFile(env)
 		consume(env.PI_MAILBRIDGE_START_PROMPT)

@@ -7,12 +7,13 @@
 // commands, which tools) and the settle behaviour can be asserted with a fake
 // `pi`, no daemon and no mailbox.
 
-import { statSync } from "node:fs"
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import { Type } from "@sinclair/typebox"
 
 import { loadConfig, hasUsableMailConfig, type ResolvedConfig } from "./core/config.ts"
 import { shouldReloadConfig } from "./core/config-freshness.ts"
-import { configPath } from "./store/paths.ts"
+import { configPath, statePath } from "./store/paths.ts"
 import { ensureSecret, readSecret } from "./store/secret.ts"
 import { formatScan, type ScanSummary } from "./core/status.ts"
 import { createSettleNotifier, type SettleContext, type SettleNotifier } from "./core/settle.ts"
@@ -35,8 +36,47 @@ import { sessionInstanceId } from "./core/instance.ts"
 
 
 
-/** Intent keys whose PI_MAILBRIDGE_SESSION_MODE has already been honoured or cleared. */
+/**
+ * Intent keys whose PI_MAILBRIDGE_SESSION_MODE has already been honoured or cleared.
+ *
+ * A module-level Set is not enough: pi's `/reload` clears the extension cache and re-imports with
+ * `moduleCache: false`, so a fresh Set would re-apply an intent the user has already switched off. The
+ * file makes the decision outlive the module.
+ */
 const consumedEnvIntent = new Set<string>()
+
+function intentStorePath(env: NodeJS.ProcessEnv): string {
+	return join(dirname(statePath(env, "starter.log")), "session-intent.json")
+}
+
+function intentConsumed(env: NodeJS.ProcessEnv, key: string): boolean {
+	if (consumedEnvIntent.has(key)) return true
+	try {
+		const stored = JSON.parse(readFileSync(intentStorePath(env), "utf8")) as unknown
+		return Array.isArray(stored) && stored.includes(key)
+	} catch {
+		return false
+	}
+}
+
+function consumeIntent(env: NodeJS.ProcessEnv, key: string): void {
+	consumedEnvIntent.add(key)
+	try {
+		const file = intentStorePath(env)
+		mkdirSync(dirname(file), { recursive: true, mode: 0o700 })
+		const stored = (() => {
+			try {
+				const value = JSON.parse(readFileSync(file, "utf8")) as unknown
+				return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []
+			} catch {
+				return []
+			}
+		})()
+		if (!stored.includes(key)) writeFileSync(file, JSON.stringify([...stored.slice(-99), key]), { mode: 0o600 })
+	} catch {
+		/* memory still holds the decision for this process */
+	}
+}
 
 const POLL_MS = 10_000
 /** How often the poll may try to start a dead daemon. */
@@ -696,7 +736,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 		// The environment is an initial *intent*, consumed once: after `/mailbridge off --all` a reloaded
 		// runtime must not resurrect the override the user just cleared.
 		const requestedMode = env.PI_MAILBRIDGE_SESSION_MODE?.trim().toLowerCase()
-		if (!consumedEnvIntent.has(intentKey) && sessionMode === undefined && (requestedMode === "on" || requestedMode === "off")) {
+		if (!intentConsumed(env, intentKey) && sessionMode === undefined && (requestedMode === "on" || requestedMode === "off")) {
 			const stamped = await active.mode(instanceId)
 			const globalAt = stamped.ok ? stamped.data.globalUpdatedAt : undefined
 			const applied = await active
@@ -705,7 +745,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			if (applied?.ok) {
 				// Consumed only once it took effect: a failed apply must be retried by the next runtime,
 				// unless a global decision has meanwhile made the intent moot.
-				consumedEnvIntent.add(intentKey)
+				consumeIntent(env, intentKey)
 				sessionMode = { mode: requestedMode, globalAt }
 			}
 		}
@@ -1115,7 +1155,7 @@ export default function mailbridge(pi: ExtensionLike, deps: MailbridgeDeps = {})
 			// `--all` means every session, this one included: a stale local override would otherwise
 			// keep this session quiet after the user explicitly switched the machine on.
 			// A global write is a decision for the whole machine: the environment must not reopen it later.
-			if (effectiveScope === "global") consumedEnvIntent.add(intentKey)
+			if (effectiveScope === "global") consumeIntent(env, intentKey)
 			sessionMode =
 				effectiveScope === "session"
 					// Whatever the daemon reported, including nothing: a fabricated 0 would compare

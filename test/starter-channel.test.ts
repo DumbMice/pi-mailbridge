@@ -39,11 +39,11 @@ test("a configured address is the channel, and does not need a prefix", () => {
 	assert.equal(prefixedElsewhere.ours, false)
 })
 
-test("a request tagged for another device is not ours, an untagged one is", () => {
-	const input = { subject: "[pi-start] x", to: [], device: "dev-1" }
-	assert.equal(matchChannel(STARTER_DEFAULTS, { ...input, deviceInSubject: "dev-2" }).ours, false)
-	assert.equal(matchChannel(STARTER_DEFAULTS, { ...input, deviceInSubject: "DEV-1" }).ours, true)
-	assert.equal(matchChannel(STARTER_DEFAULTS, { ...input, deviceInSubject: undefined }).ours, true)
+test("there is no device tag inside the subject: the channel is the subject or the address", () => {
+	// A `[pi-start @dev-box-7]` tag is not a protocol this code implements, and claiming one was a false
+	// safety claim. Two machines on one mailbox are separated by distinct prefixes/addresses/folders.
+	const tagged = matchChannel(STARTER_DEFAULTS, { subject: "[pi-start @dev-box-7] x", to: [], device: "dev-1" })
+	assert.equal(tagged.ours, false, "the whole bracket must equal the prefix")
 })
 
 test("the reason is specific enough to log", () => {
@@ -55,8 +55,13 @@ test("the reason is specific enough to log", () => {
 		ours: false,
 		reason: "empty",
 	})
-	assert.deepEqual(
-		matchChannel(STARTER_DEFAULTS, { subject: "[pi-start] x", to: [], deviceInSubject: "dev-2", device: "dev-1" }),
-		{ ours: false, reason: "other-device" },
-	)
 })
+
+test("a display-name recipient matches the configured address", () => {
+	// `To: Starter <start@example.com>` is what mail clients produce; the raw comparison refused it.
+	const config = { ...STARTER_DEFAULTS, channel: channel({ address: "start@example.com" }) }
+	const matched = matchChannel(config, { subject: "fix it", to: ["Starter <start@example.com>"], device: "dev-1" })
+	assert.equal(matched.ours, true)
+	if (matched.ours) assert.equal(matched.title, "fix it")
+})
+

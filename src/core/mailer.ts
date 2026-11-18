@@ -31,6 +31,8 @@ export interface OutboundMessage {
 	references?: string[]
 	/** Defaults to the SMTP user. */
 	from?: string
+	/** Where a human reply should go; the starter sets its channel address so `stop:` reaches the right alias. */
+	replyTo?: string
 	/**
 	 * Send `text` as-is: no Markdown rendering, no local-image discovery, no HTML part.
 	 *
@@ -151,6 +153,9 @@ export async function sendMail(
 		headers: {
 			"X-Pi-Mailbridge": message.plain ? "result" : "notification",
 			"X-Pi-Mailbridge-Id": stampedId,
+			// Without this, a normal Reply to a result goes to the account that sent it - not to a dedicated
+			// starter alias, whose address-authoritative channel would then reject the `stop:`.
+			...(message.replyTo ? { "Reply-To": message.replyTo } : {}),
 		},
 			to: message.to,
 			// The subject carries model-controlled text. A CR/LF would fold a new header into

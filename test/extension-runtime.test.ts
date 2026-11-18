@@ -3493,7 +3493,8 @@ test("a session started by mail turns its own mail on, and /mailbridge off still
 		captured.set(name, spec.handler)
 	}
 	mailbridge(pi, {
-		env: { XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test", PI_MAILBRIDGE_SESSION_MODE: "on", PI_MAILBRIDGE_START_REQUEST: "req-42" },
+		// A unique state dir per test: intent consumption is persisted now, so a shared path would leak it.
+		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-ext-env-")), PI_MAILBRIDGE_SESSION_MODE: "on", PI_MAILBRIDGE_START_REQUEST: "req-42" },
 		loadConfig: config,
 		secret: () => SECRET,
 		makeClient: () => daemon.client,
@@ -3532,7 +3533,7 @@ test("the environment override is consumed: a rebuilt runtime stays off after `o
 		captured.set(name, spec.handler)
 	}
 	const env = {
-		XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test-consumed",
+		XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-ext-consumed-")),
 		PI_MAILBRIDGE_SESSION_MODE: "on",
 		PI_MAILBRIDGE_START_REQUEST: "req-consumed-1",
 	}
@@ -3578,7 +3579,7 @@ test("a failed env apply does not outlive a later global off", async () => {
 		captured.set(name, spec.handler)
 	}
 	const env = {
-		XDG_STATE_HOME: "/tmp/pi-mailbridge-extension-test-failed",
+		XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-ext-failed-")),
 		PI_MAILBRIDGE_SESSION_MODE: "on",
 		PI_MAILBRIDGE_START_REQUEST: "req-failed-1",
 	}

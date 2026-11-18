@@ -133,3 +133,19 @@ test("a prompt pi never accepts is reported as not ready, not as started", () =>
 	assert.equal(existsSync(ready), false, "nothing is claimed before the turn starts")
 })
 
+test("a reload does not re-inject or re-claim: the marker means it was handled", () => {
+	// `/reload` fires session_start again; the prompt file is gone, so without this the bootstrap would send
+	// a "prompt file is missing" diagnostic into the live session as a new user message.
+	const base = dir()
+	const prompt = join(base, "prompt.txt")
+	const ready = join(base, "ready.json")
+	writeFileSync(prompt, "do the thing", { mode: 0o600 })
+	const { sent, fire } = rig({ PI_MAILBRIDGE_START_PROMPT: prompt, PI_MAILBRIDGE_START_READY: ready, PI_MAILBRIDGE_START_REQUEST: "req-9" })
+	fire()
+	const first = readFileSync(ready, "utf8")
+	sent.length = 0
+	fire()
+	assert.deepEqual(sent, [], "nothing is injected on the second session_start")
+	assert.equal(readFileSync(ready, "utf8"), first, "and the marker is not rewritten")
+})
+

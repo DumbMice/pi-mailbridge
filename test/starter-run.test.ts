@@ -6,7 +6,7 @@
 
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdirSync, mkdtempSync } from "node:fs"
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -53,6 +53,7 @@ function rig(over: { journal?: JournalFile; throwOnFetch?: number; starter?: Par
 		text: `cwd: ${project}\nprompt: do it`,
 		headers: { authResults: ["mx; dmarc=pass"], messageId: "<m1@x>" },
 		receivedAt: Date.now(),
+		internalDate: Date.now(),
 	})
 	const logs: string[] = []
 	const rig: Rig = {
@@ -284,6 +285,7 @@ test("a session that exited on its own frees the live cap", async () => {
 		text: "cwd: /tmp",
 		headers: { authResults: ["mx; dmarc=pass"], messageId: "<new@x>" },
 		receivedAt: Date.now(),
+		internalDate: Date.now(),
 	})
 	const summary = await scanOnce(r)
 	assert.equal(summary.swept, 1, "the dead session was swept")
@@ -303,6 +305,7 @@ test("a mailing-list post and an auto-reply are robots to the starter too", asyn
 			text: `cwd: ${r.config.starter.roots[0]}/project`,
 			headers: { authResults: ["mx; dmarc=pass"], messageId: "<robot@x>", ...headers },
 			receivedAt: Date.now(),
+			internalDate: Date.now(),
 		})
 		const summary = await scanOnce(r)
 		assert.equal(summary.started, 0, JSON.stringify(headers))
@@ -325,5 +328,77 @@ test("an unavailable live list ends no session and reconciles nothing", async ()
 	assert.equal(summary.swept, 0, "nothing was ended")
 	assert.equal(r.journal.sessions.x?.endedAt, undefined)
 	assert.equal(r.journal.requests.req?.state, "spawning", "and the record was left for a scan that can see tmux")
+})
+
+test("recovery does not call a child started when its readiness marker failed or is missing", async () => {
+	// A crash right after tmux creation can leave pi alive but idle; adopting it as "started" mailed a
+	// success that never happened.
+	const base = mkdtempSync(join(tmpdir(), "pmb-ready-"))
+	const failed = join(base, "failed.json")
+	writeFileSync(failed, JSON.stringify({ ok: false, error: "pi did not start a turn" }), { mode: 0o600 })
+	const missing = join(base, "missing.json")
+	for (const readyFile of [failed, missing]) {
+		const r = rig({
+			journal: {
+				v: 1,
+				requests: {
+					req: {
+						id: "req",
+						messageId: "<m@x>",
+						uid: 1,
+						receivedAt: Date.now(),
+						state: "spawning",
+						at: Date.now(),
+						launchedAt: Date.now(),
+						name: "half",
+						tmuxName: "half",
+						cwd: "/tmp",
+						readyFile,
+					},
+				},
+				sessions: {},
+			},
+		})
+		r.liveSessions = async () => [{ id: "$1", name: "half" }]
+		const summary = await scanOnce(r)
+		assert.equal(summary.adopted, 0, readyFile)
+		assert.equal(r.journal.requests.req?.state, "uncertain", readyFile)
+	}
+})
+
+test("an oversized or undated message never becomes a start request", async () => {
+	// The watcher returns a metadata-only message for an oversized one: no body, no headers. Interpreting it
+	// turned it into an empty start with the default cwd. Undated mail cannot be proven fresh either.
+	const big = rig()
+	big.messages.delete(1)
+	// Otherwise a valid request: without the guard the metadata-only stub is an empty body with a default
+	// cwd, which is exactly the bypass the finding describes.
+	big.messages.set(5, {
+		uid: 5,
+		from: "me@e.com",
+		subject: "[pi-start] huge",
+		text: `cwd: ${big.config.starter.roots[0]}/project`,
+		headers: { authResults: ["mx; dmarc=pass"], messageId: "<huge@x>" },
+		receivedAt: Date.now(),
+		internalDate: Date.now(),
+		tooLarge: 9_000_000,
+	})
+	const s1 = await scanOnce(big)
+	assert.equal(s1.started, 0)
+	assert.equal(big.spawnCalls, 0)
+
+	const undated = rig()
+	undated.messages.delete(1)
+	undated.messages.set(6, {
+		uid: 6,
+		from: "me@e.com",
+		subject: "[pi-start] old",
+		text: "cwd: /tmp",
+		headers: { authResults: ["mx; dmarc=pass"], messageId: "<old@x>" },
+		receivedAt: Date.now(),
+		internalDate: Date.now(),
+	})
+	const s2 = await scanOnce(undated)
+	assert.equal(s2.started, 0, "no arrival time, no freshness proof, no start")
 })
 

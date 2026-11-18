@@ -321,3 +321,31 @@ test("the starter's roots are expanded and its numbers are repaired, not trusted
 	assert.ok(cfg.warnings.some((w) => /starter\.maxSessions must be a non-negative integer/.test(w)))
 })
 
+test("starter.enabled must be a real boolean, or it reads as false", () => {
+	// JSON `"enabled": "false"` is a truthy string: a typo would otherwise enable process execution.
+	const env = { XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "pmb-cfg-")) }
+	mkdirSync(join(env.XDG_CONFIG_HOME, "pi-mailbridge"), { recursive: true })
+	writeFileSync(join(env.XDG_CONFIG_HOME, "pi-mailbridge", "config.json"), JSON.stringify({ starter: { enabled: "false", roots: ["/tmp"] } }), { mode: 0o600 })
+	const loaded = loadConfig(env)
+	assert.equal(loaded.starter.enabled, false)
+	assert.ok(loaded.warnings.some((w) => /starter.enabled must be true or false/.test(w)))
+})
+
+test("stage B refuses a writable tool set and a zero timeout", () => {
+	// The docs call it read-only isolation; accepting `bash,write` made that a default rather than a
+	// guarantee, and timeoutMs 0 removed execFile's timeout entirely.
+	const env = { XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "pmb-cfg2-")) }
+	mkdirSync(join(env.XDG_CONFIG_HOME, "pi-mailbridge"), { recursive: true })
+	writeFileSync(
+		join(env.XDG_CONFIG_HOME, "pi-mailbridge", "config.json"),
+		JSON.stringify({
+			starter: { enabled: true, roots: ["/tmp"], parse: { agent: true, model: "p/m", tools: "bash,write", timeoutMs: 0 } },
+		}),
+		{ mode: 0o600 },
+	)
+	const loaded = loadConfig(env)
+	assert.equal(loaded.starter.parse.tools, "read,grep,find,ls")
+	assert.ok(loaded.starter.parse.timeoutMs > 0)
+	assert.ok(loaded.warnings.some((w) => /read-only/.test(w)))
+})
+

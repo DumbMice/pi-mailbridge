@@ -10,6 +10,7 @@
 // request addressed to another device is not ours, and an untagged one is everyone's.
 
 import type { StarterConfig } from "../core/config.ts"
+import { normalizeAddress } from "../core/reply-parse.ts"
 
 export type ChannelMatch =
 	| { ours: true; title: string }
@@ -19,9 +20,7 @@ export interface ChannelInput {
 	subject: string | undefined
 	/** Every `To:` address, lowercased; the channel may be configured as an address. */
 	to: string[]
-	/** The subject's device tag, if the sender added one (`[pi:… @dev-box-7]` style handling is the caller's). */
-	deviceInSubject?: string
-	/** This process's device name. */
+	/** This process's device name. (Tags inside the subject are not a supported protocol.) */
 	device: string
 }
 
@@ -62,7 +61,9 @@ export function matchChannel(config: StarterConfig, input: ChannelInput): Channe
 	const prefix = config.channel.subjectPrefix.trim()
 
 	let byAddress = false
-	if (address) byAddress = input.to.some((value) => value.trim().toLowerCase() === address)
+	// `To: Starter <start@example.com>` is the ordinary form; comparing the raw value with an addr-spec
+	// rejected it, so a dedicated alias only worked if the client sent a bare address.
+	if (address) byAddress = input.to.some((value) => normalizeAddress(value) === normalizeAddress(address))
 	const byPrefix = prefix ? titleAfterPrefix(input.subject ?? "", prefix) : undefined
 
 	// Address and prefix are alternatives, never a union: with an address configured, prefixed mail sent
@@ -70,9 +71,6 @@ export function matchChannel(config: StarterConfig, input: ChannelInput): Channe
 	const matched = address ? byAddress : byPrefix !== undefined
 	if (!matched) {
 		return { ours: false, reason: input.subject === undefined && address === "" ? "empty" : "not-this-channel" }
-	}
-	if (input.deviceInSubject && input.deviceInSubject.toLowerCase() !== input.device.toLowerCase()) {
-		return { ours: false, reason: "other-device" }
 	}
 
 	// A dedicated address has no prefix to strip, so the whole subject is the title.

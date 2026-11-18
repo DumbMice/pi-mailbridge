@@ -123,6 +123,9 @@ export function createConfirmer(config: ResolvedConfig, deps: ConfirmerDeps = {}
 				{
 					to: config.mail.to,
 					subject: replySubject({ original: facts.subject }),
+					// A dedicated starter address is the channel; replies must come back to it, not to whoever
+					// the SMTP account is.
+					...(config.starter.channel.address.trim() ? { replyTo: config.starter.channel.address.trim() } : {}),
 					text: facts.text,
 					// Threaded under the request, so the human sees the answer where they asked.
 					inReplyTo: facts.inReplyTo,

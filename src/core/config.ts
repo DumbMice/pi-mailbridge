@@ -477,14 +477,37 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 	// validator is written. It is a problem the check gate refuses on.
 	{
 		const raw = resolved.starter as Partial<StarterConfig>
+		// `"enabled": "false"` is a truthy string: without this, a typo silently enables process execution.
+		const enabled = typeof raw?.enabled === "boolean" ? raw.enabled : false
+		if (raw?.enabled !== undefined && typeof raw?.enabled !== "boolean") {
+			warnings.push("starter.enabled must be true or false — reading it as false")
+		}
 		const roots: unknown = raw?.roots
 		const list = Array.isArray(roots) ? roots.map((r) => String(r).trim()).filter(Boolean) : []
 		const expanded = list.map((r) => (r === "~" || r.startsWith("~/") ? `${homedir()}${r.slice(1)}` : r))
+		const str = (value: unknown, fallback: string): string => (typeof value === "string" ? value.trim() : fallback)
 		resolved.starter = {
 			...STARTER_DEFAULTS,
 			...raw,
-			channel: { ...STARTER_DEFAULTS.channel, ...(raw?.channel ?? {}) },
-			parse: { ...STARTER_DEFAULTS.parse, ...(raw?.parse ?? {}) },
+			enabled,
+			// Strings are trimmed and type-checked here; a number or object must not become "[object Object]"
+			// in a path or an allowlist.
+			autoEnableMail: typeof raw?.autoEnableMail === "boolean" ? raw.autoEnableMail : STARTER_DEFAULTS.autoEnableMail,
+			defaultCwd: str(raw?.defaultCwd, STARTER_DEFAULTS.defaultCwd),
+			defaultModel: str(raw?.defaultModel, STARTER_DEFAULTS.defaultModel),
+			channel: {
+				...STARTER_DEFAULTS.channel,
+				...(raw?.channel ?? {}),
+				subjectPrefix: str(raw?.channel?.subjectPrefix, STARTER_DEFAULTS.channel.subjectPrefix),
+				address: str(raw?.channel?.address, STARTER_DEFAULTS.channel.address),
+				folder: str(raw?.channel?.folder, STARTER_DEFAULTS.channel.folder),
+			},
+			parse: {
+				...STARTER_DEFAULTS.parse,
+				...(raw?.parse ?? {}),
+				model: str(raw?.parse?.model, STARTER_DEFAULTS.parse.model),
+				tools: str(raw?.parse?.tools, STARTER_DEFAULTS.parse.tools),
+			},
 			log: { ...STARTER_DEFAULTS.log, ...(raw?.log ?? {}) },
 			roots: expanded,
 			models: Array.isArray(raw?.models) ? raw!.models.map((m) => String(m).trim()).filter(Boolean) : [],
@@ -510,6 +533,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 			if (!Number.isInteger(value) || value < 0) {
 				warnings.push(`starter.${key} must be a non-negative integer — using the default`)
 				resolved.starter = { ...resolved.starter, [key]: (STARTER_DEFAULTS as unknown as Record<string, unknown>)[key] }
+			}
+		}
+		// Stage B advertises isolation. A config that adds `bash`/`write` is not isolation, so it is refused
+		// here rather than silently running a shell against a mail-chosen directory.
+		const allowedTools = new Set(["read", "grep", "find", "ls"])
+		const tools = resolved.starter.parse.tools
+			.split(",")
+			.map((tool) => tool.trim())
+			.filter(Boolean)
+		const extra = tools.filter((tool) => !allowedTools.has(tool))
+		if (resolved.starter.parse.agent && extra.length > 0) {
+			warnings.push(`starter.parse.tools must stay read-only (read,grep,find,ls); ignoring ${extra.join(",")}`)
+			resolved.starter = { ...resolved.starter, parse: { ...resolved.starter.parse, tools: "read,grep,find,ls" } }
+		}
+		if (!Number.isInteger(resolved.starter.parse.timeoutMs) || resolved.starter.parse.timeoutMs <= 0) {
+			warnings.push("starter.parse.timeoutMs must be a positive integer — using the default")
+			resolved.starter = {
+				...resolved.starter,
+				parse: { ...resolved.starter.parse, timeoutMs: STARTER_DEFAULTS.parse.timeoutMs },
 			}
 		}
 	}

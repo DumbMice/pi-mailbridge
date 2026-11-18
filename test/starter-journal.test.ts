@@ -5,7 +5,7 @@
 
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -253,5 +253,20 @@ test("a present-but-wrong journal section is corruption, not an empty one", () =
 	mkdirSync(dirname(filePath(env)), { recursive: true })
 	writeFileSync(filePath(env), JSON.stringify({ v: 1, requests: [], sessions: {} }), { mode: 0o600 })
 	assert.throws(() => readJournal(env), /`requests` is not an object/)
+})
+
+test("a marker that cannot be written leaves the corrupt journal in place", () => {
+	// Marker-before-rename: if the marker write fails (ENOSPC), the original must not have moved, or the
+	// next start finds neither and accepts an empty journal.
+	const env = freshEnv()
+	const file = filePath(env)
+	mkdirSync(dirname(file), { recursive: true })
+	writeFileSync(file, "{not json", { mode: 0o600 })
+	// A read-only directory makes both the marker write and the rename fail deterministically.
+	chmodSync(dirname(file), 0o500)
+	assert.throws(() => readJournal(env), /could not be set aside/)
+	assert.equal(existsSync(file), true, "the corrupt bytes are still where they were")
+	assert.equal(readFileSync(file, "utf8"), "{not json")
+	chmodSync(dirname(file), 0o700)
 })
 

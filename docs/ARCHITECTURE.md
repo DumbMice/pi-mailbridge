@@ -342,10 +342,25 @@ mailbox the bridge already watches, subject `[<prefix>] …`; optionally a dedic
 explicit value is wrong). Stage B — one isolated read-only pi run — may fill *only* a missing field, and its
 answer is validated like a human's.
 
-**The order is the security design.** Caps → self-echo/robot/authentication (`authorize()` in a *request*
-context: a fresh request has no reply headers, and that single requirement is the only relaxation) → channel
-and device → replay and freshness (Message-ID, UID space, `INTERNALDATE`) → parse → optional agent →
-validation → **durable reservation of the session identity** → spawn → result mail.
+**The order is the security design**, and it is the order in `handleMail()` — every silent check comes
+before any reply, so echo, off-channel, replayed and stale mail is never answered:
+
+1. `starter.enabled`
+2. grammar (a reply's body is read above the quote; a reply that is not `stop:`/`list:` is refused, not
+   started)
+3. authentication, in the *request* context (a fresh request has no reply headers, and that single
+   requirement is the only relaxation)
+4. our own mail (`X-Pi-Mailbridge`)
+5. channel (subject prefix or configured address, never both) — there is no device tag inside the subject
+6. replay (Message-ID, UID space) and freshness (`INTERNALDATE`)
+7. durable record of the mail as a command or a refusal; for a start, the request is admitted, then the
+   hourly budget and live cap are checked
+8. optional stage-B parse for a missing `cwd`
+9. validation (cwd / model / thinking / name)
+10. **durable reservation of the session identity** → spawn → result mail
+
+Commands are journalled like starts, so replaying an old `stop:` cannot stop whatever holds that name
+later, and a refusal is terminal: a replay after the budget frees up does not execute it.
 
 **No prompt in argv.** pi parses positional prompts as options (`--continue`), reads `@path` as a file after
 `--`, and dispatches `/cmd`; a mail saying `/mailbridge setup …` would have run a command in the new
@@ -412,7 +427,7 @@ src/
     token.ts            HMAC sign/verify, subjects
     token-source.ts     XOAUTH2 command tokens
   starter/
-    channel.ts          which mail is a request, and for which device
+    channel.ts          which mail is a request (subject prefix or address)
     grammar.ts          the deterministic body grammar (complete / incomplete / invalid)
     validate.ts         the boundary: cwd under a root, model allowlist, name, prompt
     parse-agent.ts      stage B: one isolated read-only pi run, proposals only

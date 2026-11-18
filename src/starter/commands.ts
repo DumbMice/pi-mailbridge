@@ -278,9 +278,10 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 			},
 			removePrompt: (id) => prompts.remove(id),
 			spawn: (plan) => spawnSession(plan),
-			stop: async (id, name) => {
-				// The name is the ownership proof: a reused `$N` after a tmux restart must not be killed.
-				const result = await stopSession(id, { expectedName: name })
+			stop: async (id, name, requestId) => {
+				// The name and the request id in the session's environment are the ownership proof: a reused
+				// `$N` (and a reused name) after a tmux restart must not be killed.
+				const result = await stopSession(id, { expectedName: name, ...(requestId ? { expectedRequestId: requestId } : {}) })
 				return result.ok ? { ok: true } : { ok: false, detail: result.detail }
 			},
 			list: async () => (await listSessions())?.map((entry) => ({ id: entry.id, name: entry.name })),
@@ -314,12 +315,22 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 	wake = () => void runner.once()
 
 	if (once) {
-		// Without starting the source a real `once` scanned nothing and still exited 0.
-		await source.start?.()
-		const summary = await runner.once()
-		await source.stop?.()
-		log(`once: examined ${summary.examined}, started ${summary.started}, refused ${summary.refused}, ignored ${summary.ignored}`)
-		return 0
+		// A real `once` mutates the journal, so it takes the same lifetime lock as `run`: two of them at once
+		// could both reserve the same name and spawn two sessions.
+		const onceLock = acquireLock(ctx.env, "starter.lock")
+		if (!onceLock.ok) {
+			ctx.err(`another starter is already running (pid ${onceLock.holder})`)
+			return 1
+		}
+		try {
+			await source.start?.()
+			const summary = await runner.once()
+			await source.stop?.()
+			log(`once: examined ${summary.examined}, started ${summary.started}, refused ${summary.refused}, ignored ${summary.ignored}`)
+			return 0
+		} finally {
+			onceLock.lock.release()
+		}
 	}
 
 	const lock = acquireLock(ctx.env, "starter.lock")
@@ -346,6 +357,14 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 
 	if (cmd === "check") {
 		const problems = starterProblems(ctx.config)
+		// Problems the loader already noticed belong in the answer: "check said ok" must mean the resolved
+		// configuration is usable, not just that this function's own list is empty.
+		for (const warning of ctx.config.warnings) problems.push(warning)
+		try {
+			readJournal(ctx.env)
+		} catch (error) {
+			problems.push(`the journal cannot be trusted: ${(error as Error).message}`)
+		}
 		if (!(await which("tmux"))) problems.push("tmux is not on PATH")
 		if (!(await which("pi"))) problems.push("pi is not on PATH")
 		try {
@@ -416,7 +435,7 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 		// The name is the ownership proof: a reused `$N` after a tmux restart must not be killed from here
 		// either. Passing it is the whole difference between stopping this session and stopping a stranger.
 		const stop = deps.stopSession ?? stopSession
-		const stopped = await stop(record.tmuxSessionId, { expectedName: record.name })
+		const stopped = await stop(record.tmuxSessionId, { expectedName: record.name, expectedRequestId: record.requestId })
 		if (!stopped.ok) {
 			ctx.err(`could not stop ${name}: ${stopped.reason}`)
 			return 1

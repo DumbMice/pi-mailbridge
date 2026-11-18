@@ -145,7 +145,7 @@ test("the dry run prints the argv of an interrupted request and starts nothing",
 		stderr: () => {},
 	})
 	assert.equal(code, 0)
-	assert.match(out.join("\n"), /would run: tmux -L pimail new-session -d -s fix-it -c \/tmp -- env /)
+	assert.match(out.join("\n"), /would run: tmux -L pimail new-session -d -s fix-it -e PI_MAILBRIDGE_REQUEST=r1 -c \/tmp -- env /)
 	assert.match(out.join("\n"), /nothing started/)
 })
 

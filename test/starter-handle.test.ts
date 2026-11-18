@@ -192,8 +192,11 @@ test("a bad path, model or name is refused with the reason, and nothing is spawn
 			[`cwd: ${project}\npromt: x`, "unknown-field"],
 		] as const
 	for (const r of [rig()]) {
+		let n = 0
 		for (const [body, code] of cases(r.project)) {
-			const outcome = await handleMail(mail({ body }, r.project), r.deps)
+			n += 1
+			// Distinct Message-IDs: each refusal is recorded now, and one mail cannot be four requests.
+			const outcome = await handleMail(mail({ body, uid: 100 + n, messageId: `<case-${n}@x>` }, r.project), r.deps)
 			assert.equal(outcome.action, "refused", body)
 			if (outcome.action === "refused") assert.equal(outcome.code, code)
 			assert.equal(r.spawned.length, 0)
@@ -440,5 +443,44 @@ test("list: says tmux did not answer rather than claiming no sessions", async ()
 	const outcome = await handleMail(mail({ messageId: "<l@x>", uid: 30, body: "list:" }, r.project), r.deps)
 	assert.equal(outcome.action, "listed")
 	assert.match(r.replies[0]!.text, /could not list sessions/)
+})
+
+test("a replayed command is not run twice, and a replayed refusal is not retried", async () => {
+	// Commands were never journalled, so replaying an old stop after a cursor loss stopped whatever held the
+	// name later; and a quota refusal could become executable once the budget freed up.
+	const r = rig({ starter: { startsPerHour: 1 } })
+	const stop = mail({ messageId: "<stop-1@x>", uid: 40, body: "stop: all" })
+	await handleMail(stop, r.deps)
+	assert.ok(
+		Object.values(r.journal.requests).some((entry) => entry.kind === "stop"),
+		"the command is journalled, which is what makes a replay inert",
+	)
+	r.journal.requests["used"] = {
+		id: "used",
+		messageId: "<used@x>",
+		uid: 41,
+		receivedAt: Date.now(),
+		state: "ready",
+		at: Date.now(),
+		launchedAt: Date.now(),
+	}
+	const refused = await handleMail(mail({ messageId: "<q@x>", uid: 42 }, r.project), r.deps)
+	assert.equal(refused.action, "refused")
+	// Free the budget, then replay both mails: neither may act again.
+	delete r.journal.requests.used
+	const replayedStop = await handleMail(stop, r.deps)
+	assert.equal(replayedStop.action, "ignored")
+	const replayedRefusal = await handleMail(mail({ messageId: "<q@x>", uid: 42 }, r.project), r.deps)
+	assert.equal(replayedRefusal.action, "ignored")
+})
+
+test("a stop that tmux refuses is journalled as settled", async () => {
+	const r = rig()
+	r.deps.stop = async () => ({ ok: false, detail: "not-ours" })
+	r.journal.sessions.one = { name: "one", tmuxSessionId: "$1", piSessionId: "pi", requestId: "req", cwd: "/tmp", at: 1 }
+	const outcome = await handleMail(mail({ messageId: "<s@x>", uid: 43, body: "stop: one" }, r.project), r.deps)
+	assert.equal(outcome.action, "refused")
+	const again = await handleMail(mail({ messageId: "<s@x>", uid: 43, body: "stop: one" }, r.project), r.deps)
+	assert.equal(again.action, "ignored", "one mail cannot ask twice")
 })
 

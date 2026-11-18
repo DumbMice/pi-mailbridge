@@ -58,9 +58,13 @@ export interface RequestRecord {
 	tmuxName?: string
 	/** When a spawn was attempted (ms). The hourly budget counts attempts, so a stop cannot refund one. */
 	launchedAt?: number
+	/** Where the bootstrap writes its readiness marker; recovery reads it before calling a child started. */
+	readyFile?: string
 	name?: string
 	cwd?: string
 	model?: string
+	/** What the mail asked for; commands are journalled too, so a replay cannot re-run one. */
+	kind?: string
 	/** Refusal code and detail, or the uncertainty's explanation. */
 	reason?: string
 	/** Separate from `state`: the side effect may have happened while the mail did not. */
@@ -146,9 +150,11 @@ function normaliseRequest(raw: unknown): RequestRecord | undefined {
 		// hourly budget and lose the name an interrupted spawn is matched by.
 		...(typeof raw.tmuxName === "string" ? { tmuxName: raw.tmuxName } : {}),
 		...(typeof raw.launchedAt === "number" ? { launchedAt: raw.launchedAt } : {}),
+		...(typeof raw.readyFile === "string" ? { readyFile: raw.readyFile } : {}),
 		...(typeof raw.name === "string" ? { name: raw.name } : {}),
 		...(typeof raw.cwd === "string" ? { cwd: raw.cwd } : {}),
 		...(typeof raw.model === "string" ? { model: raw.model } : {}),
+		...(typeof raw.kind === "string" ? { kind: raw.kind } : {}),
 		...(typeof raw.reason === "string" ? { reason: raw.reason } : {}),
 		...(raw.resultSent === true ? { resultSent: true } : {}),
 	}
@@ -207,8 +213,10 @@ export function readJournal(env: NodeJS.ProcessEnv = process.env): JournalFile {
 	} catch {
 		const backup = `${file}.corrupt-${Date.now()}`
 		try {
+			// Marker first: if creating it fails (ENOSPC), the corrupt original must still be in place, or
+			// the next start would find neither the journal nor the marker and accept an empty one.
+			writeFileSync(marker, `not valid JSON; the bytes are being set aside in ${backup}`, { mode: 0o600 })
 			renameSync(file, backup)
-			writeFileSync(marker, `not valid JSON; the bytes are in ${backup}`, { mode: 0o600 })
 		} catch {
 			throw new JournalUntrustedError("starter journal is not valid JSON and could not be set aside")
 		}

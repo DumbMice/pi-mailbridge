@@ -101,6 +101,10 @@ export function buildSpawnArgv(plan: SpawnPlan): string[] {
 		"-d",
 		"-s",
 		plan.tmuxId,
+		// The request id lives in the session's own environment: after a tmux server restart a `$N` *and*
+		// the display name can both be reused, and this is the only proof the session is ours.
+		"-e",
+		`PI_MAILBRIDGE_REQUEST=${plan.requestId}`,
 		"-c",
 		plan.cwd,
 		"--",
@@ -127,6 +131,19 @@ export function buildKillArgv(tmuxSessionId: string, socket = DEFAULT_SOCKET): s
 	// Kill by the immutable id, never by the reusable name: a stale name could belong to a session the
 	// operator started by hand.
 	return ["tmux", "-L", socket, "kill-session", "-t", tmuxSessionId]
+}
+
+/** The request id stored in the session's environment: the ownership proof that survives an id reuse. */
+export async function readOwnershipMarker(
+	tmuxSessionId: string,
+	deps: Pick<SpawnDeps, "exec"> & { socket?: string } = {},
+): Promise<string | undefined> {
+	const exec = deps.exec ?? defaultExec
+	const read = await exec(["tmux", "-L", deps.socket ?? DEFAULT_SOCKET, "show-environment", "-t", tmuxSessionId, "PI_MAILBRIDGE_REQUEST"])
+	if (read.code !== 0) return undefined
+	const line = read.stdout.trim()
+	const value = line.startsWith("PI_MAILBRIDGE_REQUEST=") ? line.slice("PI_MAILBRIDGE_REQUEST=".length) : ""
+	return value || undefined
 }
 
 /** `#{session_name}` for one id: the ownership check, without relying on the numeric id. */
@@ -220,7 +237,7 @@ export async function spawnSession(plan: SpawnPlan, deps: SpawnDeps = {}): Promi
 /** Stop a session, but only if the id still matches what we recorded. */
 export async function stopSession(
 	tmuxSessionId: string,
-	deps: (Pick<SpawnDeps, "exec"> & { socket?: string; expectedName?: string }) | undefined = {},
+	deps: (Pick<SpawnDeps, "exec"> & { socket?: string; expectedName?: string; expectedRequestId?: string }) | undefined = {},
 ): Promise<{ ok: true } | { ok: false; reason: string; detail: string }> {
 	const exec = deps.exec ?? defaultExec
 	const socket = deps.socket ?? DEFAULT_SOCKET
@@ -239,6 +256,21 @@ export async function stopSession(
 				ok: false,
 				reason: "not-ours",
 				detail: `${tmuxSessionId} is now ${name.stdout.trim()}, not ${deps.expectedName}`,
+			}
+		}
+	}
+	// The name can be reused too. The request id in the session's environment is the marker that a restart
+	// cannot counterfeit, so it is the final check before anything is killed.
+	if (deps.expectedRequestId !== undefined) {
+		const marker = await readOwnershipMarker(tmuxSessionId, { exec, socket })
+		if (marker === undefined) {
+			return { ok: false, reason: "not-ours", detail: `${tmuxSessionId} carries no ownership marker` }
+		}
+		if (marker !== deps.expectedRequestId) {
+			return {
+				ok: false,
+				reason: "not-ours",
+				detail: `${tmuxSessionId} belongs to request ${marker}, not ${deps.expectedRequestId}`,
 			}
 		}
 	}

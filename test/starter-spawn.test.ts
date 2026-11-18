@@ -39,6 +39,8 @@ test("the argv carries no prompt, uses our socket, and identifies the session by
 		"-d",
 		"-s",
 		"fix-auth",
+		"-e",
+		"PI_MAILBRIDGE_REQUEST=req-1",
 		"-c",
 		"/tmp/project",
 		"--",
@@ -218,5 +220,30 @@ test("an unrecognised tmux failure is not read as 'no sessions'", async () => {
 	// Returning [] for any failure made the sweep end every session we own on a 30 s timeout.
 	assert.equal(await listSessions({ exec: async () => ({ code: 1, stdout: "", stderr: "lost server" }) }), undefined)
 	assert.deepEqual(await listSessions({ exec: async () => ({ code: 1, stdout: "", stderr: "no server running on /tmp/x" }) }), [])
+})
+
+test("stop refuses a session whose ownership marker names another request", async () => {
+	// After a tmux restart both `$N` and the display name can be reused; only the request id in the
+	// session's environment distinguishes our child from a stranger.
+	const exec = async (argv: string[]) => {
+		if (argv.includes("display-message")) return { code: 0, stdout: "fix-auth", stderr: "" }
+		if (argv.includes("show-environment")) return { code: 0, stdout: "PI_MAILBRIDGE_REQUEST=req-other", stderr: "" }
+		return { code: 0, stdout: "", stderr: "" }
+	}
+	const result = await stopSession("$2", { expectedName: "fix-auth", expectedRequestId: "req-mine", exec })
+	assert.equal(result.ok, false)
+	if (!result.ok) assert.equal(result.reason, "not-ours")
+
+	const mine = await stopSession("$2", {
+		expectedName: "fix-auth",
+		expectedRequestId: "req-mine",
+		exec: async (argv: string[]) =>
+			argv.includes("display-message")
+				? { code: 0, stdout: "fix-auth", stderr: "" }
+				: argv.includes("show-environment")
+					? { code: 0, stdout: "PI_MAILBRIDGE_REQUEST=req-mine", stderr: "" }
+					: { code: 0, stdout: "", stderr: "" },
+	})
+	assert.equal(mine.ok, true)
 })
 

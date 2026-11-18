@@ -9,6 +9,7 @@
 //   * the sweep exists because IDLE alone can miss a provider that does not push (the daemon learned this
 //     the hard way, and the starter runs on the same servers).
 
+import { readFileSync } from "node:fs"
 import type { ResolvedConfig } from "../core/config.ts"
 import type { HeaderLike } from "../core/reply-parse.ts"
 import type { RawMessage } from "../daemon/process.ts"
@@ -141,6 +142,38 @@ async function reconcileInterrupted(record: ReturnType<typeof alreadySeen>, deps
 		live.map((entry) => ({ tmuxSessionId: entry.id, name: entry.name })),
 	)
 	if (verdict.action === "adopt") {
+		// Readiness is part of the contract, not a spawn-time detail: a crash right after tmux creation can
+		// leave pi alive but idle (missing credentials, prompt never accepted), and adopting it as "started"
+		// would mail a success that never happened.
+		const readyFile = record.readyFile
+		if (readyFile) {
+			try {
+				const marker = JSON.parse(readFileSync(readyFile, "utf8")) as { ok?: boolean; error?: string }
+				if (marker.ok !== true) {
+					deps.journal.requests[record.id] = {
+						...record,
+						state: "uncertain",
+						reason: `the child is running but never reported ready: ${marker.error ?? "no error given"}`,
+						at: deps.now(),
+					}
+					summary.uncertain += 1
+					deps.log(`uncertain ${record.id}: the child never became ready`)
+					deps.saveJournal(deps.journal)
+					return
+				}
+			} catch {
+				deps.journal.requests[record.id] = {
+					...record,
+					state: "uncertain",
+					reason: "the child is running but its readiness marker is unreadable",
+					at: deps.now(),
+				}
+				summary.uncertain += 1
+				deps.log(`uncertain ${record.id}: readiness could not be established`)
+				deps.saveJournal(deps.journal)
+				return
+			}
+		}
 		const adoptedId = verdict.tmuxSessionId ?? record.tmuxSessionId
 		deps.journal.requests[record.id] = {
 			...record,
@@ -230,6 +263,22 @@ export async function scanOnce(deps: ScanDeps): Promise<ScanSummary> {
 		if (!message) {
 			// Deleted between search and fetch: nothing to act on, and the cursor may move.
 			deps.cursor.advance(deps.env, uid)
+			continue
+		}
+		// The watcher refuses to download anything over the ceiling and says so here. It carries no body and
+		// no headers, so interpreting it would turn an oversized mail into an empty start request.
+		if (message.tooLarge) {
+			deps.cursor.advance(deps.env, uid)
+			summary.ignored += 1
+			deps.log(`ignored uid ${uid}: too large (${message.tooLarge} bytes)`)
+			continue
+		}
+		// An undated mail cannot be proven fresh. With a freshness window in force, unknown age fails closed
+		// instead of being read as "just arrived".
+		if (message.internalDate === undefined && deps.config.starter.requestMaxAgeHours > 0) {
+			deps.cursor.advance(deps.env, uid)
+			summary.ignored += 1
+			deps.log(`ignored uid ${uid}: no arrival time, so freshness cannot be established`)
 			continue
 		}
 		const mail = toStarterMail(message, uidValidity)

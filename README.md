@@ -97,13 +97,20 @@ To:      your mailbox (or the `starter.channel.address` you configure)
 Subject: [pi-start] fix the flaky auth test
 
 cwd:   ~/Work/myapp
-model: deepseek/deepseek-flash      # optional; must be on starter.models
+model: deepseek/deepseek-flash
 prompt: |
   The auth test is flaky on CI. Reproduce it, fix it, run the suite.
 ```
 
-`prompt` defaults to `hi`, and the session name comes from the subject. You get one reply: `started` (with
-the `tmux attach` line and the exact `stop:` text) or `refused` with the reason. `list:` lists live sessions.
+Values are literal: there are no inline comments, so `model: deepseek/deepseek-flash  # optional` would be
+read as part of the model id and refused. `model` is optional but must be on `starter.models`.
+
+`prompt` defaults to `hi`, and the session name comes from the subject. A request normally gets one reply —
+`started` (with the `tmux attach` line and the exact `stop:` text) or `refused` with the reason — but replies
+are bound by `starter.confirmationsPerHour` and by SMTP itself, so a send that fails or a budget that is
+spent means **no** reply rather than a retry loop. A reply to a result that is not `stop:`/`list:` is
+answered with a refusal, never treated as a request: start sessions with a new mail. `list:` lists live
+sessions, and says "tmux did not answer" rather than "no sessions" when the socket is unavailable.
 
 ```jsonc
 "starter": {
@@ -403,8 +410,8 @@ If the agent needs the contents, it has to open it: `read` for text-ish files, o
 - **You need an answer now.** Mail latency is mail latency; there is no push channel.
 - **The mailbox gets untrusted mail.** Everything in `security.allowFrom` can command the agent;
   keep the mailbox narrow.
-- **You want a new session started from mail.** Not implemented: a reply resumes the session that
-  asked. Starting a fresh one from a mail is a different architecture.
+- **You want a session started from untrusted mail.** Starting one from *your own* mail is the optional
+  [`starter`](#start-a-session-by-mail) process; a reply still resumes the session that asked.
 - **You need S/MIME or PGP.** Not implemented; transport encryption is the provider's.
 
 ## How a reply is identified
@@ -698,7 +705,7 @@ hermetic suite covers the token, authz, scan pipeline, stores, daemon HTTP surfa
 extension surface, tools, attachments and the full end-to-end loop; it needs no network, no
 mailbox, and no socket off the loopback interface.
 
-Not implemented: starting a *new* session from mail, and MIME/S-MIME.
+Not implemented: MIME/S-MIME. Starting a new session from mail is the optional `starter` process.
 
 ## License
 

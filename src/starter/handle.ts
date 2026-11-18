@@ -58,7 +58,7 @@ export interface HandleDeps {
 	/** Remove a prompt file whose session never started (the bootstrap removes it when it runs). */
 	removePrompt?: (requestId: string) => void
 	spawn: (plan: SpawnPlan) => Promise<SpawnResult>
-	stop: (tmuxSessionId: string, expectedName?: string) => Promise<{ ok: boolean; detail?: string }>
+	stop: (tmuxSessionId: string, expectedName?: string, expectedRequestId?: string) => Promise<{ ok: boolean; detail?: string }>
 	list: () => Promise<{ id: string; name: string }[] | undefined>
 	send: (mail: OutcomeMail) => Promise<void>
 	now: () => number
@@ -190,6 +190,27 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 	if (seen) return ignore(`already-handled:${seen.state}`)
 	if (isStale({ receivedAt: mail.receivedAt }, now, starter.requestMaxAgeHours)) return ignore("stale")
 
+	// One id for this mail, whether it becomes a session, a command or a refusal: every one of them is
+	// journalled, because a replay must never stop a later session or re-answer a settled mail.
+	const id = newRequestId(mail, now)
+	const record = (state: RequestRecord["state"], kind: string, extra: Partial<RequestRecord> = {}): void => {
+		journal.requests[id] = {
+			id,
+			messageId: mail.messageId,
+			uid: mail.uid,
+			...(mail.uidValidity === undefined ? {} : { uidValidity: mail.uidValidity }),
+			receivedAt: mail.receivedAt,
+			state,
+			at: deps.now(),
+			kind,
+			...extra,
+		}
+		deps.save(journal)
+	}
+	const settle = (kind: string, patch: Partial<RequestRecord> = {}): void => {
+		record("ended", kind, patch)
+	}
+
 	// A reply is how `stop:` comes back (the result mail says so), but a non-command reply is a person
 	// answering a notification: starting a session from it would run the quoted history as the prompt.
 	// Placed *after* the echo/channel/replay gates: SECURITY §4a promises that echo, off-channel, replayed
@@ -206,21 +227,25 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 		const sent = await reply(
 			`[pi-start] refused — ${detail}; nothing was started. Send \`stop: <name>\` or \`list:\`, or a new mail to start a session`,
 		)
+		record("refused", named ? "command" : "start", { reason: detail })
 		return { action: "refused", code: named ? "bad-command" : "reply-without-command", detail, replied: sent }
 	}
 
 	if (grammared.state === "invalid") {
 		const detail = grammared.errors.map((e) => `${e.code}: ${e.detail}`).join("; ")
-		await reply(`[pi-start] refused — ${detail}`)
-		return { action: "refused", code: grammared.errors[0]?.code ?? "invalid", detail, replied: true }
+		const sent = await reply(`[pi-start] refused — ${detail}`)
+		record("refused", "start", { reason: detail })
+		return { action: "refused", code: grammared.errors[0]?.code ?? "invalid", detail, replied: sent }
 	}
 
 	// 6. Commands: stop and list are not starts, so the caps do not apply to them.
 	if (grammared.state === "complete" && grammared.request.kind === "list") {
+		record("admitted", "list")
 		const live = await deps.list()
 		if (live === undefined) {
 			// `undefined` is "tmux did not answer", not "nothing is running".
 			await reply("[pi-start] could not list sessions: tmux did not answer")
+			settle("list")
 			return { action: "listed", count: 0, replied: true }
 		}
 		const rows = live.map((entry) => {
@@ -228,14 +253,17 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 			return `${entry.name} ${entry.id}${record?.cwd ? ` ${record.cwd}` : ""}`
 		})
 		await reply(rows.length ? `[pi-start] sessions\n${rows.join("\n")}` : "[pi-start] no sessions")
+		settle("list")
 		return { action: "listed", count: live.length, replied: true }
 	}
 	if (grammared.state === "complete" && grammared.request.kind === "stop") {
+		// Admitted before the kill: a replayed stop must not stop whatever holds that name later.
+		record("admitted", "stop", { reason: grammared.request.stopTarget })
 		const target = grammared.request.stopTarget ?? ""
 		const stopOne = async (name: string): Promise<"stopped" | "unknown" | "failed"> => {
 			const record = journal.sessions[name]
 			if (!record || record.endedAt !== undefined) return "unknown"
-			const stopped = await deps.stop(record.tmuxSessionId, record.name)
+			const stopped = await deps.stop(record.tmuxSessionId, record.name, record.requestId)
 			if (!stopped.ok) return "failed"
 			journal.sessions[name] = { ...record, endedAt: now }
 			if (journal.requests[record.requestId]) {
@@ -248,7 +276,7 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 			deps.save(journal)
 			const said = results.map(([name, result]) => `${name} ${result}`).join(", ") || "nothing to stop"
 			await reply(`[pi-start] ${said}`)
-			return { action: "stopped", name: "all", replied: true }
+				return { action: "stopped", name: "all", replied: true }
 		}
 		const result = await stopOne(target)
 		deps.save(journal)
@@ -259,14 +287,17 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 					? `[pi-start] unknown-session ${target}`
 					: `[pi-start] could not stop ${target}`,
 		)
+		settle("stop")
 		return result === "stopped"
 			? { action: "stopped", name: target, replied: true }
 			: { action: "refused", code: result === "unknown" ? "unknown-session" : "kill-failed", detail: target, replied: true }
 	}
 
 	if (!isCommand && startQuotaReached(config, journal, now)) {
-		await reply("[pi-start] refused — start budget or live-session cap reached; stop a session or wait")
-		return { action: "refused", code: "quota", detail: "start budget or session cap", replied: true }
+		const sent = await reply("[pi-start] refused — start budget or live-session cap reached; stop a session or wait")
+		// Recorded: a replay after the budget frees up must not execute the mail that was refused.
+		record("refused", "start", { reason: "quota" })
+		return { action: "refused", code: "quota", detail: "start budget or session cap", replied: sent }
 	}
 
 	// 7. Parsing, then the optional agent for a missing cwd. Explicit values are never repaired.
@@ -322,7 +353,6 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 	}
 
 	// 9. Reserve before executing: the record says what should exist, before it exists.
-	const id = newRequestId(mail, now)
 	const piSessionId = `pi-${new Date(now).toISOString().slice(2, 16).replace(/[-:T]/g, "")}-${Math.abs(now % 0xffff).toString(16).padStart(4, "0")}`
 	const model = fields.model ?? (starter.defaultModel || undefined)
 	const prompt = resolvePrompt(fields.prompt)

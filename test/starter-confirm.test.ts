@@ -118,3 +118,16 @@ test("the confirmation mailer receives the XOAUTH2 provider, not just the config
 	assert.equal(sent[0], provider, "the provider travels with the message")
 })
 
+test("a dedicated starter address becomes Reply-To on results", async () => {
+	// Otherwise a normal Reply goes to the SMTP account, and address-authoritative matching rejects the
+	// `stop:` the result mail asked for.
+	const base = config()
+	const seen: { replyTo?: string }[] = []
+	const confirmer = createConfirmer(
+		{ ...base, starter: { ...base.starter, channel: { ...base.starter.channel, address: "start@example.com" } } },
+		{ send: async (_cfg, message) => void seen.push({ replyTo: message.replyTo }) },
+	)
+	await confirmer.send({ subject: "[pi-start] x", text: "ok", inReplyTo: "<m@x>" })
+	assert.equal(seen[0]?.replyTo, "start@example.com")
+})
+
