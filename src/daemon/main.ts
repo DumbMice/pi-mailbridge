@@ -714,6 +714,11 @@ export async function sendWithCapture<M extends { messageId?: string; sessionId?
 
 export async function main(): Promise<void> {
 	const argv = process.argv.slice(2)
+	if (argv[0] === "starter") {
+		const { runStarterCommand } = await import("../starter/commands.ts")
+		process.exitCode = await runStarterCommand(argv.slice(1), { moduleUrl: import.meta.url })
+		return
+	}
 	// Stamp before reading: a write landing between the read and a later Date.now() would
 	// otherwise be invisible to the freshness check.
 	const startupStamp = configStamp()

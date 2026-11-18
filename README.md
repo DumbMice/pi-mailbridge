@@ -594,6 +594,7 @@ the daemon without editing your config file:
 | `PI_MAILBRIDGE_IMAP_TOKEN_CMD`, `PI_MAILBRIDGE_SMTP_TOKEN_CMD` | `mail.imap.tokenCommand`, `mail.smtp.tokenCommand` (argv list; JSON or comma-separated) |
 | `PI_MAILBRIDGE_SESSION_MODE` | this session's email-mode override at start (`on`/`off`) — set by the session starter, and by anything else that wants a started session to mail you back |
 | `PI_MAILBRIDGE_START_REQUEST`, `PI_MAILBRIDGE_START_PROMPT`, `PI_MAILBRIDGE_START_READY`, `PI_MAILBRIDGE_START_MAX_BYTES` | the session starter's bootstrap: the request id, the `0600` prompt file it reads and removes, the readiness marker it writes, and the size cap it enforces (not for humans to set by hand) |
+| `PI_MAILBRIDGE_BOOTSTRAP` | absolute path to the bootstrap extension, for a starter that is not running from the package layout (`starter check` and the dry run use it) |
 
 ## Agent tools
 

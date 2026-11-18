@@ -380,6 +380,8 @@ src/
     handle.ts           one message → the decision pipeline (authz, channel, parse, validate, act)
     run.ts              the watch loop: own cursor, sweep + IDLE, one scan at a time
     confirm.ts          plain-text result mails: threaded, capped, separately budgeted
+    commands.ts         `pi-mailbridge starter run|check|once|list|stop|attach`
+    bootstrap-path.ts   where the compiled bootstrap lives (checkout or install)
   daemon/
     api.ts              the wire contract: API_VERSION, capabilities, endpoint list
     imapflow.ts         imapflow adapter

@@ -183,6 +183,7 @@ export function createStarterRunner(deps: RunnerDeps) {
 	let running = false
 	let queued = false
 
+	let lastSummary: ScanSummary | undefined
 	const guarded = async (): Promise<void> => {
 		if (running) {
 			// A burst of IDLE events must not start overlapping scans; run one more after this one.
@@ -192,6 +193,7 @@ export function createStarterRunner(deps: RunnerDeps) {
 		running = true
 		try {
 			const summary = await scanOnce(deps)
+			lastSummary = summary
 			if (summary.examined > 0) {
 				deps.log(
 					`scan: examined ${summary.examined}, started ${summary.started}, refused ${summary.refused}, ignored ${summary.ignored}`,
@@ -218,8 +220,11 @@ export function createStarterRunner(deps: RunnerDeps) {
 	}
 
 	return {
-		/** One scan, for `once` and for tests. */
-		once: () => guarded(),
+		/** One scan, for `once` and for tests. Returns the summary of the scan it ran (or the last one). */
+		once: async (): Promise<ScanSummary> => {
+			await guarded()
+			return lastSummary ?? { examined: 0, started: 0, refused: 0, ignored: 0, adopted: 0, uncertain: 0 }
+		},
 		async start(): Promise<void> {
 			deps.log("starter: watching")
 			await deps.source.start?.()
