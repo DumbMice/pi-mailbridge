@@ -475,24 +475,41 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 		// removing a file is the operator's decision, made after confirming the pid is gone.
 		const names = ["starter.lock", "starter-journal.lock", "daemon.lock"]
 		let stale = 0
+		let unknown = 0
 		for (const name of names) {
 			const file = statePath(ctx.env, name)
 			let content: string
 			try {
 				content = readFileSync(file, "utf8").trim()
-			} catch {
-				ctx.out(`${name}: free`)
+			} catch (error) {
+				// Only ENOENT is evidence of absence. A permission or I/O error is "could not look", and
+				// reporting that as free would tell an operator to carry on into a lock they cannot see.
+				if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+					ctx.out(`${name}: free (as of this check)`)
+					continue
+				}
+				unknown += 1
+				ctx.err(`${name}: UNKNOWN — could not read ${file} (${(error as Error).message})`)
 				continue
 			}
 			const holder = Number(content.split(" ")[0])
-			const alive = holder > 0 && isAlive(holder)
+			if (!(holder > 0)) {
+				unknown += 1
+				ctx.err(`${name}: UNKNOWN — ${file} has no readable owner; do not delete it on this alone`)
+				continue
+			}
+			const alive = isAlive(holder)
 			if (!alive) stale += 1
-			ctx.out(`${name}: ${alive ? `held by pid ${holder}` : `STALE (pid ${holder || "unknown"} is gone)`} — ${file}`)
+			ctx.out(`${name}: ${alive ? `held by pid ${holder}` : `STALE (pid ${holder} is gone)`} — ${file} (snapshot)`)
 		}
 		if (stale > 0) {
 			ctx.err(
-				`${stale} stale lock(s). Confirm the pid is gone, then remove the file(s) above by hand; nothing clears them automatically.`,
+				`${stale} stale lock(s). This report is observational: confirm the pid is gone yourself, make sure no restart or supervisor will recreate the lock, then remove the file(s) by hand. Nothing clears them automatically, and deleting a live or replaced lock is unsafe.`,
 			)
+			return 1
+		}
+		if (unknown > 0) {
+			ctx.err(`${unknown} lock(s) could not be read; treat them as held until you can inspect them.`)
 			return 1
 		}
 		return 0

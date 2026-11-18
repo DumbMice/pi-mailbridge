@@ -391,6 +391,12 @@ In user space there is no primitive that removes *this* file only if it is uncha
 clears a stale lock can delete a lock another process acquired in the meantime — the operator, who can
 confirm the pid is gone, does the removal.
 
+Operationally: a `SIGKILL` (or a power loss) can leave any of the three locks needing manual cleanup, and a
+supervisor restarting the process will not clear them. The report is observational — it is not authorisation
+to delete. Confirm the holder independently, make sure no supervisor or restart will recreate the lock,
+quiesce the processes that share the state directory, and only then remove the file. An unreadable lock is
+reported as `UNKNOWN`, not `free`.
+
 **Crash behaviour.** The reservation is written before the spawn, so a crash leaves a record that says what
 *should* exist: recovery adopts a matching live session, refuses a reserved request with no session, and
 marks an unattributable one `uncertain` — never respawned automatically. Result delivery is tracked

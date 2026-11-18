@@ -4,11 +4,11 @@
 // file name instead of inventing a second locking scheme. The rules are what matter:
 //
 //   * `wx` makes the create atomic: two processes cannot both create the file.
-//   * the pid inside lets a later process tell a live holder (it is not locked out) from a crash (it is
-//     stolen), so a killed process never locks the machine out.
-//   * a stale lock is NOT stolen. Moving a lock that another process may have just replaced is how two
-//     owners end up convinced they hold it; the holder is reported instead, and only an explicit
-//     `pi-mailbridge starter locks` names it, and an operator removes it after confirming the pid is gone.
+//   * the pid inside lets a later process tell a live holder from a crash; a crashed holder's file is
+//     reported for manual removal rather than stolen.
+//   * a stale lock is NOT stolen and NOT cleared by this code. Removing a file another process may have
+//     just replaced is how two owners end up convinced they hold it, so `pi-mailbridge starter locks`
+//     reports it and an operator removes it after confirming the pid is gone.
 
 import { randomBytes } from "node:crypto"
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"

@@ -388,6 +388,22 @@ test("locks reports a stale lock and never removes it", async () => {
 	assert.equal(existsSync(live), true)
 	assert.match(out.join("\n"), /STALE/)
 	assert.match(out.join("\n"), /held by pid/)
-	assert.match(errs.join("\n"), /remove the file\(s\) above by hand/)
+	assert.match(errs.join("\n"), /remove the file\(s\) by hand/)
+})
+
+test("an unreadable lock is unknown, not free", () => {
+	// A permission or I/O error is not evidence of absence: reporting it as free would wave an operator past
+	// a lock they cannot see.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-locks-unknown-")) }
+	const dir = dirname(statePath(env, "x"))
+	mkdirSync(dir, { recursive: true })
+	mkdirSync(statePath(env, "starter.lock"))
+	const out: string[] = []
+	const errs: string[] = []
+	return runStarterCommand(["locks"], { config: config(), env, stdout: (l: string) => out.push(l), stderr: (l: string) => errs.push(l) }).then((code) => {
+		assert.equal(code, 1)
+		assert.match(errs.join("\n"), /UNKNOWN/)
+		assert.doesNotMatch(out.join("\n"), /starter\.lock: free/)
+	})
 })
 
