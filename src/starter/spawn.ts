@@ -166,7 +166,11 @@ export function buildKillIfOwnedArgv(tmuxSessionId: string, requestId: string, s
  */
 export function sessionAbsent(result: { code: number; stdout: string; stderr: string }): boolean {
 	if (result.code === 0) return false
-	return /no such session|no server running|can't find session|no sessions/i.test(`${result.stderr}${result.stdout}`)
+	// A socket that does not exist is absence; one we may not read is not. tmux says the first as
+	// "error connecting … (No such file or directory)" and the second as "Permission denied".
+	return /no such session|no server( running)?|can't find session|no sessions|no such file or directory/i.test(
+		`${result.stderr}${result.stdout}`,
+	)
 }
 
 /** `#{session_name}` for one id: the ownership check, without relying on the numeric id. */
@@ -371,7 +375,9 @@ export async function listSessions(
 	// it as empty would sweep every owned session to ended.
 	if (listed.code !== 0) {
 		const text = `${listed.stderr}${listed.stdout}`
-		return /no server( running)?|no sessions/i.test(text) ? [] : undefined
+		// A socket that does not exist is absence; one we may not read is not. tmux spells the first as
+		// "error connecting … (No such file or directory)" and the second as "Permission denied".
+		return /no server( running)?|no sessions|no such file or directory/i.test(text) ? [] : undefined
 	}
 	return listed.stdout
 		.split("\n")

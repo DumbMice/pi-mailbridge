@@ -363,7 +363,12 @@ export async function scanOnce(deps: ScanDeps): Promise<ScanSummary> {
 		})
 		if (outcome.action === "started") summary.started += 1
 		else if (outcome.action === "refused") summary.refused += 1
-		else summary.ignored += 1
+		else {
+			summary.ignored += 1
+			// A silent gate that cannot be observed is a gate nobody can debug: name the reason on the wire
+			// (never in a reply - these are exactly the mails that must not be answered).
+			deps.log(`ignored uid ${uid}: ${"reason" in outcome ? outcome.reason : outcome.action}`)
+		}
 		// Recorded (or deliberately not) before the cursor moves: a crash here re-reads the mail and the
 		// journal recognises it.
 		deps.cursor.advance(deps.env, uid)

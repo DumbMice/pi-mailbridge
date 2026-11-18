@@ -168,6 +168,12 @@ read-only `pi --print` run that precedes the reservation and spawns no session.)
 durably before they act or are mailed; a *start* is reserved only after validation, so no session can exist
 without a record of it.
 
+**Self-addressed requests need `security.allowSelfReplies: true`, and may have no DMARC to check.** In the
+usual single-mailbox layout the request is sent by the account that reads it, so the self-reply guard would
+otherwise refuse it (`unauthenticated:self`), and the provider may not stamp `Authentication-Results` on a
+message it delivers to itself — QQ does not. With `requireDmarcPass` on, such a request is silently ignored;
+with it off, the allowlist is the whole gate, which `starter check` reports.
+
 **A starter request is authorized by address and DMARC, not by a routing token.** It cannot carry one — a
 fresh request has no reply headers, which is the one requirement the starter's authorization context
 relaxes. In a same-mailbox layout that is the whole gate, and `starter check` says so when

@@ -175,7 +175,14 @@ pi-mailbridge starter list             # live sessions
 pi-mailbridge starter stop <name>      # stop one, by its recorded session id
 pi-mailbridge starter attach <name>    # tmux attach
 pi-mailbridge starter once --dry-run   # show what an interrupted request would run; starts nothing
+./scripts/live/run.sh                  # end-to-end proof in Docker: one real mail, one real session
 ```
+
+**Two settings a starter always needs, and `starter check` tells you about both:** `security.allowSelfReplies`
+must be `true` when the request comes from the same account the bridge reads (the usual single-mailbox setup) —
+otherwise the self-reply guard refuses it as `unauthenticated:self`. And a self-sent copy may carry **no**
+`Authentication-Results` header (QQ is one such provider), in which case `security.requireDmarcPass` must be
+`false`; `check` reports that state explicitly, because the request is then authorized by address alone.
 
 **This turns a mailbox into a way to launch processes**, so read `docs/SECURITY.md` §4a first: the `roots`
 list is a launch restriction (not a sandbox), and a request is authorized by your address and DMARC — there
