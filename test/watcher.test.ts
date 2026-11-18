@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import type { ResolvedConfig } from "../src/core/config.ts"
+import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
 import {
 	createImapWatcher,
 	MAX_MESSAGE_BYTES,
@@ -25,6 +25,7 @@ function config(over: Partial<ResolvedConfig["tuning"]> = {}): ResolvedConfig {
 		tuning: { idleRenewMs: 1000, backoffInitialMs: 100, backoffMaxMs: 800, ...over },
 		device: { name: "test-device" },
 		warnings: [],
+		starter: STARTER_DEFAULTS,
 	}
 }
 

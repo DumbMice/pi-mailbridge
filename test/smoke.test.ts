@@ -2,7 +2,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 
 import { looksLikeOutlookRefusal, runSmoke, type SmokeDeps } from "../src/core/smoke.ts"
-import type { ResolvedConfig } from "../src/core/config.ts"
+import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
 
 function config(): ResolvedConfig {
 	return {
@@ -17,6 +17,7 @@ function config(): ResolvedConfig {
 		notify: { onSettled: true, debounceMs: 0, notifyOnAborted: false, maxAttachmentMb: 18 },
 		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
 		warnings: [],
+		starter: STARTER_DEFAULTS,
 	}
 }
 

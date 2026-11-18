@@ -6,7 +6,7 @@ import { join } from "node:path"
 
 import { escapeHtml, renderMessage, textToHtml } from "../src/core/html.ts"
 import { sendMail, type TransportLike } from "../src/core/mailer.ts"
-import type { ResolvedConfig } from "../src/core/config.ts"
+import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
 
 function config(): ResolvedConfig {
 	return {
@@ -21,6 +21,7 @@ function config(): ResolvedConfig {
 		notify: { onSettled: true, debounceMs: 0, notifyOnAborted: false, maxAttachmentMb: 18 },
 		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
 		warnings: [],
+		starter: STARTER_DEFAULTS,
 	}
 }
 

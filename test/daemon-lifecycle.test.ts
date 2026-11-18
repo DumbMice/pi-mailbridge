@@ -9,7 +9,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { daemonBaseUrl, ensureDaemon, probeHealth } from "../src/daemon/spawn.ts"
-import type { ResolvedConfig } from "../src/core/config.ts"
+import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
 
 const MAIN = fileURLToPath(new URL("../src/daemon/main.ts", import.meta.url))
 
@@ -359,6 +359,7 @@ test("--check warns when DMARC is required for a single mailbox", async () => {
 		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
 		device: { name: "test-device" },
 		warnings: [],
+		starter: STARTER_DEFAULTS,
 	}
 	const problems = checkProblems(cfg)
 	assert.ok(

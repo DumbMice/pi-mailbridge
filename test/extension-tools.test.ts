@@ -5,7 +5,7 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 
 import mailbridge, { type ExtensionCtxLike, type ExtensionLike, type SettleTimers } from "../src/extension.ts"
-import type { ResolvedConfig } from "../src/core/config.ts"
+import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
 import type { DaemonResult } from "../src/daemon/spawn.ts"
 
 const SECRET = Buffer.alloc(32, 6)
@@ -25,6 +25,7 @@ function config(over: Partial<ResolvedConfig["security"]> = {}, mailTo = "you@ex
 		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
 		device: { name: "test-device" },
 		warnings: [],
+		starter: STARTER_DEFAULTS,
 	}
 }
 

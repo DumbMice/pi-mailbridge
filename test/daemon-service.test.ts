@@ -5,7 +5,7 @@ import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import type { ResolvedConfig } from "../src/core/config.ts"
+import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
 import { addPending, listPending } from "../src/store/pending-store.ts"
 import { isJournaled } from "../src/store/journal.ts"
 import { readMode } from "../src/store/mode-store.ts"
@@ -26,6 +26,7 @@ function config(): ResolvedConfig {
 		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
 		device: { name: "test-device" },
 		warnings: [],
+		starter: STARTER_DEFAULTS,
 	}
 }
 

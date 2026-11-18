@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import type { ResolvedConfig } from "../src/core/config.ts"
+import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
 import { signToken } from "../src/core/token.ts"
 import { MAX_BODY_CHARS, MAX_SUBJECT_CHARS, scanAndProcess, type MailSource, type RawMessage } from "../src/daemon/process.ts"
 import { addPending, getPending, pendingSize, PENDING_CAP } from "../src/store/pending-store.ts"
@@ -38,6 +38,7 @@ function config(over: Partial<ResolvedConfig["security"]> = {}): ResolvedConfig 
 		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
 		device: { name: "test-device" },
 		warnings: [],
+		starter: STARTER_DEFAULTS,
 	}
 }
 

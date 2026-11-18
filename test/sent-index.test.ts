@@ -6,7 +6,7 @@ import { join } from "node:path"
 
 import { captureDeliveredMessageId, messageIdFromHeaders, stampedIdFromHeaders } from "../src/core/sent-index.ts"
 import { lookupChain } from "../src/store/threads.ts"
-import type { ResolvedConfig } from "../src/core/config.ts"
+import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
 
 const MINTED = "4c77b6b5-d077-40a6-8ee6-20ed6689b3e9@qq.com"
 
@@ -23,6 +23,7 @@ function config(sentFolder?: string): ResolvedConfig {
 		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
 		device: { name: "box" },
 		warnings: [],
+		starter: STARTER_DEFAULTS,
 	} as ResolvedConfig
 }
 

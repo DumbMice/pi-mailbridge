@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
 
-import type { ResolvedConfig } from "../src/core/config.ts"
+import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
 import { buildTransportOptions, sendMail, type TransportLike } from "../src/core/mailer.ts"
 
 function config(over: Partial<ResolvedConfig["mail"]["smtp"]> = {}): ResolvedConfig {
@@ -28,6 +28,7 @@ function config(over: Partial<ResolvedConfig["mail"]["smtp"]> = {}): ResolvedCon
 		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
 		device: { name: "test-device" },
 		warnings: [],
+		starter: STARTER_DEFAULTS,
 	}
 }
 

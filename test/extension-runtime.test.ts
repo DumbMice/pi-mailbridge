@@ -6,7 +6,7 @@ import assert from "node:assert/strict"
 
 import mailbridge, { type ExtensionCtxLike, type ExtensionLike, type SettleTimers } from "../src/extension.ts"
 import { API_VERSION, CAPABILITIES } from "../src/daemon/api.ts"
-import type { ResolvedConfig } from "../src/core/config.ts"
+import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
 import type { DaemonResult } from "../src/daemon/spawn.ts"
 import type { UserContent } from "../src/core/attachments.ts"
 import type { PendingRecord } from "../src/store/pending-store.ts"
@@ -30,6 +30,7 @@ function config(): ResolvedConfig {
 		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
 		device: { name: "test-device" },
 		warnings: [],
+		starter: STARTER_DEFAULTS,
 	}
 }
 

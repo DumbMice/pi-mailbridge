@@ -6,7 +6,7 @@ import { dirname, join } from "node:path"
 
 import mailbridge from "../src/extension.ts"
 import { configPath } from "../src/store/paths.ts"
-import type { ResolvedConfig } from "../src/core/config.ts"
+import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
 
 // The extension must not adopt a daemon whose config predates the file: that is how a
 // replaced address keeps receiving the agent's mail.
@@ -26,6 +26,7 @@ function config(): ResolvedConfig {
 		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
 		device: { name: "test-device" },
 		warnings: [],
+		starter: STARTER_DEFAULTS,
 	}
 }
 

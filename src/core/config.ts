@@ -2,7 +2,7 @@
 // than thrown, so a typo never takes a session down mid-run.
 
 import { existsSync, readFileSync } from "node:fs"
-import { hostname } from "node:os"
+import { homedir, hostname } from "node:os"
 
 import { configPath } from "../store/paths.ts"
 
@@ -35,6 +35,35 @@ export interface SmtpConfig {
 	authType?: "LOGIN" | "XOAUTH2"
 	/** argv whose stdout is an access token. Required when authType is XOAUTH2. */
 	tokenCommand?: string[]
+}
+
+export interface StarterConfig {
+	enabled: boolean
+	channel: {
+		/** Default channel: the watched mailbox, subject `[<prefix>] …`. */
+		subjectPrefix: string
+		/** Optional dedicated address (matches `To:`) instead of the prefix. */
+		address: string
+		/** Optional separate folder; empty means `mail.imap.folder`. */
+		folder: string
+	}
+	/** A session's cwd must be a DESCENDANT of one of these (realpath, hidden segments refused). */
+	roots: string[]
+	defaultCwd: string
+	/** Exact `provider/model` ids. Empty: a `model:` field in a request is refused. */
+	models: string[]
+	defaultModel: string
+	maxSessions: number
+	startsPerHour: number
+	/** Separate budgets: parsing and replying must not be free to an authenticated sender. */
+	parserAttemptsPerHour: number
+	confirmationsPerHour: number
+	promptMaxChars: number
+	/** Freshness of the MAIL (IMAP INTERNALDATE), independent of journal retention. */
+	requestMaxAgeHours: number
+	scanIntervalSecs: number
+	parse: { agent: boolean; model: string; tools: string; timeoutMs: number }
+	log: { maxBytes: number; keep: number }
 }
 
 export interface ResolvedConfig {
@@ -81,12 +110,39 @@ export interface ResolvedConfig {
 		maxAttachmentMb: number
 	}
 	tuning: { idleRenewMs: number; backoffInitialMs: number; backoffMaxMs: number }
+	/**
+	 * The session starter (mail → detached pi session). Off unless `enabled` is true, and it refuses
+	 * to run without `roots`: a mail-chosen cwd is executable input, so the allowlist is the feature's
+	 * boundary, not an option. See docs/SECURITY.md.
+	 */
+	starter: StarterConfig
 	/** Human-readable problems found while loading; surfaced by `/mailbridge`. */
 	warnings: string[]
 }
 
 /** Marks a warning produced by repairing a malformed section: the config still works. */
 export const REPAIRED_PREFIX = "repaired: "
+
+/** The starter's defaults, exported so tests and the starter process share one definition. */
+export const STARTER_DEFAULTS: StarterConfig = {
+	enabled: false,
+	channel: { subjectPrefix: "pi-start", address: "", folder: "" },
+	roots: [],
+	defaultCwd: "",
+	models: [],
+	defaultModel: "",
+	maxSessions: 4,
+	startsPerHour: 6,
+	parserAttemptsPerHour: 6,
+	confirmationsPerHour: 12,
+	promptMaxChars: 8000,
+	requestMaxAgeHours: 48,
+	scanIntervalSecs: 60,
+	// Read-only, and the run is isolated elsewhere (`-ne --no-mcp …`, see starter/parse-agent.ts).
+	// `grep` is included because "which of these directories is the auth repo" is a content question.
+	parse: { agent: false, model: "", tools: "read,grep,find,ls", timeoutMs: 120_000 },
+	log: { maxBytes: 5_000_000, keep: 3 },
+}
 
 const DEFAULTS: Omit<ResolvedConfig, "warnings"> = {
 	mail: {
@@ -116,6 +172,7 @@ const DEFAULTS: Omit<ResolvedConfig, "warnings"> = {
 		backoffInitialMs: 1000,
 		backoffMaxMs: 60_000,
 	},
+	starter: STARTER_DEFAULTS,
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -411,6 +468,47 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 		}
 	}
 
+	// The starter. `enabled` without `roots` is not a warning: the feature executes a mail-chosen
+	// directory, so an empty allowlist would silently mean "anywhere" or "nowhere" depending on how the
+	// validator is written. It is a problem the check gate refuses on.
+	{
+		const raw = resolved.starter as Partial<StarterConfig>
+		const roots: unknown = raw?.roots
+		const list = Array.isArray(roots) ? roots.map((r) => String(r).trim()).filter(Boolean) : []
+		const expanded = list.map((r) => (r === "~" || r.startsWith("~/") ? `${homedir()}${r.slice(1)}` : r))
+		resolved.starter = {
+			...STARTER_DEFAULTS,
+			...raw,
+			channel: { ...STARTER_DEFAULTS.channel, ...(raw?.channel ?? {}) },
+			parse: { ...STARTER_DEFAULTS.parse, ...(raw?.parse ?? {}) },
+			log: { ...STARTER_DEFAULTS.log, ...(raw?.log ?? {}) },
+			roots: expanded,
+			models: Array.isArray(raw?.models) ? raw!.models.map((m) => String(m).trim()).filter(Boolean) : [],
+		}
+		if (resolved.starter.enabled && expanded.length === 0) {
+			warnings.push("starter.enabled is on but starter.roots is empty — a session could be rooted anywhere; refusing to start")
+		}
+		if (!resolved.starter.channel.subjectPrefix.trim() && !resolved.starter.channel.address.trim()) {
+			warnings.push("starter.channel needs a subjectPrefix or an address — no channel means nothing can be started")
+		}
+		if (resolved.starter.parse.agent && !resolved.starter.parse.model.trim()) {
+			warnings.push("starter.parse.agent needs starter.parse.model — a parse must not inherit a default that can change under it")
+		}
+		for (const [key, value] of [
+			["maxSessions", resolved.starter.maxSessions],
+			["startsPerHour", resolved.starter.startsPerHour],
+			["parserAttemptsPerHour", resolved.starter.parserAttemptsPerHour],
+			["confirmationsPerHour", resolved.starter.confirmationsPerHour],
+			["promptMaxChars", resolved.starter.promptMaxChars],
+			["requestMaxAgeHours", resolved.starter.requestMaxAgeHours],
+			["scanIntervalSecs", resolved.starter.scanIntervalSecs],
+		] as const) {
+			if (!Number.isInteger(value) || value < 0) {
+				warnings.push(`starter.${key} must be a non-negative integer — using the default`)
+				resolved.starter = { ...resolved.starter, [key]: (STARTER_DEFAULTS as unknown as Record<string, unknown>)[key] }
+			}
+		}
+	}
 	// A LOGIN account with no password cannot authenticate, and saying "config ok"
 	// in that state sends the user straight into a confusing smoke failure.
 	for (const side of ["imap", "smtp"] as const) {

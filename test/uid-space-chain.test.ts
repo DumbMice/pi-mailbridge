@@ -9,7 +9,7 @@ import { createDaemonClient } from "../src/daemon/spawn.ts"
 import { createDeliveryRunner } from "../src/core/deliveries.ts"
 import { addPending, listPending } from "../src/store/pending-store.ts"
 import { isJournaled } from "../src/store/journal.ts"
-import type { ResolvedConfig } from "../src/core/config.ts"
+import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
 
 // The whole real chain: delivery runner -> daemon client -> HTTP service -> store.
 // Four times a guard existed in the store but was dropped by an adapter on the way in, and
@@ -31,6 +31,7 @@ function config(): ResolvedConfig {
 		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
 		device: { name: "test-device" },
 		warnings: [],
+		starter: STARTER_DEFAULTS,
 	} as ResolvedConfig
 }
 

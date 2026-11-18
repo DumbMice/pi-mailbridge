@@ -285,3 +285,39 @@ test("a JSON syntax error does not echo the file's contents into a warning", asy
 	assert.doesNotMatch(read, /not valid JSON/, `a read error must not be called a syntax error: ${read}`)
 })
 
+test("the starter is off by default, and needs a root and a channel when it is on", async () => {
+	// This section executes a mail-chosen directory, so "enabled" without an allowlist is a problem the
+	// check gate must refuse, not a note it tolerates.
+	const off = loadWith({})
+	assert.equal(off.starter.enabled, false, "installing must not enable it")
+	assert.deepEqual(off.starter.roots, [])
+	assert.equal(off.starter.channel.subjectPrefix, "pi-start", "the default channel is a subject prefix")
+	assert.equal(off.starter.parse.agent, false, "stage B is opt-in")
+	assert.ok(!off.warnings.some((w) => /starter/.test(w)), "and its defaults are not a warning")
+
+	const noRoots = loadWith({ starter: { enabled: true } })
+	assert.ok(
+		noRoots.warnings.some((w) => /starter\.enabled is on but starter\.roots is empty/.test(w)),
+		`an enabled starter with no roots must be a problem: ${JSON.stringify(noRoots.warnings)}`,
+	)
+	assert.ok(checkProblems(noRoots).some((p) => /starter\.roots is empty/.test(p)), "--check refuses it")
+
+	const noChannel = loadWith({ starter: { enabled: true, roots: ["~/Work"], channel: { subjectPrefix: "", address: "" } } })
+	assert.ok(noChannel.warnings.some((w) => /no channel means nothing can be started/.test(w)))
+
+	const parseWithoutModel = loadWith({ starter: { enabled: true, roots: ["/tmp"], parse: { agent: true } } })
+	assert.ok(
+		parseWithoutModel.warnings.some((w) => /starter\.parse\.agent needs starter\.parse\.model/.test(w)),
+		"stage B must name its model",
+	)
+})
+
+test("the starter's roots are expanded and its numbers are repaired, not trusted", async () => {
+	const { homedir } = await import("node:os")
+	const cfg = loadWith({ starter: { enabled: true, roots: ["~/Work", " /tmp/spike "], maxSessions: "four" } })
+	assert.equal(cfg.starter.roots[0], `${homedir()}/Work`, "~ is expanded here, not by every caller")
+	assert.equal(cfg.starter.roots[1], "/tmp/spike", "and whitespace is trimmed")
+	assert.equal(cfg.starter.maxSessions, 4, "a non-numeric limit falls back to the default")
+	assert.ok(cfg.warnings.some((w) => /starter\.maxSessions must be a non-negative integer/.test(w)))
+})
+

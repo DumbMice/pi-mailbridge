@@ -13,7 +13,7 @@ import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import type { ResolvedConfig } from "../src/core/config.ts"
+import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
 import { signToken } from "../src/core/token.ts"
 import { scanAndProcess, type MailSource, type RawMessage } from "../src/daemon/process.ts"
 import { createDaemonService } from "../src/daemon/service.ts"
@@ -42,6 +42,7 @@ function config(): ResolvedConfig {
 		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
 		device: { name: "test-device" },
 		warnings: [],
+		starter: STARTER_DEFAULTS,
 	}
 }
 
