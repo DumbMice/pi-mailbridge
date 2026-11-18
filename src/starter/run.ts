@@ -69,7 +69,7 @@ function toStarterMail(message: RawMessage, uidValidity: number | undefined): St
 		messageId: headers.messageId ?? `<uid-${message.uid}>`,
 		uid: message.uid,
 		...(uidValidity === undefined ? {} : { uidValidity }),
-		receivedAt: message.receivedAt,
+		receivedAt: message.internalDate ?? message.receivedAt,
 		body: message.text,
 	}
 }

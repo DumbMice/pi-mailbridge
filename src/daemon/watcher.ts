@@ -119,6 +119,15 @@ export function extractHeaders(raw: Buffer | string): ExtractedHeaders {
 	return { headerValues, from: pick("from"), subject: pick("subject") }
 }
 
+function toMillis(value: Date | string | undefined): number | undefined {
+	if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() : undefined
+	if (typeof value === "string") {
+		const parsed = Date.parse(value)
+		return Number.isFinite(parsed) ? parsed : undefined
+	}
+	return undefined
+}
+
 /** Map extracted headers onto the shape the authorization layer consumes. */
 export function toHeaderLike(extracted: ExtractedHeaders): HeaderLike {
 	const one = (name: string): string | undefined => extracted.headerValues.get(name)?.[0]
@@ -240,6 +249,8 @@ export interface WatcherOptions {
 /** A fetched message as imapflow returns it. */
 interface FetchResultLike {
 	source?: Buffer
+	/** The server's arrival time for this message, when the fetch asked for it. */
+	internalDate?: Date | string
 	envelope?: { from?: { address?: string }[]; subject?: string }
 	/** RFC822 size, when the fetch asked for it. */
 	size?: number
@@ -404,7 +415,7 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 
 			const fetched = (await c.fetchOne(
 				uid,
-				{ source: true, envelope: true, headers: [...WANTED_HEADERS] },
+				{ source: true, envelope: true, internalDate: true, headers: [...WANTED_HEADERS] },
 				{ uid: true },
 			)) as FetchResultLike | false | undefined
 			if (!fetched || !fetched.source) return undefined
@@ -424,7 +435,10 @@ export function createImapWatcher(config: ResolvedConfig, options: WatcherOption
 				text: bodyText,
 				...(parsed.attachments?.length ? { attachments: parsed.attachments } : {}),
 				headers: toHeaderLike(extracted),
+				// Fetch time is when *we* saw it; the starter's freshness rule means the mail's own age,
+				// so the server's arrival time is carried separately when it is available.
 				receivedAt: Date.now(),
+				...(toMillis(fetched.internalDate) === undefined ? {} : { internalDate: toMillis(fetched.internalDate) }),
 			}
 		},
 

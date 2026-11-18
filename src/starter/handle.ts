@@ -53,6 +53,8 @@ export interface HandleDeps {
 	save: (journal: JournalFile) => void
 	/** Reserve a prompt file for a request; returns the paths the bootstrap will use. */
 	writePrompt: (requestId: string, text: string) => { promptFile: string; readyFile: string }
+	/** Remove a prompt file whose session never started (the bootstrap removes it when it runs). */
+	removePrompt?: (requestId: string) => void
 	spawn: (plan: SpawnPlan) => Promise<SpawnResult>
 	stop: (tmuxSessionId: string) => Promise<{ ok: boolean; detail?: string }>
 	list: () => Promise<{ id: string; name: string }[]>
@@ -103,7 +105,9 @@ function startQuotaReached(config: ResolvedConfig, journal: JournalFile, now: nu
 	const recent = Object.values(journal.requests).filter(
 		(r) => (r.state === "ready" || r.state === "spawned" || r.state === "spawning") && r.at > hourAgo,
 	)
-	return recent.length >= config.starter.startsPerHour
+	// 0 disables the limit, like every other window in this file: a user who wants no starts at all has
+	// `starter.enabled: false`, and a silent "0 means never" would be a trap in the other direction.
+	return config.starter.startsPerHour > 0 && recent.length >= config.starter.startsPerHour
 }
 
 /** Set a request's state and touch its timestamp. */
@@ -153,10 +157,15 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 	if (seen) return ignore(`already-handled:${seen.state}`)
 	if (isStale({ receivedAt: mail.receivedAt }, now, starter.requestMaxAgeHours)) return ignore("stale")
 
-	const reply = async (text: string): Promise<void> => {
-		await deps.send({ subject: replySubject(mail.subject), text, inReplyTo: mail.messageId }).catch((error) => {
+	/** Returns whether the mail actually went out: the journal must not record a failed result as sent. */
+	const reply = async (text: string): Promise<boolean> => {
+		try {
+			await deps.send({ subject: replySubject(mail.subject), text, inReplyTo: mail.messageId })
+			return true
+		} catch (error) {
 			deps.log(`confirmation failed: ${(error as Error).message}`)
-		})
+			return false
+		}
 	}
 
 	if (grammared.state === "invalid") {
@@ -303,6 +312,8 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 		...(deps.socket ? { socket: deps.socket } : {}),
 	})
 	if (!result.ok) {
+		// The bootstrap never read it, so it is a secret-bearing temp file nobody will consume.
+		deps.removePrompt?.(id)
 		transition(journal, id, { state: "refused", reason: `${result.reason}: ${result.detail}` }, deps.now())
 		deps.save(journal)
 		await reply(`[pi-start] refused — ${result.reason}: ${result.detail}`)
@@ -323,7 +334,7 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 	journal.sessions[name.value] = session
 	deps.save(journal)
 
-	await reply(
+	const sentStart = await reply(
 		[
 			`[pi-start] started ${name.value}`,
 			`cwd: ${cwd.value}`,
@@ -332,9 +343,12 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 			`stop: reply with "stop: ${name.value}"`,
 		].join("\n"),
 	)
-	transition(journal, id, { resultSent: true }, deps.now())
-	deps.save(journal)
-	return { action: "started", name: name.value, tmuxSessionId: result.tmuxSessionId, replied: true }
+	// Only a delivered result is marked sent: the flush retries `ready, resultSent:false` once.
+	if (sentStart) {
+		transition(journal, id, { resultSent: true }, deps.now())
+		deps.save(journal)
+	}
+	return { action: "started", name: name.value, tmuxSessionId: result.tmuxSessionId, replied: sentStart }
 }
 
 /** The directory a file lives in, without importing a dirname helper for two call sites. */

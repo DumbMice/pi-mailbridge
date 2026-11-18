@@ -96,6 +96,8 @@ export function createStarterLog(config: ResolvedConfig, env: NodeJS.ProcessEnv)
 /** One prompt file per request, in a private directory. */
 export function createPromptWriter(env: NodeJS.ProcessEnv): {
 	write: (requestId: string, text: string) => { promptFile: string; readyFile: string }
+	/** Remove a request's files: the bootstrap consumes them, so a failed start must not leave them. */
+	remove: (requestId: string) => void
 	pruneReceipts: () => number
 } {
 	const dir = statePath(env, "starter-prompts")
@@ -105,6 +107,15 @@ export function createPromptWriter(env: NodeJS.ProcessEnv): {
 			const promptFile = join(dir, `${requestId}.txt`)
 			writeFileSync(promptFile, text, { mode: 0o600 })
 			return { promptFile, readyFile: join(dir, `${requestId}.ready`) }
+		},
+		remove(requestId) {
+			for (const suffix of [".txt", ".ready"]) {
+				try {
+					unlinkSync(join(dir, `${requestId}${suffix}`))
+				} catch {
+					/* already consumed */
+				}
+			}
 		},
 		pruneReceipts() {
 			let removed = 0
@@ -223,6 +234,7 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 				prompts.pruneReceipts()
 				return prompts.write(id, text)
 			},
+			removePrompt: (id) => prompts.remove(id),
 			spawn: (plan) => spawnSession(plan),
 			stop: async (id) => {
 				const result = await stopSession(id)

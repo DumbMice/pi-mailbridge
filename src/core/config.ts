@@ -54,6 +54,7 @@ export interface StarterConfig {
 	models: string[]
 	defaultModel: string
 	maxSessions: number
+	/** Starts allowed per hour; 0 disables the limit (disable the starter rather than set 0). */
 	startsPerHour: number
 	/** Separate budgets: parsing and replying must not be free to an authenticated sender. */
 	parserAttemptsPerHour: number

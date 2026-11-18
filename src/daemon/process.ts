@@ -63,6 +63,8 @@ export interface RawMessage {
 	attachments?: RawAttachment[]
 	headers: HeaderLike
 	receivedAt: number
+	/** The server's arrival time, when the source could report it (INTERNALDATE). */
+	internalDate?: number
 	/** Set when the server reported a message larger than we will parse. */
 	tooLarge?: number
 }

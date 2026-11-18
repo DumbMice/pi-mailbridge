@@ -221,6 +221,8 @@ test("a missing cwd is refused without the agent, and filled by it when allowed"
 
 test("a refused spawn is recorded and reported; a crash-window record says what should exist", async () => {
 	const r = rig({ spawnResult: { ok: true, tmuxSessionId: "$1" } })
+	const removed: string[] = []
+	r.deps.removePrompt = (id) => removed.push(id)
 	r.deps.spawn = async (plan) => {
 		r.spawned.push(plan)
 		return { ok: false, reason: "unready", detail: "Unknown model" }
@@ -231,6 +233,7 @@ test("a refused spawn is recorded and reported; a crash-window record says what 
 	assert.equal(record.state, "refused")
 	assert.match(record.reason ?? "", /unready/)
 	assert.match(r.replies[0]!.text, /Unknown model/)
+	assert.equal(removed.length, 1, "the prompt file is removed: no bootstrap will ever read it")
 })
 
 test("stop only touches sessions the journal owns, and by their immutable id", async () => {
@@ -264,14 +267,33 @@ test("list reports live sessions from tmux, not from the journal", async () => {
 })
 
 test("the start quota refuses new sessions but never a stop", async () => {
-	const r = rig({ config: config({ startsPerHour: 0 }) })
-	const refused = await handleMail(mail({}, r.project), r.deps)
+	// Budget of 1 per hour, already spent by a recent start: the next start is refused, and a stop still
+	// works — a runaway must always be stoppable.
+	const recent = Date.now()
+	const r = rig({ config: config({ startsPerHour: 1 }) })
+	r.journal.requests.used = {
+		id: "used",
+		messageId: "<used@x>",
+		uid: 9,
+		receivedAt: recent,
+		state: "ready",
+		at: recent,
+	}
+	const refused = await handleMail(mail({ messageId: "<second@x>", uid: 2 }, r.project), r.deps)
 	assert.equal(refused.action, "refused")
 	if (refused.action === "refused") assert.equal(refused.code, "quota")
 	assert.equal(r.spawned.length, 0)
 
-	// A stop still works at the quota: a runaway must always be stoppable.
 	r.journal.sessions.stopme = { name: "stopme", tmuxSessionId: "$9", piSessionId: "pi-x", requestId: "req-x", cwd: "/tmp", at: 1 }
 	const stop = await handleMail(mail({ messageId: "<s@x>", uid: 5, body: "stop: stopme" }, r.project), r.deps)
 	assert.equal(stop.action, "stopped")
 })
+
+test("a start budget of 0 disables the limit rather than forbidding every start", async () => {
+	// The opposite reading is a trap: someone lowering a number to "off" would silently stop all sessions.
+	// Disabling starts is `starter.enabled: false`, which says so.
+	const r = rig({ config: config({ startsPerHour: 0 }) })
+	const outcome = await handleMail(mail({}, r.project), r.deps)
+	assert.equal(outcome.action, "started")
+})
+
