@@ -7,7 +7,8 @@
 // commands, which tools) and the settle behaviour can be asserted with a fake
 // `pi`, no daemon and no mailbox.
 
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { Type } from "@sinclair/typebox"
 
@@ -35,62 +36,46 @@ import { ensureRouteForSession } from "./store/routes.ts"
 import { sessionInstanceId } from "./core/instance.ts"
 
 
-
-/**
- * Intent keys whose PI_MAILBRIDGE_SESSION_MODE has already been honoured or cleared.
- *
- * A module-level Set is not enough: pi's `/reload` clears the extension cache and re-imports with
- * `moduleCache: false`, so a fresh Set would re-apply an intent the user has already switched off. The
- * file makes the decision outlive the module.
- */
-const consumedEnvIntent = new Set<string>()
-
-function intentStorePath(env: NodeJS.ProcessEnv): string {
-	return join(dirname(statePath(env, "starter.log")), "session-intent.json")
-}
-
 interface IntentReceipt {
 	key: string
 	at: number
 }
 
-function readIntentReceipts(env: NodeJS.ProcessEnv): IntentReceipt[] {
-	try {
-		const stored = JSON.parse(readFileSync(intentStorePath(env), "utf8")) as unknown
-		if (!Array.isArray(stored)) return []
-		const now = Date.now()
-		// No time-based expiry: a session can reload at any age, and forgetting its receipt would reapply the
-		// override the user already cleared. One small key per started session is the whole cost.
-		return stored
-			.map((entry): IntentReceipt | undefined => {
-				if (typeof entry === "string") return { key: entry, at: now }
-				if (entry && typeof entry === "object" && typeof (entry as IntentReceipt).key === "string") {
-					const at = typeof (entry as IntentReceipt).at === "number" ? (entry as IntentReceipt).at : now
-					return { key: (entry as IntentReceipt).key, at }
-				}
-				return undefined
-			})
-			.filter((entry): entry is IntentReceipt => entry !== undefined)
-	} catch {
-		return []
-	}
+/**
+ * One file per consumed intent.
+ *
+ * A single JSON list rewritten by truncation lost receipts when two sessions wrote at once, and an
+ * interrupted write invalidated the whole file; a lost receipt lets an inherited `on` override survive a
+ * global `off` after a reload. A per-key file is atomic and cannot clobber its neighbours.
+ */
+function intentDir(env: NodeJS.ProcessEnv): string {
+	return join(dirname(statePath(env, "starter.log")), "session-intents")
+}
+
+const consumedEnvIntent = new Set<string>()
+
+function intentFile(env: NodeJS.ProcessEnv, key: string): string {
+	return join(intentDir(env), `${createHash("sha256").update(key).digest("hex")}.json`)
 }
 
 function intentConsumed(env: NodeJS.ProcessEnv, key: string): boolean {
 	if (consumedEnvIntent.has(key)) return true
-	// A week, not "the last N": a long-lived session's receipt must not be evicted by newer sessions.
-	return readIntentReceipts(env).some((entry) => entry.key === key)
+	try {
+		return JSON.parse(readFileSync(intentFile(env, key), "utf8")).key === key
+	} catch {
+		return false
+	}
 }
 
 function consumeIntent(env: NodeJS.ProcessEnv, key: string): void {
 	consumedEnvIntent.add(key)
 	try {
-		const file = intentStorePath(env)
-		mkdirSync(dirname(file), { recursive: true, mode: 0o700 })
-		const stored = readIntentReceipts(env)
-		if (!stored.some((entry) => entry.key === key)) {
-			writeFileSync(file, JSON.stringify([...stored, { key, at: Date.now() }]), { mode: 0o600 })
-		}
+		const dir = intentDir(env)
+		mkdirSync(dir, { recursive: true, mode: 0o700 })
+		const file = intentFile(env, key)
+		const tmp = `${file}.${process.pid}.tmp`
+		writeFileSync(tmp, JSON.stringify({ key, at: Date.now() }), { mode: 0o600 })
+		renameSync(tmp, file)
 	} catch {
 		/* memory still holds the decision for this process */
 	}

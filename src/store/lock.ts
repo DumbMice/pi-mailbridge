@@ -9,6 +9,7 @@
 //   * a stale lock is stolen by RENAMING it aside, not unlinking it: an unlink plus a retake lets two
 //     stealers both win.
 
+import { randomBytes } from "node:crypto"
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 
@@ -17,6 +18,12 @@ import { statePath } from "./paths.ts"
 export interface Lock {
 	release: () => void
 	readonly path: string
+	/**
+	 * Still ours? A lock file can be renamed away by a takeover (a stale lock judged dead by another
+	 * process), and the earlier holder would otherwise keep working without exclusion. Callers that perform
+	 * a side effect verify first and abort if the answer is no.
+	 */
+	verify: () => boolean
 }
 
 export type LockResult = { ok: true; lock: Lock } | { ok: false; holder: number }
@@ -36,15 +43,26 @@ export function acquireLock(env: NodeJS.ProcessEnv, fileName: string): LockResul
 	const take = (): { ok: true; lock: Lock } | undefined => {
 		try {
 			mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
-			writeFileSync(path, String(process.pid), { flag: "wx", mode: 0o600 })
+			// A token, not just the pid: two locks created by the same process (or a reused pid) must still be
+			// distinguishable, and `verify` is what turns a takeover into an abort instead of two owners.
+			const token = `${process.pid} ${randomBytes(8).toString("hex")}`
+			writeFileSync(path, token, { flag: "wx", mode: 0o600 })
+			const mine = (): string | undefined => {
+				try {
+					return readFileSync(path, "utf8").trim()
+				} catch {
+					return undefined
+				}
+			}
 			return {
 				ok: true,
 				lock: {
 					path,
+					verify: () => mine() === token,
 					release: () => {
 						// Only remove our own: a stolen lock belongs to someone else now.
 						try {
-							if (readFileSync(path, "utf8").trim() === String(process.pid)) unlinkSync(path)
+							if (mine() === token) unlinkSync(path)
 						} catch {
 							/* already gone */
 						}
@@ -61,7 +79,7 @@ export function acquireLock(env: NodeJS.ProcessEnv, fileName: string): LockResul
 
 	let holder = 0
 	try {
-		holder = Number(readFileSync(path, "utf8").trim())
+		holder = Number(readFileSync(path, "utf8").trim().split(" ")[0])
 	} catch {
 		/* unreadable: treat as stale */
 	}
@@ -78,7 +96,7 @@ export function acquireLock(env: NodeJS.ProcessEnv, fileName: string): LockResul
 	}
 	let moved = Number.NaN
 	try {
-		moved = Number(readFileSync(aside, "utf8").trim())
+		moved = Number(readFileSync(aside, "utf8").trim().split(" ")[0])
 	} catch {
 		/* unreadable: it was a corpse anyway */
 	}

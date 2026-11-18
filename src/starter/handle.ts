@@ -10,6 +10,7 @@
 //     exist, which is the only way recovery can distinguish "nothing started" from "we did not hear back".
 
 import type { ResolvedConfig } from "../core/config.ts"
+import { randomBytes } from "node:crypto"
 import { authorize } from "../core/authz.ts"
 import { normalizeAddress } from "../core/reply-parse.ts"
 import { matchChannel } from "./channel.ts"
@@ -81,11 +82,11 @@ export type Outcome =
 const ignore = (reason: string): Outcome => ({ action: "ignored", reason })
 
 function newRequestId(mail: StarterMail, now: number): string {
-	// Stable per mail, and readable in a log: the Message-ID hash plus a timestamp is enough to correlate
-	// the request, the journal entry, the prompt file and the confirmation.
+	// A short hash is readable in a log, and the random tail is what makes it unique: `<Aa@x>` and `<BB@x>`
+	// collide under a 32-bit rolling hash, and two mails in the same millisecond would overwrite a tombstone.
 	let hash = 0
 	for (const ch of mail.messageId) hash = (hash * 31 + ch.charCodeAt(0)) | 0
-	return `req-${Math.abs(hash).toString(16)}-${now.toString(36)}`
+	return `req-${Math.abs(hash).toString(16)}-${now.toString(36)}-${randomBytes(4).toString("hex")}`
 }
 
 function replySubject(subject: string | undefined): string {
@@ -353,7 +354,9 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 	}
 
 	// 9. Reserve before executing: the record says what should exist, before it exists.
-	const piSessionId = `pi-${new Date(now).toISOString().slice(2, 16).replace(/[-:T]/g, "")}-${Math.abs(now % 0xffff).toString(16).padStart(4, "0")}`
+	// Clock-derived ids repeat on a rollback; the random suffix keeps them unique without breaking the
+	// readable shape (pi accepts letters, digits, dot, underscore and dash).
+	const piSessionId = `pi-${new Date(now).toISOString().slice(2, 16).replace(/[-:T]/g, "")}-${randomBytes(3).toString("hex")}`
 	const model = fields.model ?? (starter.defaultModel || undefined)
 	const prompt = resolvePrompt(fields.prompt)
 	const { promptFile, readyFile } = deps.writePrompt(id, prompt)
@@ -426,10 +429,18 @@ export async function handleMail(mail: StarterMail, deps: HandleDeps): Promise<O
 			`stop: reply with "stop: ${name.value}"`,
 		].join("\n"),
 	)
-	// Only a delivered result is marked sent: the flush retries `ready, resultSent:false` once.
+	// Only a delivered result is marked sent: the flush retries `ready, resultSent:false`.
 	if (sentStart) {
 		transition(journal, id, { resultSent: true }, deps.now())
 		deps.save(journal)
+		// The save merges: a CLI stop during the send may have ended the session and written a newer ready
+		// record. Settle against what the merge produced, or the request stays nonterminal for ever.
+		const mergedSession = journal.sessions[name.value]
+		const merged = journal.requests[id]
+		if (mergedSession?.endedAt !== undefined && merged?.resultSent === true && merged.state !== "ended") {
+			journal.requests[id] = { ...merged, state: "ended", at: deps.now() }
+			deps.save(journal)
+		}
 	}
 	return { action: "started", name: name.value, tmuxSessionId: result.tmuxSessionId, replied: sentStart }
 }

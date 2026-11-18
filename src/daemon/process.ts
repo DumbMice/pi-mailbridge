@@ -108,7 +108,8 @@ export interface ScanDeps {
 	 * Does this subject belong to the session starter's channel? Injected so `process.ts` does not import
 	 * the starter's config (the daemon only needs to know "not ours to deliver").
 	 */
-	isStarterChannel?: (subject: string | undefined) => boolean
+	/** The recipients are part of the test: a dedicated starter address is matched on `To:`. */
+	isStarterChannel?: (subject: string | undefined, to: string[] | undefined) => boolean
 	/**
 	 * Injected by the daemon: the UIDVALIDITY check (`source-proxy.applyUidValidity`). It lives there
 	 * because that module drops records from the old space and releases their slots; `process.ts` may
@@ -228,7 +229,7 @@ export async function scanAndProcess(config: ResolvedConfig, deps: ScanDeps): Pr
 		// human who happens to write "cwd:" in the body; treating that as a broken reply filled
 		// `rejections:` with `no-token` noise and told nobody anything. Recognise it and move on: the
 		// starter is the only reader that acts on it.
-		if (deps.isStarterChannel?.(message.subject)) {
+		if (deps.isStarterChannel?.(message.subject, message.headers.to)) {
 			bump(result.reasons, "starter-request")
 			result.cursor = advanceCursor(env, uid)
 			continue

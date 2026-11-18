@@ -357,7 +357,9 @@ before any reply, so echo, off-channel, replayed and stale mail is never answere
    refusal (including budget) is written *before* its mail; a start is reserved only once its fields are
    validated
 8. optional stage-B parse for a missing `cwd`, then validation (cwd / model / thinking / name)
-9. **durable reservation of the session identity** → spawn → result mail
+9. **durable reservation of the session identity** → spawn → result mail. (Stage B, step 8, runs before the
+   reservation: it is a read-only proposal whose result is validated like a human's, and it spawns no
+   session.)
 
 A start is therefore *not* admitted before the budget check: the budget is checked first, and only an
 admitted start gets a reservation. What is durable before every side effect is the record of a command or

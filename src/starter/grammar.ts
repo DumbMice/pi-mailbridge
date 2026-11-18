@@ -87,11 +87,24 @@ function splitBlock(body: string): { block: [string, string][]; rest: string; un
 	return { block, rest: lines.slice(end).join("\n"), unknown }
 }
 
-/** `prompt: |` takes the remaining lines verbatim, with the block's own indentation removed. */
+/**
+ * `prompt: |` takes the remaining lines verbatim, with the block's own indentation removed.
+ *
+ * Bounded before it allocates: `Math.min(...indents)` throws RangeError past V8's argument limit, and a
+ * body of hundreds of thousands of short lines is well under the mail ceiling. Parsing happens before
+ * authentication, so an unauthenticated sender could otherwise stall every later request (including a
+ * stop) by making the scan throw forever.
+ */
 function blockScalar(rest: string): string {
 	const lines = rest.replace(/^\n+/, "").split("\n")
-	const indents = lines.filter((l) => l.trim() !== "").map((l) => /^\s*/.exec(l)?.[0].length ?? 0)
-	const indent = indents.length > 0 ? Math.min(...indents) : 0
+	let indent = 0
+	let seen = false
+	for (const line of lines) {
+		if (line.trim() === "") continue
+		const width = /^\s*/.exec(line)?.[0].length ?? 0
+		indent = seen ? Math.min(indent, width) : width
+		seen = true
+	}
 	return lines
 		.map((l) => (l.trim() === "" ? "" : l.slice(indent)))
 		.join("\n")

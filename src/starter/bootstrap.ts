@@ -100,7 +100,10 @@ export function installBootstrap(pi: BootstrapPi, env: BootstrapEnv = process.en
 			try {
 				writeFileSync(handled, String(Date.now()), { mode: 0o600 })
 			} catch {
-				/* memory cannot help here; the marker check below is the fallback */
+				// Delivering without a suppression receipt means a reload reads the consumed prompt as
+				// missing and injects a diagnostic into the live session. Refuse instead.
+				writeMarker(env, { ok: false, error: "could not record the delivery receipt; not injecting" })
+				return
 			}
 		}
 		const requestId = env.PI_MAILBRIDGE_START_REQUEST

@@ -349,3 +349,16 @@ test("stage B refuses a writable tool set and a zero timeout", () => {
 	assert.ok(loaded.warnings.some((w) => /read-only/.test(w)))
 })
 
+test("parse.agent must be a boolean, or a string typo enables the parser", () => {
+	// `"agent": "false"` is truthy: with a model configured, an ordinary missing-cwd request would launch
+	// stage B and its read tools.
+	const env = { XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "pmb-cfg3-")) }
+	mkdirSync(join(env.XDG_CONFIG_HOME, "pi-mailbridge"), { recursive: true })
+	writeFileSync(
+		join(env.XDG_CONFIG_HOME, "pi-mailbridge", "config.json"),
+		JSON.stringify({ starter: { enabled: true, roots: ["/tmp"], parse: { agent: "false", model: "p/m" } } }),
+		{ mode: 0o600 },
+	)
+	assert.equal(loadConfig(env).starter.parse.agent, false)
+})
+

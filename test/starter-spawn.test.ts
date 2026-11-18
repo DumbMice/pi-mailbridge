@@ -91,6 +91,7 @@ test("a start is successful only when the bootstrap says ready and the session e
 		exec: async (argv) => {
 			calls.push(argv)
 			if (argv.includes("display-message")) return { code: 0, stdout: "$7\n", stderr: "" }
+			if (argv.includes("show-environment")) return { code: 0, stdout: "PI_MAILBRIDGE_REQUEST=req-1", stderr: "" }
 			return { code: 0, stdout: "", stderr: "" }
 		},
 		readFile: (path) => files.get(path),
@@ -107,6 +108,7 @@ test("a marker that reports failure kills the session and says why", async () =>
 		exec: async (argv) => {
 			calls.push(argv)
 			if (argv.includes("display-message")) return { code: 0, stdout: "$9\n", stderr: "" }
+			if (argv.includes("show-environment")) return { code: 0, stdout: "PI_MAILBRIDGE_REQUEST=req-1", stderr: "" }
 			return { code: 0, stdout: "", stderr: "" }
 		},
 		readFile: (path) => files.get(path),
@@ -123,6 +125,7 @@ test("a start that never reports ready is killed, with the pane text as the deta
 		exec: async (argv) => {
 			calls.push(argv)
 			if (argv.includes("display-message")) return { code: 0, stdout: "$3\n", stderr: "" }
+			if (argv.includes("show-environment")) return { code: 0, stdout: "PI_MAILBRIDGE_REQUEST=req-1", stderr: "" }
 			if (argv.includes("capture-pane")) return { code: 0, stdout: "Unknown model: nope\n", stderr: "" }
 			return { code: 0, stdout: "", stderr: "" }
 		},
@@ -219,6 +222,8 @@ test("stop still kills when the name matches", async () => {
 test("an unrecognised tmux failure is not read as 'no sessions'", async () => {
 	// Returning [] for any failure made the sweep end every session we own on a 30 s timeout.
 	assert.equal(await listSessions({ exec: async () => ({ code: 1, stdout: "", stderr: "lost server" }) }), undefined)
+	// A socket we may not read is "could not look", not "nothing running".
+	assert.equal(await listSessions({ exec: async () => ({ code: 1, stdout: "", stderr: "error connecting to /tmp/tmux (Permission denied)" }) }), undefined)
 	assert.deepEqual(await listSessions({ exec: async () => ({ code: 1, stdout: "", stderr: "no server running on /tmp/x" }) }), [])
 })
 
@@ -245,5 +250,28 @@ test("stop refuses a session whose ownership marker names another request", asyn
 					: { code: 0, stdout: "", stderr: "" },
 	})
 	assert.equal(mine.ok, true)
+})
+
+test("cleanup never kills a name that now belongs to another request", async () => {
+	// A failed start used to resolve the reusable name and kill it: if the process had exited and the name
+	// was reused, that stopped a stranger.
+	const calls: string[][] = []
+	const files = new Map<string, string>([["/tmp/prompts/req-1.ready", JSON.stringify({ ok: false, error: "no model" })]])
+	const result = await spawnSession(plan(), {
+		exec: async (argv) => {
+			calls.push(argv)
+			if (argv.includes("display-message")) return { code: 0, stdout: "$7\n", stderr: "" }
+			if (argv.includes("show-environment")) return { code: 0, stdout: "PI_MAILBRIDGE_REQUEST=someone-else", stderr: "" }
+			return { code: 0, stdout: "", stderr: "" }
+		},
+		readFile: (path) => files.get(path),
+		sleep: async () => {},
+	})
+	assert.equal(result.ok, false)
+	assert.equal(
+		calls.some((argv) => argv.includes("kill-session")),
+		false,
+		"nothing is killed without proof it is ours",
+	)
 })
 

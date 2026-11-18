@@ -100,3 +100,13 @@ test("parse: agent is a field, not an unknown key", () => {
 	const bad = parse("parse: maybe")
 	assert.equal(bad.state, "invalid")
 })
+
+test("a huge block scalar is refused by length, not by crashing the parser", () => {
+	// `Math.min(...indents)` exceeded V8's argument limit; the throw happened before the length check and
+	// before authentication, so any stranger could stall the starter with one mail.
+	const lines = Array.from({ length: 1_000_000 }, (_, i) => `x${i}`).join("\n")
+	const outcome = parseRequest(`prompt: |\n${lines}`, { promptMaxChars: 8000 })
+	assert.equal(outcome.state, "invalid")
+	if (outcome.state === "invalid") assert.equal(outcome.errors[0]?.code, "prompt-too-long")
+})
+

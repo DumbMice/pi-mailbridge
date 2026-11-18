@@ -8,7 +8,8 @@ import assert from "node:assert/strict"
 import { existsSync, mkdirSync, mkdtempSync, unlinkSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { spawn } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
+import { acquireLock } from "../src/store/lock.ts"
 import { statePath } from "../src/store/paths.ts"
 
 import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
@@ -337,5 +338,27 @@ test("the reload guard is never pruned by age, while readiness receipts are", ()
 	assert.equal(pruned, 1, "the stale readiness receipt is removed")
 	assert.equal(existsSync(readyFile), false)
 	assert.equal(existsSync(guard), true, "the guard survives, so a reload injects nothing")
+})
+
+test("a lock that was taken over refuses to write", () => {
+	// A stale-lock takeover can rename this process's live lock away; without verification the old owner
+	// would keep writing without exclusion.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-takeover-")) }
+	const journal: JournalFile = { v: 1, requests: {}, sessions: {} }
+	const held = acquireLock(env, "starter-journal.lock")
+	assert.equal(held.ok, true)
+	if (!held.ok) return
+	assert.equal(held.lock.verify(), true)
+	// Another *process* takes the lock over; our handle must notice rather than keep asserting ownership.
+	spawnSync(process.execPath, ["-e", `require("node:fs").writeFileSync(${JSON.stringify(held.lock.path)}, "999 other")`])
+	assert.equal(held.lock.verify(), false)
+})
+
+test("check rejects a root of / and a default cwd it would refuse", () => {
+	// Both pass the old existence checks and then make every request impossible.
+	const slash = starterProblems(config({ roots: ["/"] }))
+	assert.ok(slash.some((line) => /roots: \/ is refused/.test(line)), slash.join("; "))
+	const outside = starterProblems(config({ roots: ["/tmp/pmb-none"], defaultCwd: "/etc" }))
+	assert.ok(outside.some((line) => /defaultCwd would be refused/.test(line)), outside.join("; "))
 })
 

@@ -16,6 +16,9 @@ import { createCursorStore } from "../store/uid-cursor.ts"
 import { type JournalFile, JOURNAL_DEFAULTS, mergeJournals, readJournal, writeJournal } from "./journal.ts"
 import { buildSpawnArgv, listSessions, readOwnershipMarker, spawnSession, stopSession, type SpawnPlan } from "./spawn.ts"
 import { createStarterRunner, type StarterSource } from "./run.ts"
+import { validateCwd } from "./validate.ts"
+import { configPath } from "../store/paths.ts"
+import { dirname as parentOf } from "node:path"
 import { createConfirmer, renderList } from "./confirm.ts"
 import { parseFieldsWithAgent } from "./parse-agent.ts"
 import { resolveBootstrapPath } from "./bootstrap-path.ts"
@@ -131,6 +134,7 @@ export function journalStore(env: NodeJS.ProcessEnv, config: ResolvedConfig): (j
 			// Untrusted on disk is not a licence to overwrite it with a partial view.
 			throw new Error(`refusing to save over an untrusted journal: ${(error as Error).message}`)
 		}
+		if (!lock.verify()) throw new Error("the journal lock was taken over; not writing")
 		const merged = mergeJournals(disk, journal)
 		for (const key of Object.keys(journal.requests)) delete journal.requests[key]
 		Object.assign(journal.requests, merged.requests)
@@ -199,15 +203,29 @@ export function createPromptWriter(env: NodeJS.ProcessEnv): {
 }
 
 /** `check`: everything `run` needs, without starting anything. */
-export function starterProblems(config: ResolvedConfig): string[] {
+export function starterProblems(config: ResolvedConfig, env: NodeJS.ProcessEnv = process.env): string[] {
 	const problems: string[] = []
 	if (!config.starter.enabled) problems.push("starter.enabled is false — nothing will start")
 	// Containment fails closed with no roots: every path is `outside-root`. Saying "anywhere" told an
 	// operator the opposite of the code on the line they read to decide the configuration is safe.
 	if (config.starter.roots.length === 0) problems.push("starter.roots is empty — no mail could start a session")
 	for (const root of config.starter.roots) {
-		if (!existsSync(root)) problems.push(`starter.roots: ${root} does not exist`)
+		// `validateCwd` refuses `/` outright, so a root of `/` is a configuration that can never work.
+		if (root.replace(/\/+$/, "") === "") problems.push("starter.roots: / is refused — a root must be a directory a session can be inside")
+		else if (!existsSync(root)) problems.push(`starter.roots: ${root} does not exist`)
 		else if (!statSync(root).isDirectory()) problems.push(`starter.roots: ${root} is not a directory`)
+	}
+	if (config.starter.defaultCwd.trim()) {
+		const base = config.starter.roots.length > 0 ? config.starter.roots[0]! : ""
+		const check = validateCwd(config.starter.defaultCwd, {
+			roots: config.starter.roots,
+			reserved: [parentOf(configPath(env)), parentOf(statePath(env, "x"))],
+		})
+		void base
+		if (!check.ok) problems.push(`starter.defaultCwd would be refused: ${check.code}: ${check.detail}`)
+	}
+	if (config.starter.defaultModel.trim() && !config.starter.defaultModel.includes("/")) {
+		problems.push("starter.defaultModel must be provider/model")
 	}
 	if (!config.starter.channel.subjectPrefix.trim() && !config.starter.channel.address.trim()) {
 		problems.push("starter.channel has neither a subjectPrefix nor an address")
@@ -284,13 +302,13 @@ async function runLoop(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> 
 		return once ? 1 : 0
 	}
 	try {
-		return await runLocked(ctx, deps, once)
+		return await runLocked(ctx, deps, once, lifetime.lock)
 	} finally {
 		lifetime.lock.release()
 	}
 }
 
-async function runLocked(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number> {
+async function runLocked(ctx: Ctx, deps: CliDeps, once: boolean, lifetime: Lock): Promise<number> {
 	const log = createStarterLog(ctx.config, ctx.env)
 	const journal: JournalFile = ctx.journal()
 	const cursor = createCursorStore("starter-cursor.json")
@@ -322,7 +340,11 @@ async function runLocked(ctx: Ctx, deps: CliDeps, once: boolean): Promise<number
 				return prompts.write(id, text)
 			},
 			removePrompt: (id) => prompts.remove(id),
-			spawn: (plan) => spawnSession(plan),
+			spawn: (plan) => {
+				// A takeover means another starter may be running: spawning without exclusion could double-start.
+				if (!lifetime.verify()) throw new Error("lost the starter lock before spawning")
+				return spawnSession(plan)
+			},
 			stop: async (id, name, requestId) => {
 				// The name and the request id in the session's environment are the ownership proof: a reused
 				// `$N` (and a reused name) after a tmux restart must not be killed.
@@ -392,7 +414,7 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 	const cmd = argv.find((arg) => !arg.startsWith("--")) ?? "run"
 
 	if (cmd === "check") {
-		const problems = starterProblems(ctx.config)
+		const problems = starterProblems(ctx.config, ctx.env)
 		// Problems the loader already noticed belong in the answer: "check said ok" must mean the resolved
 		// configuration is usable, not just that this function's own list is empty.
 		for (const warning of ctx.config.warnings) problems.push(warning)

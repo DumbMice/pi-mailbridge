@@ -399,8 +399,9 @@ async function run(initialConfig: ResolvedConfig, initialStamp: number): Promise
 			// the failure would be swallowed by the scan queue with no log line at all.
 			const before = new Set(listPending().map((r) => r.uid))
 			const result = await scanAndProcess(currentConfig, {
-				isStarterChannel: (subject) =>
-					Boolean(subject) && matchChannel(currentConfig.starter, { subject, to: [], device: currentConfig.device.name }).ours,
+				isStarterChannel: (subject, to) =>
+					Boolean(subject) &&
+					matchChannel(currentConfig.starter, { subject, to: to ?? [], device: currentConfig.device.name }).ours,
 				applyUidValidity: (env) =>
 					applyUidValidity(env, currentWatcher, (sessionId) => registry.release(sessionId)),
 				source: sourceProxy,

@@ -505,6 +505,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 			parse: {
 				...STARTER_DEFAULTS.parse,
 				...(raw?.parse ?? {}),
+				// `"agent": "false"` is a truthy string; reading it as true launches stage B with read access.
+				agent: typeof raw?.parse?.agent === "boolean" ? raw.parse.agent : STARTER_DEFAULTS.parse.agent,
 				model: str(raw?.parse?.model, STARTER_DEFAULTS.parse.model),
 				tools: str(raw?.parse?.tools, STARTER_DEFAULTS.parse.tools),
 			},

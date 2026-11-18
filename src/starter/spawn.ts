@@ -204,9 +204,19 @@ export async function spawnSession(plan: SpawnPlan, deps: SpawnDeps = {}): Promi
 		return { ok: false, reason: "spawn-failed", detail: detail || "tmux could not start the session" }
 	}
 
+	/**
+	 * Kill the session *we* created, if it is still ours.
+	 *
+	 * A name is reusable: if the process that created it exited and a new starter (or a person) reused the
+	 * name, killing by name alone would stop a stranger. The request id in the environment is the proof.
+	 */
 	const kill = async (): Promise<void> => {
 		const id = await exec(buildSessionIdArgv(plan.tmuxId, socket))
-		if (id.code === 0) await exec(buildKillArgv(id.stdout.trim(), socket))
+		if (id.code !== 0) return
+		const tmuxSessionId = id.stdout.trim()
+		const owner = await readOwnershipMarker(tmuxSessionId, { exec, socket })
+		if (owner !== plan.requestId) return
+		await exec(buildKillArgv(tmuxSessionId, socket))
 	}
 
 	for (;;) {
@@ -221,6 +231,11 @@ export async function spawnSession(plan: SpawnPlan, deps: SpawnDeps = {}): Promi
 			const tmuxSessionId = id.stdout.trim()
 			if (id.code !== 0 || !tmuxSessionId.startsWith("$")) {
 				return { ok: false, reason: "no-session", detail: "the bootstrap reported ready but no tmux session is running" }
+			}
+			// Ready is a claim about *a* session; the marker says it is ours.
+			const owner = await readOwnershipMarker(tmuxSessionId, { exec, socket })
+			if (owner !== plan.requestId) {
+				return { ok: false, reason: "not-ours", detail: "the ready session carries another request's marker" }
 			}
 			return { ok: true, tmuxSessionId }
 		}
@@ -293,7 +308,12 @@ export async function listSessions(
 ): Promise<{ id: string; name: string }[] | undefined> {
 	const exec = deps.exec ?? defaultExec
 	const listed = await exec(buildListArgv(deps.socket ?? DEFAULT_SOCKET))
-	if (listed.code !== 0) return /no server( running)?|no sessions|error connecting/i.test(`${listed.stderr}${listed.stdout}`) ? [] : undefined
+	// Only the known absence diagnostics mean "none". A permission failure is "could not look", and treating
+	// it as empty would sweep every owned session to ended.
+	if (listed.code !== 0) {
+		const text = `${listed.stderr}${listed.stdout}`
+		return /no server( running)?|no sessions/i.test(text) ? [] : undefined
+	}
 	return listed.stdout
 		.split("\n")
 		.map((line) => line.trim())
