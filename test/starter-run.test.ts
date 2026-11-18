@@ -551,3 +551,34 @@ test("a CLI stop during the send still settles the delivered result", async () =
 	assert.equal(r.journal.requests.req?.resultSent, true)
 	assert.equal(r.journal.requests.req?.state, "ended", "settled against the merged state")
 })
+
+test("stop waits for a scan that is still queued behind another", async () => {
+	// Shutdown closes admission and drains the chain; without that, the lifetime lock could be released with
+	// a queued scan still running.
+	const r = rig()
+	r.messages.delete(1)
+	let release!: () => void
+	const gate = new Promise<void>((resolve) => {
+		release = resolve
+	})
+	let calls = 0
+	// Block the scan itself, so a second one really is queued behind the first.
+	r.source.searchAfter = async () => {
+		calls += 1
+		if (calls <= 2) await gate
+		return []
+	}
+	const runner = createStarterRunner({ ...r, timers: { setTimeout: () => 0 as unknown, clearTimeout: () => {} }, scanIntervalSecs: 0 })
+	const first = runner.once()
+	const second = runner.once()
+	let stopped = false
+	const stopping = runner.stop().then(() => {
+		stopped = true
+	})
+	await new Promise((resolve) => setTimeout(resolve, 10))
+	assert.equal(stopped, false, "shutdown cannot resolve while work is queued")
+	release()
+	await Promise.all([first, second, stopping])
+	assert.equal(stopped, true)
+})
+

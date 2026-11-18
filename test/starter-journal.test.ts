@@ -307,16 +307,19 @@ test("count pressure does not evict the session evidence an owed result needs", 
 	// The age rule protected it; `cap` then evicted it anyway, and settlement lost the fact the session ended.
 	const env = freshEnv()
 	const now = Date.now()
+	// All three are inside the retention window, so only the cap can remove one: age pruning must not be
+	// what makes this pass.
 	const journal: JournalFile = {
 		v: 1,
 		requests: {
 			owed: { id: "owed", messageId: "<o@x>", uid: 1, receivedAt: now, state: "ready", at: now },
 			live: { id: "live", messageId: "<l@x>", uid: 2, receivedAt: now, state: "ready", at: now },
+			gone: { id: "gone", messageId: "<g@x>", uid: 3, receivedAt: now, state: "ended", at: now, resultSent: true },
 		},
 		sessions: {
-			owed: { name: "owed", tmuxSessionId: "$1", piSessionId: "pi", requestId: "owed", cwd: "/tmp", at: 1, endedAt: 1 },
+			owed: { name: "owed", tmuxSessionId: "$1", piSessionId: "pi", requestId: "owed", cwd: "/tmp", at: now, endedAt: now },
 			live: { name: "live", tmuxSessionId: "$2", piSessionId: "pi2", requestId: "live", cwd: "/tmp", at: now },
-			settled: { name: "settled", tmuxSessionId: "$3", piSessionId: "pi3", requestId: "gone", cwd: "/tmp", at: 1, endedAt: 1 },
+			settled: { name: "settled", tmuxSessionId: "$3", piSessionId: "pi3", requestId: "gone", cwd: "/tmp", at: now, endedAt: now },
 		},
 	}
 	const written = writeJournal(env, journal, { ...JOURNAL_DEFAULTS, maxSessions: 2 }, now)
