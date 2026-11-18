@@ -374,6 +374,7 @@ src/
     channel.ts          which mail is a request, and for which device
     grammar.ts          the deterministic body grammar (complete / incomplete / invalid)
     validate.ts         the boundary: cwd under a root, model allowlist, name, prompt
+    journal.ts          durable requests: reservations, reconciliation, retention
   daemon/
     api.ts              the wire contract: API_VERSION, capabilities, endpoint list
     imapflow.ts         imapflow adapter
