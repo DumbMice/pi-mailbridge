@@ -13,7 +13,7 @@ import { acquireLock } from "../src/store/lock.ts"
 import { statePath } from "../src/store/paths.ts"
 
 import { STARTER_DEFAULTS, type ResolvedConfig } from "../src/core/config.ts"
-import { createPromptWriter, createStarterLog, journalStore, runStarterCommand, starterMailConfig, starterProblems, watcherCallbacks } from "../src/starter/commands.ts"
+import { createPromptWriter, createStarterLog, imapFailureHint, journalStore, runStarterCommand, starterMailConfig, starterProblems, watcherCallbacks } from "../src/starter/commands.ts"
 import { type JournalFile, readJournal } from "../src/starter/journal.ts"
 import { validateCwd } from "../src/starter/validate.ts"
 
@@ -478,5 +478,23 @@ test("a repair that throws releases both locks", async () => {
 	} finally {
 		mock.timers.reset()
 	}
+})
+
+test("check says it is offline, and an auth failure is named as one", () => {
+	// "check said ok" was read as "my password must be right"; a wrong authorisation code failed later with a
+	// generic "Command failed" in the watcher log.
+	const out: string[] = []
+	return runStarterCommand(["check"], {
+		config: config({ roots: [mkdtempSync(join(tmpdir(), "pmb-chk-"))] }),
+		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-chk-state-")) },
+		stdout: (l: string) => out.push(l),
+		stderr: () => {},
+	}).then((code) => {
+		assert.equal(code, 0)
+		assert.match(out.join("\n"), /offline configuration check; it does not log in/)
+		assert.match(imapFailureHint("Command failed: AUTHENTICATIONFAILED") ?? "", /authorisation code/)
+		assert.match(imapFailureHint("Login fail. Account is abnormal") ?? "", /authorisation code/)
+		assert.equal(imapFailureHint("ECONNRESET"), undefined)
+	})
 })
 

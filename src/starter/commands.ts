@@ -153,6 +153,17 @@ export function journalStore(env: NodeJS.ProcessEnv, config: ResolvedConfig): (j
 	}
 }
 
+/**
+ * A watcher error is often an authentication failure wearing a generic message ("Command failed"). Say what
+ * to check, because the operator's next step differs: a wrong authorisation code is not a network problem.
+ */
+export function imapFailureHint(message: string): string | undefined {
+	if (/AUTHENTICATIONFAILED|authentication failed|login fail|EAUTH|invalid credentials|\b535\b/i.test(message)) {
+		return "authentication failed: check the account's authorisation code (QQ: Settings → Account → POP3/IMAP/SMTP → 授权码), not the web password"
+	}
+	return undefined
+}
+
 export function createPromptWriter(env: NodeJS.ProcessEnv): {
 	write: (requestId: string, text: string) => { promptFile: string; readyFile: string }
 	/** Remove a request's files: the bootstrap consumes them, so a failed start must not leave them. */
@@ -338,7 +349,10 @@ async function runLocked(ctx: Ctx, deps: CliDeps, once: boolean, lifetime: Lock)
 		: await createImapSource(ctx.config, {
 				onMail: () => wake(),
 				onReady: () => wake(),
-				onError: (error, nextDelayMs) => log(`imap error (${error.message}); reconnecting in ${nextDelayMs}ms`),
+				onError: (error, nextDelayMs) => {
+					const hint = imapFailureHint(error.message)
+					log(`imap error (${hint ?? error.message}); reconnecting in ${nextDelayMs}ms`)
+				},
 			})
 	const parserAttempts: number[] = []
 
@@ -452,6 +466,9 @@ export async function runStarterCommand(argv: string[], deps: CliDeps = {}): Pro
 		}
 		for (const problem of problems) ctx.err(`! ${problem}`)
 		ctx.out(problems.length === 0 ? "starter: ok" : `starter: ${problems.length} problem(s)`)
+		// `check` is offline by design: it validates configuration, not credentials. Saying so prevents the
+		// "check said ok, so my password must be right" reading that a wrong authorisation code produces.
+		ctx.out("note: this is an offline configuration check; it does not log in. Use `pi-mailbridge --smoke` to prove the credentials.")
 		return problems.length === 0 ? 0 : 2
 	}
 

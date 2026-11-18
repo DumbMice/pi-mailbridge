@@ -16,6 +16,7 @@ export HOME=/root
 export XDG_CONFIG_HOME=/runtime/config
 export XDG_STATE_HOME=/runtime/state
 mkdir -p "$HOME" "$XDG_CONFIG_HOME/pi-mailbridge" "$XDG_STATE_HOME" /work/project
+chmod 700 "$XDG_CONFIG_HOME/pi-mailbridge"
 # pi needs its provider auth. /pi-auth holds only the small files (auth.json, settings.json); copying the
 # whole ~/.pi would drag in installs and sessions and make the test take minutes.
 mkdir -p "$HOME/.pi/agent"
