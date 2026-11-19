@@ -78,39 +78,39 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/health` | liveness probe; **unauthenticated** by design (`mode`, pending count, the decision-registry size, emitted as both `sessions` and `registry` — sessions *with an outstanding decision*, not live sessions; live ones are `clients` — ping timing, SSE subscribers, the last scan's summary, `configLoadedAt`, `version`, `apiVersion` and `capabilities`; no content, no addresses. `ok: true` is **required** — the client tells our daemon from anything else on the port by it plus `mode`/`apiVersion`/`capabilities`) |
+| GET | `/health` | liveness probe; **unauthenticated** by design (`mode`, pending count, the decision-registry size, emitted as both `sessions` and `registry`: sessions *with an outstanding decision*, not live sessions; live ones are `clients`: ping timing, SSE subscribers, the last scan's summary, `configLoadedAt`, `version`, `apiVersion` and `capabilities`; no content, no addresses. `ok: true` is **required**: the client tells our daemon from anything else on the port by it plus `mode`/`apiVersion`/`capabilities`) |
 | GET | `/events` | SSE: `delivery`, `mode` (no client uses it; sessions poll) |
 | GET | `/pending` | the delivery channel: polled every 10 s, replayed on reconnect; returns the daemon's own device's records plus untagged ones |
-| POST | `/claim` | `{uid, instanceId, uidValidity?}` — atomic claim; refused as `stale-space` for another UID space and `foreign-device` for a record another device scanned |
-| POST | `/ack` | `{uid, instanceId, uidValidity?}` — claimant-only; refused as `stale-space` when the record (or the caller) belongs to another UID space. It **removes the record first** (a crash then cannot re-deliver it), then journals the UID in the **record's** space, releases the decision slot and marks `\Seen` |
+| POST | `/claim` | `{uid, instanceId, uidValidity?}`: atomic claim; refused as `stale-space` for another UID space and `foreign-device` for a record another device scanned |
+| POST | `/ack` | `{uid, instanceId, uidValidity?}`: claimant-only; refused as `stale-space` when the record (or the caller) belongs to another UID space. It **removes the record first** (a crash then cannot re-deliver it), then journals the UID in the **record's** space, releases the decision slot and marks `\Seen` |
 | POST | `/register` | reserve a session's single outstanding decision |
 | POST | `/bye` | a session is leaving; the daemon exits once no session has pinged for `idleTimeoutSecs` |
 | POST | `/ping` | heartbeat, the other half of the idle exit |
 | DELETE | `/register` | release the reservation |
-| GET/POST | `/mode` | **email mode, in two scopes.** GET returns `mode` (effective for the asking `?instanceId`), `global` (the persisted switch) and `session` (the override, when there is one). POST takes `{mode, scope}` — `global` writes the persisted switch and broadcasts; `session` sets an in-memory override for one attached session (dropped by `/bye`, refreshed on every ping, and expired after 24 h without one — the crash case). The payload carries `globalUpdatedAt`, the persisted switch's timestamp (omitted when that file cannot be read - a session then keeps its own override rather than treating an unreadable stamp as a change), so a session that reconnects can tell whether a decision it made was superseded by a global write. The daemon scans when the global switch is on **or** any attached session overrode itself on. A bare `/mailbridge off` is per session; `--all` is the persisted global switch |
+| GET/POST | `/mode` | **email mode, in two scopes.** GET returns `mode` (effective for the asking `?instanceId`), `global` (the persisted switch) and `session` (the override, when there is one). POST takes `{mode, scope}`: `global` writes the persisted switch and broadcasts; `session` sets an in-memory override for one attached session (dropped by `/bye`, refreshed on every ping, and expired after 24 h without one: the crash case). The payload carries `globalUpdatedAt`, the persisted switch's timestamp (omitted when that file cannot be read - a session then keeps its own override rather than treating an unreadable stamp as a change), so a session that reconnects can tell whether a decision it made was superseded by a global write. The daemon scans when the global switch is on **or** any attached session overrode itself on. A bare `/mailbridge off` is per session; `--all` is the persisted global switch |
 | POST | `/send` | send one mail via the daemon's SMTP config; at most ten `notification` sends a minute, then `429 send_budget` (`kind: "settle"` and `"decision"` are exempt) |
 | POST | `/reload` | re-read config: stop the watcher, reload, redial. On failure it restores the previous config and warns; a refused connect returns `ok` with a warning |
 | POST | `/shutdown` | stop the daemon (used by the restart path) |
 
 Every successful reply is JSON, and the client treats anything else as `code: "bad_response"` rather than
-`network` — an empty or HTML `200` on that port means something else is answering (a wrong
+`network`, an empty or HTML `200` on that port means something else is answering (a wrong
 `daemon.port`), which is a different problem from "the daemon is down" and must not be reported as
 either success or unreachable.
 
 Bounds: body ≤ 1 MB, registry ≤ 10 000 entries, SSE clients ≤ 100. A second daemon start exits 0
-on `daemon.lock` (and, as a second guard, on `EADDRINUSE`) — quiet by design.
+on `daemon.lock` (and, as a second guard, on `EADDRINUSE`), quiet by design.
 
 **The daemon transport ignores proxies entirely.** pi installs `undici`'s `EnvHttpProxyAgent` as
-the global dispatcher, so with `HTTP_PROXY` set and loopback absent from `NO_PROXY`, every `fetch` —
-`http://127.0.0.1:4177` included — is tunnelled through the proxy and times out; the daemon reads as
+the global dispatcher, so with `HTTP_PROXY` set and loopback absent from `NO_PROXY`, every `fetch`
+(`http://127.0.0.1:4177` included) is tunnelled through the proxy and times out; the daemon reads as
 unreachable while it answers in sub-millisecond time. `daemon/loopback-http.ts` is the client's
 transport instead: a `fetch`-shaped wrapper over `node:http`, which has no proxy semantics at all.
-The fix lives inside the package and writes no process state, which is why `NO_PROXY` is not used —
+The fix lives inside the package and writes no process state, which is why `NO_PROXY` is not used:
 appending there works, but it is process-global and every child process (the bash tool included)
 would inherit the entry. It follows no redirects, does no decompression (the daemon sends plain
 JSON) and opens one socket per request; it does honour the caller's abort signal, rejects if a
 response body is cut short, and stops reading a reply past 16 MiB (the largest real reply is a
-`/pending` bounded by the store's 8 MiB) — a body that large is not ours, and is reported as
+`/pending` bounded by the store's 8 MiB), a body that large is not ours, and is reported as
 `bad_response` rather than `network`.
 
 ## 4. Routing token
@@ -126,9 +126,9 @@ signed token (39 characters, in an 87-character subject) that made every subject
 preview. Signed tokens still verify, so mail already in flight keeps working.
 
 The id is a lookup key, not a credential: an unknown id resolves to nothing, and
-authorization remains the sender allowlist plus DMARC (SECURITY.md §2.2) — except in the
+authorization remains the sender allowlist plus DMARC (SECURITY.md §2.2), except in the
 single-mailbox layout, where DMARC is off (README, One mailbox or two?). Because routes are
-local, an id minted on one machine simply does not resolve on another — which is the
+local, an id minted on one machine simply does not resolve on another, which is the
 desired behaviour, not an error.
 
 - A local lookup key, not a signature: an id that was never minted here resolves to
@@ -137,36 +137,36 @@ desired behaviour, not an error.
   route (or chain entry, or legacy token) names its own device, so several machines
   sharing one mailbox never hold stale copies of each other's replies. A record with
   no device claim is accepted (single-device installs).
-- Replies keep the id because mail clients prefix — `Re: [pi:…] …`. Parsing
+- Replies keep the id because mail clients prefix, `Re: [pi:…] …`. Parsing
   tolerates `Re:`, `RE:`, `AW:`, `Re[2]:`.
 - Expiry bounds replay: an id older than `tokenTtlHours` resolves to nothing, and the
   reply chain ages out on the same clock. A short id is refreshed once less than half its TTL
   remains, so after the last notification it is valid for between `tokenTtlHours / 2` and the
-  full TTL — and the chain, stamped with the full TTL at send time, covers the gap.
+  full TTL, and the chain, stamped with the full TTL at send time, covers the gap.
 
 ### What identifies a reply
 
 An inbound message is matched to a session by the first rule that succeeds:
 
-1. **Short route id** — `[pi:f913c9]`, matched anywhere in the subject, so `Re:` /
+1. **Short route id**, `[pi:f913c9]`, matched anywhere in the subject, so `Re:` /
    `RE:` / `Aw:` / `Re[2]:` prefixes are irrelevant. This is what every new
    notification carries. It is a lookup key into this machine's `store/routes.ts`, not a
    signature: an id minted elsewhere (or expired) resolves to nothing, and then rule 2 is
    tried.
-2. **Legacy signed token** — `[pi:<payload>.<mac>]`, a 39-character HMAC-signed payload
+2. **Legacy signed token**, `[pi:<payload>.<mac>]`, a 39-character HMAC-signed payload
    carrying `sessionId`, expiry and the minting device. Still verified so mail sent before
    the short id keeps working; no longer minted.
-3. **Reply chain** — `In-Reply-To`, or any id in `References`, equals a Message-ID
+3. **Reply chain**, `In-Reply-To`, or any id in `References`, equals a Message-ID
    recorded in `store/threads.ts`. This is what survives a human editing the
    subject or a client rewriting it. The chain is searched newest-first, so the
    closest ancestor wins, and entries age out with `security.tokenTtlHours` so the chain
    cannot route mail forever.
    Some providers replace the `Message-ID` we stamp (QQ rewrites it to `<tencent_…@qq.com>`),
    so the id the reply actually references is one we never minted. With
-   `mail.imap.sentFolder` set — which `setup` writes automatically for `qq.com` and
-   `foxmail.com`, so a QQ install holds this extra connection by default — the daemon reads the
+   `mail.imap.sentFolder` set, which `setup` writes automatically for `qq.com` and
+   `foxmail.com`, so a QQ install holds this extra connection by default, the daemon reads the
    just-sent copy back and records the
-   delivered id as well. Best-effort: it retries for about two minutes — six attempts totalling 112 s (the provider appends the
+   delivered id as well. Best-effort: it retries for about two minutes, six attempts totalling 112 s (the provider appends the
    copy asynchronously) and matches on the `X-Pi-Mailbridge-Id` header we stamp, so it can only
    ever record the copy of that exact notification. A capture in flight when the daemon stops
    is lost, and that notification falls back to the subject id.
@@ -176,7 +176,7 @@ An inbound message is matched to a session by the first rule that succeeds:
 None of these is authentication: they route, they do not authorize. Authorization is the
 allowlist plus DMARC (off in the single-mailbox layout), and it happens before any of this
 (§2). A signed token is not
-stronger than a short id for routing purposes — the signature stops someone *predicting*
+stronger than a short id for routing purposes, the signature stops someone *predicting*
 an id, but guessing is pointless when any unresolvable id simply falls through to no
 route. `security.allowHeaderThreading: false` disables rule 3 only.
 
@@ -222,31 +222,31 @@ arrive once more. The daemon logs the change, the reset and how many records it 
 
 `/mailbridge on` → mode `on`: decisions mail the human and end the turn.
 `/mailbridge off` → mode `off`: decisions use the terminal as usual. A drain re-checks the mode
-between records, so an `off` arriving as a reply stops the batch it came in — the records behind
+between records, so an `off` arriving as a reply stops the batch it came in, the records behind
 it stay pending and unseen until the mode goes back on.
 
 Mode has **two scopes**, and the wire is described in §3's `/mode` row.
 
 The **global switch** is persisted in `mode.json` (default `off`, so installing never mails you
-unprompted) and is written by `--all` — and, in the one case where no daemon exists to hold a
+unprompted) and is written by `--all`, and, in the one case where no daemon exists to hold a
 session override, by a bare `on`/`off` too (the command then says "stored locally"). The **session override** is
 `/mailbridge off|on` without the flag: it lives in the daemon's memory keyed by the session's ping
 id, dies with `/bye` or after 24 h, and is re-applied by the session when it rewires. A global write
 clears every override, so `--all` really does mean every session, in both directions.
 
-Each session reads its *own* effective mode on its poll tick — `GET /mode?instanceId=…`, never the
+Each session reads its *own* effective mode on its poll tick, `GET /mode?instanceId=…`, never the
 bare endpoint, which answers with the global switch. The daemon scans when the global switch is on
 **or** an attached session overrode itself on; with nobody attached it follows the global switch.
 
 ## 6. Creating sessions: only through the starter process
 
 `ctx.newSession()` **replaces** the active session in-process, and only a
-command handler can call it — which is why `opencode-afk` needs a two-phase
+command handler can call it, which is why `opencode-afk` needs a two-phase
 `create`→`resume` dance and why `pi-wechat-assistant` gates on `ctx.isIdle()`.
 
 The daemon and the extension do not create or switch sessions: they notify about, and resume, sessions the
-human already started. Creating one is a **separate process** with its own lock, cursor, log and CLI — the
-session starter (§7a) — because `ctx.newSession()` is a different architecture and because
+human already started. Creating one is a **separate process** with its own lock, cursor, log and CLI, the
+session starter (§7a), because `ctx.newSession()` is a different architecture and because
 creating a session executes a mail-chosen directory and prompt. Anything else needs a different
 process topology (an RPC supervisor owning `pi --mode rpc` children).
 
@@ -259,10 +259,10 @@ serve other sessions. When a session finds one already running, it compares `/he
 `configLoadedAt` with `config.json`'s mtime and issues `/reload` if the file is newer, so a
 hand-edited config is not served stale. Two limits worth knowing: the comparison is mtime
 based, so an edit that preserves the mtime (`cp -p`, a restore) is not noticed until
-`smoke`/`restart`; and only the daemon re-reads — the session's own copy of the config
+`smoke`/`restart`; and only the daemon re-reads, the session's own copy of the config
 refreshes on the next `/mailbridge` command or pi restart.
 
-**Loopback, and never through a proxy** — the transport and the reason for it are in §3, next to
+**Loopback, and never through a proxy**, the transport and the reason for it are in §3, next to
 the endpoint list it applies to. One statement, one place: it has already moved twice.
 
 **Direction decides who moves.** A daemon on an *older* protocol is replaced: the spawn brings the
@@ -272,7 +272,7 @@ killing it would break every newer session on the machine, once a minute. The se
 asks for a restart of pi. `/mailbridge restart` cannot help there and does not pretend to.
 
 **Singleton.** `daemon.lock` in the state directory is the lock, with the owner's pid and a random token
-inside: a live holder makes the newcomer exit 0, and a file left by a crash is **not** stolen — the
+inside: a live holder makes the newcomer exit 0, and a file left by a crash is **not** stolen, the
 newcomer reports the stale holder; `pi-mailbridge starter locks` names the file and pid, and an operator who
 confirms the pid is gone removes it by hand. The listening port is a second guard, for a foreign listener - a bind
 failure also exits 0. `ensureDaemon()` then probes `/health` and reuses the winner.
@@ -336,14 +336,14 @@ cursor (`starter-cursor.json`), journal (`starter-journal.json`), log (`starter.
 (`starter-prompts/`). It must run with neither pi nor the daemon up, which is why it does not borrow the
 daemon's connection.
 
-**What a request is.** An email from an allowlisted address on the configured channel — by default the
+**What a request is.** An email from an allowlisted address on the configured channel, by default the
 mailbox the bridge already watches, subject `[<prefix>] …`; optionally a dedicated address. The body is a
 `key: value` block (`cwd`, `model`, `thinking`, `name`, `prompt`, `parse`), or the commands `stop:` /
 `list:`. Three parse states matter: **complete**, **incomplete** (a missing `cwd`), and **invalid** (an
-explicit value is wrong). Stage B — one isolated read-only pi run — may fill *only* a missing field, and its
+explicit value is wrong). Stage B, one isolated read-only pi run, may fill *only* a missing field, and its
 answer is validated like a human's.
 
-**The order is the security design**, and it is the order in `handleMail()` — every silent check comes
+**The order is the security design**, and it is the order in `handleMail()`, every silent check comes
 before any reply, so echo, off-channel, replayed and stale mail is never answered:
 
 1. `starter.enabled`
@@ -352,7 +352,7 @@ before any reply, so echo, off-channel, replayed and stale mail is never answere
 3. authentication, in the *request* context (a fresh request has no reply headers, and that single
    requirement is the only relaxation)
 4. our own mail (`X-Pi-Mailbridge`)
-5. channel (subject prefix or configured address, never both) — there is no device tag inside the subject
+5. channel (subject prefix or configured address, never both), there is no device tag inside the subject
 6. replay (Message-ID, UID space) and freshness (`INTERNALDATE`)
 7. recording, in the order each outcome happens: a command is admitted before it acts and settled after; a
    refusal (including budget) is written *before* its mail; a start is reserved only once its fields are
@@ -388,20 +388,20 @@ operator started by hand.
 **A stale lock is neither stolen nor cleared automatically.** A crashed starter leaves `starter.lock`; the
 next start refuses and points at `starter locks`, which reports the path and the pid and removes nothing.
 In user space there is no primitive that removes *this* file only if it is unchanged, so any helper that
-clears a stale lock can delete a lock another process acquired in the meantime — the operator, who can
+clears a stale lock can delete a lock another process acquired in the meantime, the operator, who can
 confirm the pid is gone, does the removal.
 
 Operationally: a `SIGKILL` (or a power loss) can leave any of the three locks needing manual cleanup, and a
-supervisor restarting the process will not clear them. The report is observational — it is not authorisation
+supervisor restarting the process will not clear them. The report is observational, it is not authorisation
 to delete. Confirm the holder independently, make sure no supervisor or restart will recreate the lock,
 quiesce the processes that share the state directory, and only then remove the file. An unreadable lock is
 reported as `UNKNOWN`, not `free`.
 
 **Crash behaviour.** The reservation is written before the spawn, so a crash leaves a record that says what
 *should* exist: recovery adopts a matching live session, refuses a reserved request with no session, and
-marks an unattributable one `uncertain` — never respawned automatically. Result delivery is tracked
+marks an unattributable one `uncertain`, never respawned automatically. Result delivery is tracked
 separately: a `ready, resultSent: false` record is mailed on the next scan and stays owed until it goes
-out — mail retries, spawning never does. An unreadable journal fails
+out, mail retries, spawning never does. An unreadable journal fails
 closed.
 
 **Honest limits, in SECURITY.md**: an allowed `cwd` is a launch restriction, not a sandbox; stage B's
@@ -412,7 +412,7 @@ read-only tools are a confidentiality grant (read anywhere = disclose anywhere t
 | Failure | Behaviour |
 | --- | --- |
 | IMAP drops | exponential backoff 1 s → 60 s; IDLE renews at 25 min |
-| IDLE `EXISTS` never fires | a catch-up scan runs every `daemon.scanIntervalSecs` (default 60, `0` disables) while mode is on and the watcher is healthy — observed live after a reply sat unscanned |
+| IDLE `EXISTS` never fires | a catch-up scan runs every `daemon.scanIntervalSecs` (default 60, `0` disables) while mode is on and the watcher is healthy: observed live after a reply sat unscanned |
 | Daemon dies | sessions keep working; extension reconnects; missed mail recovered from `/pending` |
 | Session exits before ack | mail stays unseen, pending durable → redelivered |
 | SMTP fails | decision is *not* reserved as outstanding; error surfaces to the tool |
@@ -479,7 +479,7 @@ src/
     watcher.ts          imapflow IDLE, renew, backoff
   store/
     attachment-files.ts   inbound documents on disk (paths only in the queue)
-    journal.ts          acked UIDs — durable replay protection
+    journal.ts          acked UIDs, durable replay protection
     mode-store.ts       on/off
     oauth-store.ts      refresh tokens, 0600
     paths.ts            XDG dirs

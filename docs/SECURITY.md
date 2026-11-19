@@ -37,11 +37,11 @@ infrastructure *and* the real one your provider added.
 
 What makes that safe is header ordering: headers are **prepended** as a message
 traverses relays, so the **topmost** `Authentication-Results` is the one the final
-hop — your provider — wrote on delivery. A sender's forged header necessarily ends
+hop, your provider, wrote on delivery. A sender's forged header necessarily ends
 up *below* it.
 
 **That argument rests on one assumption: your provider adds a header at all.** If the delivering
-relay stamps no `Authentication-Results`, the topmost one is whatever the sender wrote — so a
+relay stamps no `Authentication-Results`, the topmost one is whatever the sender wrote, so a
 forged `dmarc=pass` is accepted, while your own genuine replies fail `dmarc-missing`. Measured
 here, not theorised:
 
@@ -51,22 +51,24 @@ From: <the same address>, genuinely sent through a relay that stamps nothing    
 ```
 
 It is a quiet failure in both directions at once: a spoofed message gets in *and* real mail appears
-broken, which invites turning `requireDmarcPass` off entirely — the worst response. Two defences:
+broken, which invites turning `requireDmarcPass` off entirely; that is the worst response. Two
+defences:
 
 1. **Pin it.** `security.trustedAuthservId` is your provider's authserv-id (the token before the
    first `;` in its header). In a **single-mailbox** layout `pi-mailbridge --smoke` (and
-   `/mailbridge smoke`) can read it from the copy of the mail it just sent itself — the one place the
-   value is both observable and not a sender's choice — and writes it once when the field is unset. In
+   `/mailbridge smoke`) can read it from the copy of the mail it just sent itself. That is the one
+   place the value is both observable and not a sender's choice. It writes it once, when the field is
+   unset. In
    the recommended **two-mailbox** layout the probe is sent elsewhere and that read-back does not
    happen, so pin the value by hand.
    Set it by hand only if you are pinning a different relay than the one your smoke mail came back
    through. A message without that header then fails closed instead of
-   trusting whatever is topmost. Do not pin Microsoft consumer accounts — outlook.com emits bare
+   trusting whatever is topmost. Do not pin Microsoft consumer accounts: outlook.com emits bare
    headers with no authserv-id (rule 3 below).
 2. **Measure it.** `pi-mailbridge --smoke` sends one real mail and re-opens the folder; read the
    delivered copy's headers. If it has no `Authentication-Results`, DMARC cannot help on that
-   provider and `requireDmarcPass: true` is a coin flip. This is not automated yet — it is the
-   reason `--check` prints a note when `trustedAuthservId` is unset.
+   provider and `requireDmarcPass: true` is a coin flip. This is not automated yet; it is
+   the reason `--check` prints a note when `trustedAuthservId` is unset.
 
 Rules:
 
@@ -79,18 +81,17 @@ Rules:
    relay emits bare headers with no authserv-id at all
    (`Authentication-Results: spf=pass …; dmarc=pass …`), so a pinned value would
    reject every genuine reply. Leave it unset there.
-4. Treat DMARC pass as **necessary, not sufficient** — it authenticates the
+4. Treat DMARC pass as **necessary, not sufficient**: it authenticates the
    sending domain, not the authority to command your agent. An allowlisted sender
    whose account is compromised still passes DMARC.
 
 ### 2.2 The routing tag is not authorization
 
-A valid `[pi:…]` tag proves the subject was minted by this installation — nothing
-more. New notifications carry a short local route id (`[pi:f913c9]`); older ones carry
+A valid `[pi:…]` tag proves the subject was minted by this installation, and no more. New notifications carry a short local route id (`[pi:f913c9]`); older ones carry
 a signed token, and both are accepted. Neither proves the message came from you. Anyone who replies to one of your
 notification emails (or forwards it) can carry the token into the mailbox.
 
-That is why token verification is *never* the only gate — the allowlist and
+That is why token verification is *never* the only gate: the allowlist and
 DMARC come first (DMARC is off in the single-mailbox layout), and the token only
 routes.
 
@@ -108,7 +109,7 @@ A legitimate email can still contain text that reads like instructions
 
 - **Scope the session.** A session that only needs to read code should not have
   `bash`. `pi --tools read,grep,glob` for untrusted threads. This package does not enforce
-  tool scoping — pi's own `--tools` does.
+  tool scoping; pi's own `--tools` does.
 - **Keep a human in the loop for destructive actions.** `request_decision` sends the
   question and ends the turn; nothing resumes the session except a reply. There is no
   approve command and no phrase a message can contain to satisfy it: the human's reply *is*
@@ -131,22 +132,22 @@ A legitimate email can still contain text that reads like instructions
   reachable without the token, apart from the `/health` liveness probe. That returns mode,
   pending/clients counts, the decision-registry size, ping timing, the number of SSE subscribers,
   the last scan's reason *counts*, the build and protocol versions, and the config file's mtime and
-  whether IMAP is connected — no mail content, no addresses, no subjects. It carries `ok: true`
-  **and** one of `mode`/`apiVersion`/`capabilities`, which is what the client discriminates on —
-  requiring `ok` alone would not help, since a bare `{"ok":true}` is the most common health payload
+  whether IMAP is connected. It carries no mail content, no addresses, no subjects. It carries
+  `ok: true` **and** one of `mode`/`apiVersion`/`capabilities`, which is what the client
+  discriminates on; requiring `ok` alone would not help, since a bare `{"ok":true}` is the most common health payload
   there is; the second condition is what keeps another service on the same port from being
   mistaken for the daemon.
 - Bearer token from `secret.key`, mode `0600`, created first-writer-wins,
   compared in constant time.
 - Body cap 1 MB; registry cap 10 000; SSE client cap 100; ten notifications a minute.
-- `EADDRINUSE` on start is treated as "already running" — an attacker cannot
+- `EADDRINUSE` on start is treated as "already running": an attacker cannot
   displace a running daemon by racing the port, because the loser exits.
 - The token never appears in logs, error strings, or the notification email.
 
 ### What the bearer token authorises
 
 Beyond sending, the token can `GET /pending` (this device's reply bodies and attachments), `/claim`
-and `/ack` a record this device scanned — which *discards* a queued reply without delivering it —
+and `/ack` a record this device scanned, which *discards* a queued reply without delivering it,
 flip the mode, and shut the daemon down. Treat `secret.key` as equivalent to the mailbox password.
 
 ## 4a. Mail that starts processes (the session starter)
@@ -161,7 +162,7 @@ The gates, in the order `handleMail()` applies them: `starter.enabled` plus a no
 problem for `starter check`); the body grammar (a reply is read above its quote, and a reply that is not
 `stop:`/`list:` is refused rather than treated as a request); `security.allowFrom` exact match and DMARC,
 reused from §2 rather than reimplemented; the mailbox's own echo markers; the channel (subject prefix, or a
-configured address — never both); replay (Message-ID, UID space) and freshness (INTERNALDATE); then the
+configured address, never both); replay (Message-ID, UID space) and freshness (INTERNALDATE); then the
 hourly budget and live session cap, the optional stage-B parse, path validation, model allowlist and name
 sanitising, and the reservation written before the **requested session** is spawned. (Stage B is a separate,
 read-only `pi --print` run that precedes the reservation and spawns no session.) Commands and refusals are recorded
@@ -171,10 +172,11 @@ without a record of it.
 **Self-addressed requests need `security.allowSelfReplies: true`, and may have no DMARC to check.** In the
 usual single-mailbox layout the request is sent by the account that reads it, so the self-reply guard would
 otherwise refuse it (`unauthenticated:self`), and the provider may not stamp `Authentication-Results` on a
-message it delivers to itself — QQ does not. With `requireDmarcPass` on, such a request is silently ignored;
+message it delivers to itself; QQ does not. With `requireDmarcPass` on, such a request is silently
+ignored;
 with it off, the allowlist is the whole gate, which `starter check` reports.
 
-**A starter request is authorized by address and DMARC, not by a routing token.** It cannot carry one — a
+**A starter request is authorized by address and DMARC, not by a routing token.** It cannot carry one: a
 fresh request has no reply headers, which is the one requirement the starter's authorization context
 relaxes. In a same-mailbox layout that is the whole gate, and `starter check` says so when
 `requireDmarcPass` is off.
@@ -190,8 +192,8 @@ relaxes. In a same-mailbox layout that is the whole gate, and `starter check` sa
   secret. `starter.parse.agent` is off by default and requires an explicit model.
 
 **Stopping.** `stop:` is accepted only for sessions recorded in the starter's journal, and only kills them
-by their immutable tmux session id — a name that has since been reused cannot kill a session the operator
-started by hand. `stop: all` applies to the snapshot of sessions the journal says it owns.
+by their immutable tmux session id, so a name that has since been reused cannot kill a session the
+operator started by hand. `stop: all` applies to the snapshot of sessions the journal says it owns.
 
 **Refusals are mailed only to authenticated requests.** Unauthenticated, robot, echo and off-channel mail is
 dropped without a reply (backscatter is itself a policy, see §3).
@@ -225,17 +227,17 @@ dropped without a reply (backscatter is itself a policy, see §3).
   until `security.tokenTtlHours` expires. Rotating the key does not stop delivery on its own.
   To revoke, stop the daemon and clear the state directory
   (`${XDG_STATE_HOME:-~/.local/state}/pi-mailbridge`):
-  - `routes.json` — short ids. Resolve with no secret.
-  - `threads.json` — the reply chain. Resolves recorded Message-IDs with no secret.
-  - `pending.json` — **already-accepted replies waiting for a session.** Deleting the two
+  - `routes.json`: short ids. Resolve with no secret.
+  - `threads.json`: the reply chain. Resolves recorded Message-IDs with no secret.
+  - `pending.json`: **already-accepted replies waiting for a session.** Deleting the two
     routing stores stops new mail being routed *by id or chain*, but anything persisted
     before is still delivered on the next drain - and a legacy token still resolves until
     it expires or you rotate the key. If the session is compromised, this is the queue
     that matters.
-  - `journal.json` — only the ack dedupe, tagged with the mailbox's UIDVALIDITY. Clearing it
+  - `journal.json`: only the ack dedupe, tagged with the mailbox's UIDVALIDITY. Clearing it
     re-opens replay of already-acked mail, so prefer leaving it unless you also cleared the
     mailbox.
-  - `uid-cursor.json` — the last seen UID and the UIDVALIDITY it belongs to. A change of
+  - `uid-cursor.json`: the last seen UID and the UIDVALIDITY it belongs to. A change of
     UIDVALIDITY (a rebuilt or migrated folder) resets it; queued records tagged with another numbering
     are dropped on every check - connect and scan (and untagged ones on a detected renumbering), so recent mail
     can be delivered once more instead of being skipped.
@@ -245,13 +247,13 @@ dropped without a reply (backscatter is itself a policy, see §3).
   `/mailbridge off --all` is the machine-wide form: the daemon stops scanning too, once no attached
   session has overridden itself on. It is also terminal-only by mail: a reply has to be one command
   word, so `--all` in a reply is delivered to the agent as text instead of running. Replies that arrive meanwhile stay in the
-  mailbox and are processed when you `/mailbridge on` again — which also means turning it back on can
-  deliver a burst. To stop entirely, close pi and let the daemon exit (~120 s after the last ping),
+  mailbox and are processed when you `/mailbridge on` again; turning it back on can deliver a
+  burst. To stop entirely, close pi and let the daemon exit (~120 s after the last ping),
   or stop it however you started it - with a session still open, the poll tick respawns a daemon it
   finds missing, throttled to once a minute.
 - **One mailbox for both roles** (`security.allowSelfReplies`). The loop guard is relaxed
   for self-addressed mail, so the sender allowlist alone no longer separates "me" from "not
-  me" — it is the same address. Three guards do the work, in this order: the
+  me": it is the same address. Three guards do the work, in this order: the
   `X-Pi-Mailbridge: notification` marker (refused outright, so it does not depend on
   anything being recorded), the reply-evidence gate (`In-Reply-To` or `References` must be
   present), and the outbound `Message-ID` registry. All of them are forgeable by anyone who
@@ -259,11 +261,11 @@ dropped without a reply (backscatter is itself a policy, see §3).
   **DMARC is off in this shape by default**, because a provider may deliver a message from
   your address to the same address with no `Authentication-Results` header at all (QQ does),
   which would reject every reply. `/mailbridge setup` writes it that way; setting it back on is
-  reported by `/mailbridge check`, and `pi-mailbridge --check` exits non-zero — gate a supervisor
+  reported by `/mailbridge check`, and `pi-mailbridge --check` exits non-zero; gate a supervisor
   or CI on that. Prefer a dedicated mailbox.
 - **Multiple machines, one mailbox.** Each daemon only claims replies whose route id, token
   or chain entry names its own device, so they cannot steal each other's work. They share
-  the allowlist (one config each), but **each machine has its own `secret.key`** — it is a
+  the allowlist (one config each), but **each machine has its own `secret.key`**: it is a
   local file, never synced through the mailbox. So there is no "the key" to rotate: rotate
   the compromised machine's, clear its state directory as described above (`routes.json`,
   `threads.json`, `pending.json`), and review the others separately.
@@ -286,14 +288,14 @@ address), `auth` (starts a credential flow), `restart` (replaces the daemon) and
 unread mail) are delivered to the agent as text instead.
 
 What this costs, in the one-mailbox layout (DMARC is off there by design) and if the sender can
-forge the allowlisted `From` *and* carries a live route id or token — i.e. they have read one of
+forge the allowlisted `From` *and* carries a live route id or token, i.e. they have read one of
 your notifications:
 
 - `/mailbridge off` is a denial of the channel **for the session that ran it**: while a daemon is
   reachable it is neither persisted nor global (with no daemon, the command falls back to the file
   and says so), and it lasts until that session turns itself back on, exits, or stops pinging for a day. The
-  machine-wide form is `/mailbridge off --all` — **persisted**, and it overrides every session,
-  including ones that had turned themselves on — so the whole channel stays shut, and scanning
+  machine-wide form is `/mailbridge off --all`: **persisted**, and it overrides every session,
+  including ones that had turned themselves on. The whole channel stays shut, and scanning
   stops, until a human turns it back on at a terminal. Mail is not lost (the cursor does not move),
   but the remote-decision channel is dead.
 - `/mailbridge smoke` sends one real mail **from your own account to your own address** and costs
@@ -304,7 +306,7 @@ your notifications:
 They cannot reconfigure the account, obtain credentials, restart the daemon, re-prime the cursor
 or discard the queue by mail: `setup`, `auth`, `restart` and `prime` are refused by the
 dispatcher. What the dispatcher refuses, however, is still *delivered to the agent as text*, so
-§1 and §3 apply to it — the refusal is about what runs automatically, not about what the model
+§1 and §3 apply to it: the refusal is about what runs automatically, not about what the model
 may then do in a shell-capable session.
 
 A command reply to a *decision request* is a special case worth knowing: it runs the command and
@@ -313,7 +315,7 @@ allowed again. Nothing is lost and no mail is misrouted, but "one outstanding de
 weaker than the reply flow suggests.
 
 "A command" means the reply's text **after quote-stripping**, so `/mailbridge on` above a quoted
-original still executes — that is deliberate (a phone-appended signature must not break it), but
+original still executes. That is deliberate (a phone-appended signature must not break it), but
 it means "entire body" below refers to the stripped body, not the raw mail.
 
 ## 6b. Attachments in notifications
@@ -326,7 +328,7 @@ model output. The controls, all fail-closed:
   target that arrives percent-encoded or with an invented scheme (`sandbox:/home/me/x.pptx`) is
   decoded first, so it is the file the reader would have clicked that is judged. (An
   authenticated caller of `POST /send` supplies `cwd`, so with `secret.key` the boundary moves to
-  wherever it says — same trust level as the `to` override in §4.) A symlink out of it (`ln -s ~/.config/… config.json`)
+  wherever it says, the same trust level as the `to` override in §4.) A symlink out of it (`ln -s ~/.config/… config.json`)
   is refused, and so is an absolute path outside it.
 - **Home is a valid root; a hidden path is not.** An agent working in `~` must be able to mail
   `~/Downloads/report.pdf`, so `cwd = $HOME` is no longer refused wholesale. What replaces that
@@ -345,17 +347,17 @@ model output. The controls, all fail-closed:
   obvious key filenames out of an accidental attach. A linked file whose extension
   claims a raster image must also **sniff** as one (a `.png` full of text is refused, and a real
   PNG misnamed `.jpg` is attached as `image/png`); SVG is the exception, since XML has no
-  signature — it is an attachment, never inlined. It is not a content filter:
+  signature; it is an attachment, never inlined. It is not a content filter:
   `cp ~/.ssh/id_rsa notes.txt` or `tar czf k.tar ~/.ssh` defeats it, and `realpath` cannot see a
   hardlink. Treat it as a guard rail against a naive single-shot injection, not a sandbox.
 - **Size caps**: 5 MB per inline image and 15 MB per linked file (fixed), and
-  `notify.maxAttachmentMb` (default 18 MB, max 45) for the total per mail, before base64 — at most
+  `notify.maxAttachmentMb` (default 18 MB, max 45) for the total per mail, before base64; at most
   10 attachments per mail. A
   non-regular file (FIFO, device) is refused rather than read, because it reports size 0 and
   then blocks.
 - **No automated path changes the recipient.** Every notification's `to` is config-derived, a
   command reply cannot rewrite the config (`setup` is refused by the dispatcher), and the send
-  path has no Cc/Bcc. An authenticated caller *can* pass a different `to` to `POST /send` — that
+  path has no Cc/Bcc. An authenticated caller *can* pass a different `to` to `POST /send`; that
   is §4's "mail as you to any address", and it needs `secret.key`.
 
 Residual risk, plainly: anything the agent can read and re-materialise inside the project can be
