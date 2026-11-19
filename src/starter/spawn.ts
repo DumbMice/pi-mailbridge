@@ -188,7 +188,8 @@ export function buildListArgv(socket = DEFAULT_SOCKET): string[] {
 
 /** A pane's text, capped and stripped of control characters, for a refusal mail. */
 export function diagnosticsFrom(pane: string): string {
-	return cleanDiagnostic(pane, MAX_DIAGNOSTIC_CHARS)
+	// Pane text keeps its CRLF, as it always did; only the cap applies.
+	return cleanDiagnostic(pane, MAX_DIAGNOSTIC_CHARS, false)
 }
 
 interface ReadyMarker {

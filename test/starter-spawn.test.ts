@@ -188,6 +188,12 @@ test("listing tolerates a dead tmux server", async () => {
 
 test("diagnostics strip escapes and cap the length", () => {
 	assert.equal(diagnosticsFrom("\u001B[31mred\u001B[0m\n"), "red")
+	// Pane text keeps its CRLF: the refusal-detail sanitizer normalises, this one never did.
+	assert.equal(diagnosticsFrom("a\r\nb"), "a\r\nb")
+	// And the cut is applied to the un-normalised text, so the boundary case keeps exactly 2 000 chars.
+	const boundary = diagnosticsFrom("a\r\n".repeat(667) + "Z")
+	assert.equal(boundary.endsWith("…"), true, "2 002 characters are truncated")
+	assert.equal(boundary.length, 2_001, "2 000 kept plus the ellipsis")
 	const long = diagnosticsFrom("x".repeat(5000))
 	assert.ok(long.length <= 2001)
 	assert.ok(long.endsWith("…"))
