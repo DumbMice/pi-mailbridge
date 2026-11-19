@@ -410,6 +410,11 @@ A notification carries what it needs to be useful away from the desk:
 | `![shot](./shot.png)` | the image **inline**, embedded in the body where the agent put it, via `Content-ID` (`<img src="cid:…">`), so it renders there instead of sitting in the attachment tray. PNG/JPEG/GIF/WebP only, up to 5 MB each |
 | `[the log](./build.log)` | `build.log` as an **attachment**; nothing renders a PDF or a zip inside a mail body, so it is named beside the link: `the log [attached: build.log]` |
 
+SVG is never inlined: Outlook desktop renders none of it and Gmail deletes inline `<svg>`, so an
+`![](diagram.svg)` image reference is reported as "not attached, not an image". Reference the file as a
+normal link (`[diagram.svg](./diagram.svg)`) and it arrives as an attachment; the same is true in reverse,
+where an SVG you send is delivered as a file to open, not as a picture.
+
 Up to 10 attachments, 15 MB each for a linked file and 5 MB for an inline image, 18 MB in total
 by default (`notify.maxAttachmentMb`). Attachments are
 base64-encoded, which costs about a third, so the default stays under the smallest provider
