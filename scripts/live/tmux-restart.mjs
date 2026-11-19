@@ -63,6 +63,10 @@ if (refused.ok) fail("stop killed a session whose marker belongs to another requ
 else if (refused.reason !== "not-ours") fail(`expected not-ours, got ${refused.reason}: ${refused.detail}`)
 const survivors = await listSessions({ socket: SOCKET })
 if (survivors === undefined || survivors.length !== 1) fail(`the impostor did not survive: ${JSON.stringify(survivors)}`)
+// Exact identity, not just a count: the survivor must be the *new* session, not the old one re-created.
+else if (survivors[0].id !== reusedId || survivors[0].name !== NAME) {
+	fail(`the survivor is not the impostor: ${JSON.stringify(survivors)} (expected ${reusedId}/${NAME})`)
+}
 
 // 5: its own marker works.
 const own = await stopSession(reusedId, { expectedName: NAME, expectedRequestId: "req-2", socket: SOCKET })
