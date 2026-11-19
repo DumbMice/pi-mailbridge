@@ -176,7 +176,12 @@ export function imapFailureHint(error: unknown): string | undefined {
 	// `535 5.7.8 …`, `535 5.7.3 Authentication unsuccessful`, `535 Authentication failed`: an SMTP code with
 	// an auth word close by, allowing the enhanced status code in between. A hostname (`535.example.invalid`)
 	// has a dot right after the number and no auth word, so it does not match.
-	const smtpAuth = /\b535\b\s*(?:\d\.\d{1,3}\.\d{1,3}\s*)?(?:authentication|auth|login|username|password)/i.test(fields)
+	const smtpAuth =
+		// `535 5.7.8` is an explicit authentication status on its own, with or without wording after it.
+		/\b535\b(?!\.)\s+\d\.\d{1,3}\.\d{1,3}\b/.test(fields) ||
+		// `535 Authentication failed`, `535 … Username and Password not accepted`, or a bare `535`.
+		/\b535\b(?!\.)\s*(?:authentication|auth|login|username|password)/i.test(fields) ||
+		/\b535\b(?!\.)\s*$/.test(fields)
 	if (failedFlag || smtpAuth || /AUTHENTICATIONFAILED|authentication failed|login fail|EAUTH|invalid credentials/i.test(fields)) {
 		return "authentication failed: check the account's authorisation code (QQ: Settings → Account → POP3/IMAP/SMTP → 授权码), not the web password"
 	}

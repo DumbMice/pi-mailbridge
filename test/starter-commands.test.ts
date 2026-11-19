@@ -511,6 +511,10 @@ test("check says it is offline, and an auth failure is named as one", () => {
 		assert.match(imapFailureHint({ message: "535 5.7.3 Authentication unsuccessful" }) ?? "", /authorisation code/)
 		assert.match(imapFailureHint({ message: "535 Authentication failed" }) ?? "", /authorisation code/)
 		assert.equal(imapFailureHint({ message: "getaddrinfo ENOTFOUND login.535.example" }), undefined)
+		// An explicit enhanced status is enough on its own; the wording after it may be anything.
+		assert.match(imapFailureHint({ message: "535 5.7.8" }) ?? "", /authorisation code/)
+		assert.match(imapFailureHint({ message: "535 5.7.8 Bad credentials" }) ?? "", /authorisation code/)
+		assert.match(imapFailureHint({ message: "535" }) ?? "", /authorisation code/)
 		assert.equal(imapFailureHint(undefined), undefined)
 	})
 })
