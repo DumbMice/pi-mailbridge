@@ -24,7 +24,7 @@ function config(over: Partial<ResolvedConfig["mail"]["smtp"]> = {}): ResolvedCon
 		},
 		security: { allowFrom: ["you@example.com"], requireDmarcPass: true, trustedAuthservId: "mx.example.com", tokenTtlHours: 24 },
 		daemon: { host: "127.0.0.1", port: 4177 },
-		notify: { onSettled: true, debounceMs: 0, notifyOnAborted: false, maxAttachmentMb: 18 },
+		notify: { onSettled: true, debounceMs: 0, notifyOnAborted: false, maxAttachmentMb: 18 , inlineSvg: true},
 		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
 		device: { name: "test-device" },
 		warnings: [],
@@ -279,7 +279,7 @@ test("the configured attachment budget reaches the renderer", () => {
 	const root = mkdtempSync(join(tmpdir(), "mailer-cap-"))
 	writeFileSync(join(root, "big.log"), Buffer.alloc(2 * 1024 * 1024, 1))
 	const sent: { attachments?: unknown[] }[] = []
-	const withCap = { ...config(), notify: { ...config().notify, maxAttachmentMb: 1 } }
+	const withCap = { ...config(), notify: { ...config().notify, maxAttachmentMb: 1 , inlineSvg: true} }
 
 	return sendMail(
 		withCap,

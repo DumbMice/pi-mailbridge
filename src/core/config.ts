@@ -111,6 +111,12 @@ export interface ResolvedConfig {
 		notifyOnAborted: boolean
 		/** Total bytes of files attached to one notification, before base64 encoding. */
 		maxAttachmentMb: number
+		/**
+		 * Inline an `![](x.svg)` as a cid image instead of dropping it. On by default: most clients
+		 * render it (Gmail rasterises), Outlook desktop (2007-2019) shows nothing, and the file can
+		 * still be sent as a plain link. `false` restores the raster-only behaviour.
+		 */
+		inlineSvg: boolean
 	}
 	tuning: { idleRenewMs: number; backoffInitialMs: number; backoffMaxMs: number }
 	/**
@@ -170,6 +176,7 @@ const DEFAULTS: Omit<ResolvedConfig, "warnings"> = {
 		// 18 MB raw is about 24 MB once base64-encoded, under the 25 MB ceiling that Gmail and
 		// Outlook.com enforce. A provider that allows more (QQ: 50 MB) can raise it.
 		maxAttachmentMb: 18,
+		inlineSvg: true,
 	},
 	tuning: {
 		idleRenewMs: 25 * 60 * 1000,
@@ -384,6 +391,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 	// The ceiling is a mail-transport fact, not a taste: base64 inflates by ~4/3, so 45 MB of files
 	// is ~60 MB on the wire - past QQ's 50 MB and far past Gmail's 25 MB. The cap exists so a
 	// mis-set value fails here, with a warning, rather than at the provider with the mail lost whole.
+	const rawInlineSvg: unknown = resolved.notify.inlineSvg
+	if (rawInlineSvg !== undefined && typeof rawInlineSvg !== "boolean") {
+		warnings.push("notify.inlineSvg must be true or false — using true")
+	}
+	resolved.notify = { ...resolved.notify, inlineSvg: typeof rawInlineSvg === "boolean" ? rawInlineSvg : resolved.notify.inlineSvg }
+
 	const rawMaxMb: unknown = resolved.notify.maxAttachmentMb
 	if (rawMaxMb !== undefined) {
 		const mb = typeof rawMaxMb === "number" ? rawMaxMb : Number.NaN

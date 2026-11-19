@@ -43,6 +43,14 @@ like a human's.
   `dmarc-missing`). These paths stay silent on the wire — no reply is sent — but a gate nobody can observe is
   a gate nobody can debug.
 
+### A referenced SVG can be inlined
+
+`![](diagram.svg)` used to be reported as "not attached, not an image": SVG has no magic-byte signature, so
+the sniffing refused it. It is now recognised by its root element and inlined as a cid image with
+`image/svg+xml`, controlled by `notify.inlineSvg` (default true). Outlook desktop 2007-2019 renders no SVG, so
+set it to false there, or reference the file as a link to have it attached instead. Inbound SVG is unchanged:
+a reply's SVG is still delivered as a file on disk.
+
 ### DMARC pinning no longer needs a human to read headers
 
 `security.trustedAuthservId` is the receiving provider's own `authserv-id`, and it exists only in a

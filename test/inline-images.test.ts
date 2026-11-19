@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { inlineLocalImages, sniffImage, MAX_INLINE_BYTES, MAX_INLINE_COUNT, MAX_FILE_BYTES, MAX_INLINE_TOTAL_BYTES } from "../src/core/inline-images.ts"
+import { inlineLocalImages, sniffImage, sniffSvg, MAX_INLINE_BYTES, MAX_INLINE_COUNT, MAX_FILE_BYTES, MAX_INLINE_TOTAL_BYTES } from "../src/core/inline-images.ts"
 import { renderMessage } from "../src/core/html.ts"
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
@@ -500,3 +500,40 @@ test("a FIFO is refused instead of blocking the send, on both paths", { skip: pr
 	assert.equal(result.n, 0)
 	assert.deepEqual(result.reasons, ["unreadable", "unreadable"], "both paths refuse it")
 })
+
+const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>')
+
+test("sniffSvg recognises a document and not an ordinary XML file", () => {
+	assert.equal(sniffSvg(SVG), true)
+	assert.equal(sniffSvg(Buffer.from('\uFEFF<?xml version="1.0"?><svg width="1"/>')), true)
+	assert.equal(sniffSvg(Buffer.from('<?xml version="1.0"?><rss><channel/></rss>')), false)
+	assert.equal(sniffSvg(Buffer.from("not xml at all")), false)
+	assert.equal(sniffSvg(Buffer.alloc(0)), false)
+})
+
+test("an SVG is inlined as a cid image only when the switch is on", () => {
+	const root = dir()
+	writeFileSync(join(root, "diagram.svg"), SVG)
+	const html = '<p><img src="./diagram.svg" alt="diagram"></p>'
+
+	const on = inlineLocalImages(html, { root, inlineSvg: true })
+	assert.equal(on.attachments.length, 1)
+	assert.equal(on.attachments[0]!.contentType, "image/svg+xml")
+	assert.match(on.attachments[0]!.filename, /\.svg$/)
+	assert.match(on.html, /<img src="cid:/)
+
+	// The switch off keeps the old behaviour: no attachment, and a note the reader can act on.
+	const off = inlineLocalImages(html, { root, inlineSvg: false })
+	assert.equal(off.attachments.length, 0)
+	assert.match(off.html, /not attached, not an image/)
+})
+
+test("an oversized SVG is refused before it is inlined", () => {
+	const root = dir()
+	const big = Buffer.concat([SVG, Buffer.alloc(MAX_INLINE_BYTES + 1, 0x20)])
+	writeFileSync(join(root, "big.svg"), big)
+	const result = inlineLocalImages('<img src="./big.svg" alt="big">', { root, inlineSvg: true })
+	assert.equal(result.attachments.length, 0)
+	assert.match(result.html, /over the/)
+})
+

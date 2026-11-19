@@ -136,6 +136,17 @@ const ALLOWED_FILE_EXTENSIONS: Record<string, string> = {
  * notification than vector sharpness. SVG could be added behind a flag with an explicit
  * "invisible in Outlook desktop" caveat.
  */
+/**
+ * Is this an SVG document? XML, so there is no magic number; look for the root element in the head.
+ * Kept separate from `sniffImage` because an SVG is only ever inlined here - the inbound path must not
+ * hand `image/svg+xml` to a model that accepts raster images only.
+ */
+export function sniffSvg(buffer: Buffer): boolean {
+	const head = buffer.subarray(0, 4096).toString("utf8").replace(/^\uFEFF/, "").trimStart()
+	if (!/^(?:<\?xml|<svg|<!DOCTYPE svg|<!--)/i.test(head)) return false
+	return /<svg[\s>]/i.test(head.slice(0, 4096))
+}
+
 export function sniffImage(buffer: Buffer): { contentType: string; ext: string } | undefined {
 	if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
 		return { contentType: "image/png", ext: "png" }
@@ -307,6 +318,8 @@ export interface InlineOptions {
 	maxCount?: number
 	/** Total bytes of all attachments; defaults to MAX_INLINE_TOTAL_BYTES. */
 	maxTotalBytes?: number
+	/** Inline SVG as a cid image; the caller passes `notify.inlineSvg`, which defaults to true. */
+	inlineSvg?: boolean
 	/** Injected for tests. */
 	readFile?: (path: string) => Buffer
 	sizeOf?: (path: string) => number
@@ -371,7 +384,7 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 			return note(alt || "image", "not attached, file not found")
 		}
 
-		const kind = sniffImage(bytes)
+		const kind = sniffImage(bytes) ?? (options.inlineSvg && sniffSvg(bytes) ? { contentType: "image/svg+xml", ext: "svg" } : undefined)
 		if (!kind) {
 			skipped.push({ src, reason: "not-an-image" })
 			return note(alt || "image", "not attached, not an image")

@@ -127,6 +127,7 @@ export async function sendMail(
 		// The user's cap, so a QQ account can use 45 MB and a Gmail account is not left with a
 		// send that fails at the provider.
 		maxTotalBytes: Math.round(config.notify.maxAttachmentMb * 1024 * 1024),
+		inlineSvg: config.notify.inlineSvg,
 	})
 
 	// withFreshToken hands each attempt its token; use it directly rather than fetching a

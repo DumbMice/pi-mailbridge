@@ -46,7 +46,7 @@ function config(over: Partial<typeof STARTER_DEFAULTS> = {}): ResolvedConfig {
 		device: { name: "dev" },
 		security: { allowFrom: ["me@e.com"], requireDmarcPass: true, tokenTtlHours: 1 },
 		daemon: { host: "127.0.0.1", port: 4177 },
-		notify: { onSettled: true, debounceMs: 1, notifyOnAborted: false, maxAttachmentMb: 1 },
+		notify: { onSettled: true, debounceMs: 1, notifyOnAborted: false, maxAttachmentMb: 1 , inlineSvg: true},
 		tuning: { idleRenewMs: 1, backoffInitialMs: 1, backoffMaxMs: 2 },
 		warnings: [],
 		starter: { ...STARTER_DEFAULTS, enabled: true, roots: [base], ...over },
