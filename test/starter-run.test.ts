@@ -582,3 +582,43 @@ test("stop waits for a scan that is still queued behind another", async () => {
 	assert.equal(stopped, true)
 })
 
+test("shutdown waits for a scan that was queued before it began", async () => {
+	// Independent evidence, not a second gate: count the scans that actually started. If stop() waited only
+	// for the first, it would resolve with one scan recorded; it must resolve with both.
+	const r = rig()
+	r.messages.delete(1)
+	let calls = 0
+	let release!: () => void
+	let entered!: () => void
+	const gate = new Promise<void>((resolve) => {
+		release = resolve
+	})
+	const started = new Promise<void>((resolve) => {
+		entered = resolve
+	})
+	const original = r.source.searchAfter.bind(r.source)
+	r.source.searchAfter = async (uid: number) => {
+		calls += 1
+		if (calls === 1) {
+			entered()
+			await gate
+		}
+		return original(uid)
+	}
+	const runner = createStarterRunner({ ...r, timers: { setTimeout: () => 0 as unknown, clearTimeout: () => {} }, scanIntervalSecs: 0 })
+	const first = runner.once()
+	const second = runner.once()
+	await started
+	let stopResolved = false
+	let callsAtStop = 0
+	const stopping = runner.stop().then(() => {
+		stopResolved = true
+		callsAtStop = calls
+	})
+	await new Promise((resolve) => setTimeout(resolve, 20))
+	assert.equal(stopResolved, false, "stop cannot resolve while the first scan is running")
+	release()
+	await Promise.all([first, second, stopping])
+	assert.equal(callsAtStop, 2, "and it resolves only after the queued scan has run too")
+})
+
