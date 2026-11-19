@@ -1198,4 +1198,5 @@ routing never depends on the sender's device.
 - Creating a new session from mail (deliberately out of scope: `ctx.newSession()`
   replaces the active session).
 - MIME/S-MIME signing and encryption.
-- Live-mailbox integration test (everything is hermetic today).
+- An automated live-mailbox test in CI. The harness in `scripts/live/` runs one real mail through Docker and is
+  run by hand; the suite itself stays hermetic.

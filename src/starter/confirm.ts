@@ -11,17 +11,9 @@
 import type { ResolvedConfig } from "../core/config.ts"
 import type { OutboundMessage } from "../core/mailer.ts"
 import type { TokenProvider } from "../core/oauth.ts"
+import { cleanDiagnostic } from "../core/diagnostics.ts"
 
-/** Captured pane text is a diagnostic: strip escapes and control bytes, cap it. */
-export function cleanDiagnostic(text: string, max = 1_500): string {
-	const clean = text
-		.replace(/\u001B\[[0-9;?]*[A-Za-z]/g, "")
-		// eslint-disable-next-line no-control-regex
-		.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
-		.replace(/\r\n/g, "\n")
-		.trim()
-	return clean.length > max ? `${clean.slice(0, max)}…` : clean
-}
+export { cleanDiagnostic } from "../core/diagnostics.ts"
 
 export interface StartedFacts {
 	name: string

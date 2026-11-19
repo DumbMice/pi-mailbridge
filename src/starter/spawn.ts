@@ -12,6 +12,7 @@
 //      session; a failure is killed and reported with the captured pane text.
 
 import { existsSync, readFileSync } from "node:fs"
+import { cleanDiagnostic } from "../core/diagnostics.ts"
 import { execFile as nodeExecFile } from "node:child_process"
 
 export const DEFAULT_SOCKET = "pimail"
@@ -187,12 +188,7 @@ export function buildListArgv(socket = DEFAULT_SOCKET): string[] {
 
 /** A pane's text, capped and stripped of control characters, for a refusal mail. */
 export function diagnosticsFrom(pane: string): string {
-	const clean = pane
-		// eslint-disable-next-line no-control-regex
-		.replace(/\u001B\[[0-9;?]*[A-Za-z]/g, "")
-		.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
-		.trim()
-	return clean.length > MAX_DIAGNOSTIC_CHARS ? `${clean.slice(0, MAX_DIAGNOSTIC_CHARS)}…` : clean
+	return cleanDiagnostic(pane, MAX_DIAGNOSTIC_CHARS)
 }
 
 interface ReadyMarker {

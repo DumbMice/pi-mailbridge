@@ -174,7 +174,7 @@ pi-mailbridge starter list             # live sessions
 pi-mailbridge starter stop <name>      # stop one, by its recorded session id
 pi-mailbridge starter attach <name>    # tmux attach
 pi-mailbridge starter once --dry-run   # show what an interrupted request would run; starts nothing
-./scripts/live/run.sh                  # end-to-end proof in Docker: one real mail, one real session
+./scripts/live/run.sh                  # end-to-end proof in Docker (in the repository, not the package)
 ```
 
 Two settings to get right in the single-mailbox layout (request sent by the account the bridge reads): set
@@ -504,7 +504,7 @@ Every scan records why each message was refused, so this is answerable:
 ```
 
 ```
-daemon: healthy (http://127.0.0.1:4177) — daemon version 0.2.2, protocol 1
+daemon: healthy (http://127.0.0.1:4177) — daemon version 0.3.0, protocol 1
 device: dev-box-7
 mode: on (global)
 imap: connected
@@ -753,8 +753,8 @@ table and the module map: [docs/ARCHITECTURE.md](https://github.com/DumbMice/pi-
 against a live QQ mailbox in both layouts: two addresses (DMARC verified on the reply) and one
 address for both roles (self-delivery, the self-echo guard, and a reply routed by the chain).
 
-What that does not buy you: the live test is opt-in and self-hosted (`scripts/live/run.sh`, one real
-mail through Docker), not a gate on every change, and provider behaviour is observed rather than
+What that does not buy you: the live test is opt-in and self-hosted (`scripts/live/run.sh` in the repository,
+one real mail through Docker), not a gate on every change, and provider behaviour is observed rather than
 guaranteed. A provider can change how it rewrites headers or pushes `EXISTS`. The
 hermetic suite covers the token, authz, scan pipeline, stores, daemon HTTP surface, lifecycle,
 extension surface, tools, attachments and the full end-to-end loop; it needs no network, no

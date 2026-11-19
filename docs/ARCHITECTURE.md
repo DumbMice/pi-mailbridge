@@ -431,6 +431,7 @@ src/
     config-freshness.ts  is the daemon's config older than the file?
     containment.ts      is this path inside that directory? (attachments and the starter)
     deliveries.ts       claim → inject → ack, serialized per process
+    diagnostics.ts      one sanitizer for text that goes into a mail (escapes, control bytes, cap)
     discover.ts         account autodiscovery
     header-encoding.ts  RFC 2047 decode/encode
     html.ts             text → the HTML part of multipart/alternative (the client folds the quoted history)
