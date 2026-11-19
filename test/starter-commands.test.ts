@@ -508,6 +508,9 @@ test("check says it is offline, and an auth failure is named as one", () => {
 		// A hostname that merely contains 535 is not an auth failure; the old bare regex said it was.
 		assert.equal(imapFailureHint({ message: "getaddrinfo ENOTFOUND 535.example.invalid" }), undefined)
 		assert.match(imapFailureHint({ message: "535 5.7.8 Username and Password not accepted" }) ?? "", /authorisation code/)
+		assert.match(imapFailureHint({ message: "535 5.7.3 Authentication unsuccessful" }) ?? "", /authorisation code/)
+		assert.match(imapFailureHint({ message: "535 Authentication failed" }) ?? "", /authorisation code/)
+		assert.equal(imapFailureHint({ message: "getaddrinfo ENOTFOUND login.535.example" }), undefined)
 		assert.equal(imapFailureHint(undefined), undefined)
 	})
 })

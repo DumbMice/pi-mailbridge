@@ -583,42 +583,55 @@ test("stop waits for a scan that is still queued behind another", async () => {
 })
 
 test("shutdown waits for a scan that was queued before it began", async () => {
-	// Independent evidence, not a second gate: count the scans that actually started. If stop() waited only
-	// for the first, it would resolve with one scan recorded; it must resolve with both.
+	// Independent gates, and an assertion taken while the queued scan is provably still running: a shutdown
+	// that waited only for the first scan would resolve here, because the second cannot finish until released.
 	const r = rig()
 	r.messages.delete(1)
 	let calls = 0
-	let release!: () => void
-	let entered!: () => void
-	const gate = new Promise<void>((resolve) => {
-		release = resolve
-	})
-	const started = new Promise<void>((resolve) => {
-		entered = resolve
+	const releases: (() => void)[] = []
+	const entered: (() => void)[] = []
+	const gates = [0, 1].map(() => {
+		let release!: () => void
+		let enter!: () => void
+		const gate = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		const started = new Promise<void>((resolve) => {
+			enter = resolve
+		})
+		releases.push(release)
+		entered.push(enter)
+		return { gate, started }
 	})
 	const original = r.source.searchAfter.bind(r.source)
 	r.source.searchAfter = async (uid: number) => {
+		const index = calls
 		calls += 1
-		if (calls === 1) {
-			entered()
-			await gate
+		if (index < 2) {
+			entered[index]!()
+			await gates[index]!.gate
 		}
 		return original(uid)
 	}
 	const runner = createStarterRunner({ ...r, timers: { setTimeout: () => 0 as unknown, clearTimeout: () => {} }, scanIntervalSecs: 0 })
 	const first = runner.once()
 	const second = runner.once()
-	await started
-	let stopResolved = false
-	let callsAtStop = 0
+	await gates[0]!.started
+	releases[0]!()
+	await first
+	// The queued scan is now provably running and blocked, so any stop() that resolved would have skipped it.
+	await Promise.race([
+		gates[1]!.started,
+		new Promise((_resolve, reject) => setTimeout(() => reject(new Error("the queued scan never started")), 1_000)),
+	])
+	let stopped = false
 	const stopping = runner.stop().then(() => {
-		stopResolved = true
-		callsAtStop = calls
+		stopped = true
 	})
 	await new Promise((resolve) => setTimeout(resolve, 20))
-	assert.equal(stopResolved, false, "stop cannot resolve while the first scan is running")
-	release()
-	await Promise.all([first, second, stopping])
-	assert.equal(callsAtStop, 2, "and it resolves only after the queued scan has run too")
+	assert.equal(stopped, false, "stop cannot resolve while the queued scan is still blocked")
+	releases[1]!()
+	await Promise.all([second, stopping])
+	assert.equal(stopped, true, "and it resolves once that scan finishes")
 })
 
