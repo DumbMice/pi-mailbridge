@@ -347,7 +347,9 @@ model output. The controls, all fail-closed:
   obvious key filenames out of an accidental attach. A linked file whose extension
   claims a raster image must also **sniff** as one (a `.png` full of text is refused, and a real
   PNG misnamed `.jpg` is attached as `image/png`); SVG is the exception, since XML has no
-  signature; it is an attachment, never inlined. It is not a content filter:
+  signature; a link attaches it as a file. With `notify.inlineSvg` (default true) a **simple** SVG referenced
+as an image is inlined instead: no doctype, no processing instruction but the UTF-8 XML declaration, and a
+well-formed start tag. It is not a content filter:
   `cp ~/.ssh/id_rsa notes.txt` or `tar czf k.tar ~/.ssh` defeats it, and `realpath` cannot see a
   hardlink. Treat it as a guard rail against a naive single-shot injection, not a sandbox.
 - **Size caps**: 5 MB per inline image and 15 MB per linked file (fixed), and

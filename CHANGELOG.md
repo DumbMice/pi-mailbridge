@@ -51,9 +51,10 @@ the sniffing refused it. It is now recognised by its root element and inlined as
 support: Gmail rasterises it and Outlook desktop 2007-2019 renders nothing. Setting it to false drops the
 reference with a note; link the file instead to attach it. The root element is tokenized quote-aware, so a
 `>` inside an attribute or a name like `svgé` cannot be mistaken for an SVG. XML strictness applies: quoted
-values, whitespace between attributes, unique names, and XML whitespace only. Any doctype with an external
-identifier or an internal subset is refused, because a DTD can declare a default namespace the sniffer cannot
-resolve; linking such a file still attaches it. Inbound SVG is unchanged: a reply's SVG is still delivered as a file on disk.
+values, whitespace between attributes, unique names, XML whitespace only, no raw `<` or bare `&` in a value,
+and no reserved `xml` prefix. Only a simple shape is inlined: no doctype at all, no processing instruction
+other than a UTF-8 XML declaration, and at most one declaration. A DTD-bearing SVG (Illustrator writes one) is
+attached rather than inlined; linking it still delivers it. Inbound SVG is unchanged: a reply's SVG is still delivered as a file on disk.
 
 ### DMARC pinning no longer needs a human to read headers
 

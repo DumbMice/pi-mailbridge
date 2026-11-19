@@ -422,7 +422,10 @@ A notification carries what it needs to be useful away from the desk:
 | `[the log](./build.log)` | `build.log` as an **attachment**; nothing renders a PDF or a zip inside a mail body, so it is named beside the link: `the log [attached: build.log]` |
 
 An SVG is inlined too (`notify.inlineSvg`, default true): `![](diagram.svg)` becomes a cid image with
-`image/svg+xml`. Whether you see it depends on the client's CID-SVG support: Gmail rasterises it, **Outlook
+`image/svg+xml`. Only a simple document is recognised: no doctype (a DTD can declare entities or a default
+namespace this code does not parse), no processing instruction other than a UTF-8 XML declaration, and a
+well-formed start tag; a namespace-less `<svg/>` is accepted, and when a namespace is written it must be the
+SVG one. Anything else falls back to the note. Whether you see it depends on the client's CID-SVG support: Gmail rasterises it, **Outlook
 desktop 2007-2019 renders nothing**, and a client that does not support it shows no image at all. That is why
 the raster types are still the safer choice for a notification you must be able to read anywhere.
 `notify.inlineSvg: false` drops such a reference with the "not attached" note rather than converting it to a

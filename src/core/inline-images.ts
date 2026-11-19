@@ -136,30 +136,12 @@ const ALLOWED_FILE_EXTENSIONS: Record<string, string> = {
  * notification than vector sharpness. SVG could be added behind a flag with an explicit
  * "invisible in Outlook desktop" caveat.
  */
-/**
- * Is this an SVG document? XML, so there is no magic number: walk a bounded prolog (BOM, whitespace,
- * comments, processing instructions, doctype) and require the first *element* to be `svg` in the SVG
- * namespace. A comment mentioning `<svg>`, an HTML page that embeds one, and XML with SVG somewhere below
- * its root must all be rejected, or a mislabelled file becomes an image part that renders as nothing.
- *
- * No XML parsing and no entity expansion happens here; the scan is a bounded prefix and fails closed, so
- * a large prolog simply is not detected.
- *
- * Kept separate from `sniffImage` because an SVG is only ever inlined here - the inbound path must not hand
- * `image/svg+xml` to a model that accepts raster images only.
- */
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 
 /** Whitespace as XML defines it, not JavaScript's `\s` (which includes NBSP and friends). */
 const XML_SPACE = new Set([" ", "\t", "\r", "\n"])
 
-/**
- * A well-formed start tag from a bounded prefix.
- *
- * Strict on purpose: XML requires whitespace between attributes, quoted values, and unique attribute names.
- * A lenient reader silently accepts `xmlns="urn:other"xmlns="svg"`, unquoted values, and a second xmlns that
- * shadows the first, which is exactly how a foreign document would pass as SVG.
- */
+/** A well-formed start tag, strict where XML is strict: quoted values, whitespace between attributes, unique names. */
 function readStartTag(
 	head: string,
 	at: number,
@@ -175,7 +157,6 @@ function readStartTag(
 		if (i >= head.length) return undefined
 		if (head[i] === ">") return { name, attrs }
 		if (head[i] === "/" && head[i + 1] === ">") return { name, attrs }
-		// Attributes are separated from the name and from each other by whitespace.
 		if (!XML_SPACE.has(head[i]!)) return undefined
 		while (i < head.length && XML_SPACE.has(head[i]!)) i += 1
 		if (head[i] === ">") return { name, attrs }
@@ -192,32 +173,43 @@ function readStartTag(
 		if (quote !== '"' && quote !== "'") return undefined
 		const close = head.indexOf(quote, i + 1)
 		if (close === -1) return undefined
+		const value = head.slice(i + 1, close)
+		// XML forbids a raw `<` and requires every `&` to start a reference; a NUL is not a character at all.
+		if (value.includes("<") || value.includes("\u0000")) return undefined
+		if (/&(?!(?:[A-Za-z_][\w.-]*|#[0-9]+|#x[0-9A-Fa-f]+);)/.test(value)) return undefined
 		if (attrs.has(attr)) return undefined
-		attrs.set(attr, head.slice(i + 1, close))
+		attrs.set(attr, value)
 		i = close + 1
 	}
 }
 
 /**
- * Is this an SVG document? XML, so there is no magic number: walk a bounded prolog (BOM, whitespace,
- * comments, processing instructions, at most one doctype) and require the first *element* to be `svg` in the
- * SVG namespace. A comment mentioning `<svg>`, an HTML page that embeds one, and XML with SVG somewhere below
- * its root are all rejected, or a mislabelled file becomes an image part that renders as nothing.
+ * Is this an SVG document? XML, so there is no magic number. This accepts only a **simple** document shape,
+ * and refuses the rest rather than trying to be a parser:
  *
- * The start tag is tokenized with a quote-aware reader rather than a regex: `aria-label="A > B"` must not end
- * the tag, `svgé` is not `svg`, and `data-xmlns` is not a namespace declaration. Attribute names are matched
- * case-sensitively, because XML is.
+ *   [BOM] [one XML declaration] [comments] <svg ...> or <prefix:svg ...>
  *
- * A doctype with an internal subset is rejected rather than skipped: entity declarations and namespace
- * defaults cannot be resolved without a parser, and guessing them is how a non-SVG document would pass. Such
- * a file is not inlined; linking it still attaches it as a file.
+ * Everything else fails closed: any doctype (a DTD can declare entities or a default namespace this code
+ * cannot resolve, and resolving them is how a foreign document would pass), any processing instruction other
+ * than the leading declaration, a second declaration, non-UTF-8 encodings, a non-XML whitespace character,
+ * a malformed start tag (unquoted values, duplicate attributes, raw `<` or a bare `&` in a value, NUL), or a
+ * reserved `xml`/`xmlns` prefix. A DTD-bearing SVG (Illustrator writes one) is not inlined; linking it still
+ * attaches it as a file.
+ *
+ * The namespace-less `<svg/>` is accepted because it is common in snippets; that exception is deliberate and
+ * noted in the README. When a namespace is written, it must be the SVG one.
  */
 export function sniffSvg(buffer: Buffer): boolean {
-	const head = buffer.subarray(0, 8192).toString("utf8")
+	let head: string
+	try {
+		head = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, 8192))
+	} catch {
+		return false
+	}
 	let i = head.charCodeAt(0) === 0xfeff ? 1 : 0
-	let doctypes = 0
+	let declaration = false
 	for (;;) {
-		while (i < head.length && /\s/.test(head[i]!)) i += 1
+		while (i < head.length && XML_SPACE.has(head[i]!)) i += 1
 		if (head.startsWith("<!--", i)) {
 			const close = head.indexOf("-->", i + 4)
 			if (close === -1) return false
@@ -227,38 +219,20 @@ export function sniffSvg(buffer: Buffer): boolean {
 		if (head.startsWith("<?", i)) {
 			const close = head.indexOf("?>", i + 2)
 			if (close === -1) return false
+			const body = head.slice(i + 2, close)
+			const targetMatch = /^([^\s?]+)([\s\S]*)$/.exec(body)
+			if (!targetMatch) return false
+			const target = targetMatch[1]!
+			// The XML declaration is the only PI this shape allows, it comes first, and it is UTF-8 only.
+			if (target !== "xml" || declaration) return false
+			if (!/^\s+version\s*=\s*["']1\.[0-9]+["']/.test(targetMatch[2]!)) return false
+			const encoding = /\sencoding\s*=\s*["']([^"']+)["']/.exec(targetMatch[2]!)
+			if (encoding && encoding[1]!.toLowerCase() !== "utf-8") return false
+			declaration = true
 			i = close + 2
 			continue
 		}
-		if (/^<!doctype/i.test(head.slice(i, i + 9))) {
-			// `<!DOCTYPEish>` is not a doctype: the keyword must be followed by whitespace.
-			if (!XML_SPACE.has(head[i + 9] ?? "")) break
-			if (doctypes > 0) return false
-			doctypes += 1
-			let j = i + 9
-			while (j < head.length && XML_SPACE.has(head[j]!)) j += 1
-			const nameStart = j
-			while (j < head.length && !XML_SPACE.has(head[j]!) && head[j] !== ">") j += 1
-			if (head.slice(nameStart, j) !== "svg") return false
-			let quote: string | undefined
-			for (; j < head.length; j += 1) {
-				const ch = head[j]!
-				if (quote) {
-					if (ch === quote) quote = undefined
-					continue
-				}
-				if (ch === '"' || ch === "'") {
-					// A quoted literal here is an external identifier (SYSTEM/PUBLIC): its DTD can declare a
-					// default namespace we cannot resolve, so the document is not inlined.
-					return false
-				}
-				if (ch === "[") return false
-				if (ch === ">") break
-			}
-			if (j >= head.length) return false
-			i = j + 1
-			continue
-		}
+		if (head.startsWith("<!")) return false
 		break
 	}
 
@@ -266,6 +240,7 @@ export function sniffSvg(buffer: Buffer): boolean {
 	if (!root) return false
 	const prefixed = /^([A-Za-z_][\w.-]*):svg$/.exec(root.name)
 	if (root.name !== "svg" && !prefixed) return false
+	if (prefixed && (prefixed[1] === "xml" || prefixed[1] === "xmlns")) return false
 	if (prefixed) {
 		// The prefix must be bound to the SVG namespace; an unrelated default namespace is irrelevant to a
 		// prefixed name and does not make the document non-SVG.

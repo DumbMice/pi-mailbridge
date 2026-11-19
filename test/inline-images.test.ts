@@ -509,9 +509,9 @@ test("sniffSvg checks the first element, not a mention of <svg>", () => {
 	assert.equal(sniffSvg(Buffer.from('\uFEFF<?xml version="1.0"?><svg width="1"/>')), true)
 	assert.equal(sniffSvg(Buffer.from('<svg/>')), true)
 	assert.equal(
-		sniffSvg(Buffer.from('<?xml version="1.0"?><!-- note <svg> --><!DOCTYPE svg><svg xmlns="http://www.w3.org/2000/svg"/>')),
+		sniffSvg(Buffer.from('<?xml version="1.0"?><!-- note <svg> --><svg xmlns="http://www.w3.org/2000/svg"/>')),
 		true,
-		"declaration, comment and a bare doctype before the root",
+		"declaration and comment before the root",
 	)
 	assert.equal(sniffSvg(Buffer.from('<svg:svg xmlns:svg="http://www.w3.org/2000/svg"/>')), true)
 	assert.equal(
@@ -557,15 +557,27 @@ test("the root check is strict about XML well-formedness and namespaces", () => 
 	// A DTD we cannot resolve must not be trusted: an external identifier can declare a default namespace.
 	assert.equal(ok('<!DOCTYPE svg SYSTEM "http://example.com/svg.dtd"><svg/>'), false)
 	assert.equal(ok('<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "x"><svg/>'), false)
-	assert.equal(ok('<!DOCTYPE svg><!DOCTYPE svg><svg/>'), false, "one doctype only")
+	assert.equal(ok('<!DOCTYPE svg><!DOCTYPE svg><svg/>'), false)
 	assert.equal(ok('<!DOCTYPEish svg><svg/>'), false, "`<!DOCTYPEish` is not a doctype")
-	assert.equal(ok('<!DOCTYPE svg><svg/>'), true)
+	assert.equal(ok('<!DOCTYPE svg><svg/>'), false, "no doctype is accepted: a DTD is not parsed here")
 	// Malformed tags: XML demands whitespace, quoted values and unique attributes.
 	assert.equal(ok('<svg xmlns="urn:other"xmlns="http://www.w3.org/2000/svg"/>'), false)
 	assert.equal(ok('<svg xmlns=urn:other/>'), false)
 	assert.equal(ok('<svg xmlns="urn:other" xmlns="urn:other2"/>'), false, "duplicate attribute")
 	assert.equal(ok('<svg xmlns="urn:other"><!-- x --><svg/>'), false)
 	assert.equal(ok('<svg xmlns="http://www.w3.org/2000/svg" data-x="1"/>'), false, "NBSP is not XML whitespace")
+	// Prolog strictness: NBSP, duplicate declarations, a PI target, and non-UTF-8 encoding.
+	assert.equal(ok('\u00A0<svg/>'), false, "NBSP is not XML whitespace")
+	assert.equal(ok('<?xml version="1.0"?><?xml version="1.0"?><svg/>'), false)
+	assert.equal(ok('<??><svg/>'), false)
+	assert.equal(ok('<?xml version="1.0" encoding="utf-16"?><svg/>'), false)
+	assert.equal(ok('<?xml-stylesheet href="x"?><svg/>'), false, "only the XML declaration is allowed")
+	// Malformed attribute values.
+	assert.equal(ok('<svg xmlns="http://www.w3.org/2000/svg" aria-label="a < b"/>'), false, "raw < in a value")
+	assert.equal(ok('<svg xmlns="http://www.w3.org/2000/svg" aria-label="a & b"/>'), false, "bare & in a value")
+	assert.equal(ok('<svg xmlns="http://www.w3.org/2000/svg" aria-label="a &amp; b"/>'), true)
+	assert.equal(ok('<svg xmlns="http://www.w3.org/2000/svg" aria-label="&#65;"/>'), true)
+	assert.equal(ok('<xml:svg xmlns:xml="http://www.w3.org/2000/svg"/>'), false, "the xml prefix is reserved")
 	// A prefixed root is SVG when its own prefix is bound, whatever the default namespace says.
 	assert.equal(ok('<s:svg xmlns:s="http://www.w3.org/2000/svg" xmlns="urn:other"/>'), true)
 })
