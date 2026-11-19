@@ -1133,9 +1133,13 @@ test("the starter diagrams exist, are referenced, and state what the section pro
 	// Same rule as the flow diagram: a rotting image is worse than none, and one that disagrees with the
 	// section is a confident lie. These are checked for the load-bearing strings, not their layout.
 	const readme = doc("README.md")
-	for (const name of ["starter-mail.svg", "starter-flow.svg"]) {
-		assert.match(readme, new RegExp(`docs/images/${name}`), `README references ${name}`)
-		assert.ok(existsSync(join(root, "docs", "images", name)), `${name} is in the package`)
+	// Each is embedded as <picture>: SVG first, PNG fallback for clients that drop SVG.
+	for (const name of ["starter-mail", "starter-flow"]) {
+		for (const ext of ["svg", "png"]) {
+			assert.match(readme, new RegExp(`docs/images/${name}\\.${ext}`), `README references ${name}.${ext}`)
+			assert.ok(existsSync(join(root, "docs", "images", `${name}.${ext}`)), `${name}.${ext} is in the package`)
+		}
+		assert.match(readme, new RegExp(`type="image/svg\\+xml"`), "the SVG is the preferred source")
 	}
 	const mail = readFileSync(join(root, "docs/images/starter-mail.svg"), "utf8")
 	for (const needle of ["[pi-start]", "cwd:", "prompt:", "stop:", "list:", "attach:"]) {
@@ -1157,7 +1161,9 @@ test("the diagrams are in the published package", () => {
 		"docs/images/notification.png",
 		"docs/images/flow.svg",
 		"docs/images/starter-mail.svg",
+		"docs/images/starter-mail.png",
 		"docs/images/starter-flow.svg",
+		"docs/images/starter-flow.png",
 	]) {
 		assert.ok(existsSync(join(root, image)), `${image} is missing`)
 	}
