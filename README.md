@@ -119,6 +119,11 @@ sessions, and says "tmux did not answer" rather than "no sessions" when the sock
 a session ends the session, not the delivery of its result: if the "started" mail never went out, it is
 still sent on a later scan.
 
+`stop:` and `list:` are **body** lines, not subjects. The subject only has to stay on-channel: a reply to the
+result mail already reads `Re: [pi-start] …` (with the address channel, its `To:` is what matches), and a new
+mail with `[pi-start]` in the subject works the same way. In a reply, the command is read above the quoted
+history, so it has to be typed at the top.
+
 Operational limits worth knowing before you turn it on:
 
 - **One machine, one channel.** There is no device tag; two starters watching the same mailbox will both
