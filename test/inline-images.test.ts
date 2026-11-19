@@ -508,6 +508,9 @@ test("sniffSvg checks the first element, not a mention of <svg>", () => {
 	assert.equal(sniffSvg(SVG), true)
 	assert.equal(sniffSvg(Buffer.from('\uFEFF<?xml version="1.0"?><svg width="1"/>')), true)
 	assert.equal(sniffSvg(Buffer.from('<svg/>')), true)
+	// Exactly one BOM is allowed; TextDecoder strips it, so a second one is not whitespace and fails.
+	assert.equal(sniffSvg(Buffer.from('\uFEFF<svg/>')), true)
+	assert.equal(sniffSvg(Buffer.from('\uFEFF\uFEFF<?xml version="1.0"?><svg/>')), false)
 	// A comment at byte zero must not be mistaken for a doctype: the guard reads at the cursor, not index 0.
 	assert.equal(sniffSvg(Buffer.from('<!-- artwork --><svg xmlns="http://www.w3.org/2000/svg"/>')), true)
 	assert.equal(sniffSvg(Buffer.from('<!-- a --><!-- b --> <?xml version="1.0"?><svg/>')), false, "declaration must come first")

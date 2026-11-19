@@ -222,7 +222,8 @@ export function sniffSvg(buffer: Buffer): boolean {
 		}
 	}
 	if (head === undefined) return false
-	const start = head.charCodeAt(0) === 0xfeff ? 1 : 0
+	// TextDecoder strips one leading BOM; doing it again here would accept two.
+	const start = 0
 	let i = start
 	let declaration = false
 	let beforeRoot = false
