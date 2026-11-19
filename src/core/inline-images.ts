@@ -159,7 +159,7 @@ function readStartTag(
 	const nameStart = i
 	while (i < head.length && !XML_SPACE.has(head[i]!) && head[i] !== ">" && head[i] !== "/") i += 1
 	const name = head.slice(nameStart, i)
-	if (!name || !/^[\p{L}_][\p{L}\p{N}_.-]*(?::[\p{L}_][\p{L}\p{N}_.-]*)?$/u.test(name)) return undefined
+	if (!name || !/^[\p{L}_][\p{L}\p{N}\p{Mn}\p{Mc}_.-]*(?::[\p{L}_][\p{L}\p{N}\p{Mn}\p{Mc}_.-]*)?$/u.test(name)) return undefined
 	const attrs = new Map<string, string>()
 	for (;;) {
 		if (i >= head.length) return undefined
@@ -172,7 +172,7 @@ function readStartTag(
 		const attrStart = i
 		while (i < head.length && !XML_SPACE.has(head[i]!) && head[i] !== "=" && head[i] !== ">" && head[i] !== "/") i += 1
 		const attr = head.slice(attrStart, i)
-		if (!attr || !/^[\p{L}_][\p{L}\p{N}_.-]*(?::[\p{L}_][\p{L}\p{N}_.-]*)?$/u.test(attr)) return undefined
+		if (!attr || !/^[\p{L}_][\p{L}\p{N}\p{Mn}\p{Mc}_.-]*(?::[\p{L}_][\p{L}\p{N}\p{Mn}\p{Mc}_.-]*)?$/u.test(attr)) return undefined
 		while (i < head.length && XML_SPACE.has(head[i]!)) i += 1
 		if (head[i] !== "=") return undefined
 		i += 1
@@ -211,8 +211,9 @@ export function sniffSvg(buffer: Buffer): boolean {
 	// The window can split a multi-byte character in the body. Drop up to three trailing bytes and retry,
 	// rather than letting a truncated tail decide that the whole document is not UTF-8.
 	const prefix = buffer.subarray(0, 8192)
+	const windowCut = buffer.length > prefix.length
 	let head: string | undefined
-	for (let drop = 0; drop <= 3 && prefix.length - drop >= 0; drop += 1) {
+	for (let drop = 0; drop <= (windowCut ? 3 : 0) && prefix.length - drop >= 0; drop += 1) {
 		try {
 			head = new TextDecoder("utf-8", { fatal: true }).decode(prefix.subarray(0, prefix.length - drop))
 			break
@@ -221,7 +222,8 @@ export function sniffSvg(buffer: Buffer): boolean {
 		}
 	}
 	if (head === undefined) return false
-	let i = head.charCodeAt(0) === 0xfeff ? 1 : 0
+	const start = head.charCodeAt(0) === 0xfeff ? 1 : 0
+	let i = start
 	let declaration = false
 	let beforeRoot = false
 	for (;;) {
@@ -242,7 +244,8 @@ export function sniffSvg(buffer: Buffer): boolean {
 			const target = targetMatch[1]!
 			// The XML declaration is the only PI this shape allows, it must precede everything (a comment
 			// before it is invalid XML), and it is UTF-8 only.
-			if (target !== "xml" || declaration || beforeRoot) return false
+			// XML requires the declaration first, after an optional BOM: no whitespace, no comment before it.
+			if (target !== "xml" || declaration || beforeRoot || i !== start) return false
 			if (!/^\s+version\s*=\s*["']1\.[0-9]+["']/.test(targetMatch[2]!)) return false
 			const encoding = /\sencoding\s*=\s*["']([^"']+)["']/.exec(targetMatch[2]!)
 			if (encoding && encoding[1]!.toLowerCase() !== "utf-8") return false
@@ -256,7 +259,7 @@ export function sniffSvg(buffer: Buffer): boolean {
 
 	const root = readStartTag(head, i)
 	if (!root) return false
-	const prefixed = /^([\p{L}_][\p{L}\p{N}_.-]*):svg$/u.exec(root.name)
+	const prefixed = /^([\p{L}_][\p{L}\p{N}\p{Mn}\p{Mc}_.-]*):svg$/u.exec(root.name)
 	if (root.name !== "svg" && !prefixed) return false
 	if (prefixed && (prefixed[1] === "xml" || prefixed[1] === "xmlns")) return false
 	if (prefixed) {

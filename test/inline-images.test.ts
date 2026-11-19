@@ -511,6 +511,11 @@ test("sniffSvg checks the first element, not a mention of <svg>", () => {
 	// A comment at byte zero must not be mistaken for a doctype: the guard reads at the cursor, not index 0.
 	assert.equal(sniffSvg(Buffer.from('<!-- artwork --><svg xmlns="http://www.w3.org/2000/svg"/>')), true)
 	assert.equal(sniffSvg(Buffer.from('<!-- a --><!-- b --> <?xml version="1.0"?><svg/>')), false, "declaration must come first")
+	assert.equal(sniffSvg(Buffer.from('\n<?xml version="1.0"?><svg/>')), false, "nor may whitespace precede it")
+	// XML names include combining marks: a decomposed accent is a valid attribute name.
+	assert.equal(sniffSvg(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" aria-e\u0301="x"/>')), true)
+	// A short file whose last character is a truncated multi-byte sequence is not valid UTF-8.
+	assert.equal(sniffSvg(Buffer.concat([Buffer.from('<svg/>'), Buffer.from([0xc3])])), false)
 	assert.equal(
 		sniffSvg(Buffer.from('<?xml version="1.0"?><!-- note <svg> --><svg xmlns="http://www.w3.org/2000/svg"/>')),
 		true,
