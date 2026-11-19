@@ -1129,10 +1129,36 @@ test("every image the README embeds actually exists", () => {
 	}
 })
 
+test("the starter diagrams exist, are referenced, and state what the section promises", () => {
+	// Same rule as the flow diagram: a rotting image is worse than none, and one that disagrees with the
+	// section is a confident lie. These are checked for the load-bearing strings, not their layout.
+	const readme = doc("README.md")
+	for (const name of ["starter-mail.svg", "starter-flow.svg"]) {
+		assert.match(readme, new RegExp(`docs/images/${name}`), `README references ${name}`)
+		assert.ok(existsSync(join(root, "docs", "images", name)), `${name} is in the package`)
+	}
+	const mail = readFileSync(join(root, "docs/images/starter-mail.svg"), "utf8")
+	for (const needle of ["[pi-start]", "cwd:", "prompt:", "stop:", "list:", "attach:"]) {
+		assert.ok(mail.includes(needle), `the mail diagram omits ${needle}`)
+	}
+	const flow = readFileSync(join(root, "docs/images/starter-flow.svg"), "utf8")
+	for (const needle of ["journal", "spawn", "readiness", "stop:", "list:", "fail-closed", "reserve"]) {
+		assert.ok(flow.includes(needle), `the starter flow diagram omits ${needle}`)
+	}
+	for (const svg of [mail, flow]) {
+		assert.doesNotMatch(svg, /<image\b/, "both are vector, so they stay sharp and diffable")
+	}
+})
+
 test("the diagrams are in the published package", () => {
 	const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { files: string[] }
 	assert.ok(pkg.files.includes("docs"), "docs/ ships, so docs/images/ does too")
-	for (const image of ["docs/images/notification.png", "docs/images/flow.svg"]) {
+	for (const image of [
+		"docs/images/notification.png",
+		"docs/images/flow.svg",
+		"docs/images/starter-mail.svg",
+		"docs/images/starter-flow.svg",
+	]) {
 		assert.ok(existsSync(join(root, image)), `${image} is missing`)
 	}
 })

@@ -91,6 +91,8 @@ off, so installing never mails you unprompted. `/mailbridge status` shows both w
 Optional, off by default, and a **separate process**: `pi-mailbridge starter run`. Mail it a request and it
 starts a detached pi session in tmux; mail it `stop:` and it closes one.
 
+![Diagram: the request mail, with the subject tag and the literal key block, and the threaded result mail with the attach line and the exact stop command; below, the command replies and the mail that gets no reply](https://cdn.jsdelivr.net/npm/@dumbmice/pi-mailbridge@latest/docs/images/starter-mail.svg)
+
 ```
 To:      your mailbox (or the `starter.channel.address` you configure)
 Subject: [pi-start] fix the flaky auth test
@@ -176,6 +178,12 @@ pi-mailbridge starter attach <name>    # tmux attach
 pi-mailbridge starter once --dry-run   # show what an interrupted request would run; starts nothing
 ./scripts/live/run.sh                  # end-to-end proof in Docker (in the repository, not the package)
 ```
+
+How the request travels: the starter reads its own folder on its own cursor, runs the gates, journals a
+reservation before spawning, and mails the result. `stop:` and `list:` come back the same way and act on that
+journal.
+
+![Diagram: the mailbox, the starter process and the tmux session, numbered from fetch through spawn, readiness and result, with the stop and list path routed above and the gate order below](https://cdn.jsdelivr.net/npm/@dumbmice/pi-mailbridge@latest/docs/images/starter-flow.svg)
 
 Two settings to get right in the single-mailbox layout (request sent by the account the bridge reads): set
 `security.allowSelfReplies: true`, or the self-reply guard refuses the request as `unauthenticated:self`; and
