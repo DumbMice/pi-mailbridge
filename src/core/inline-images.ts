@@ -150,42 +150,51 @@ const ALLOWED_FILE_EXTENSIONS: Record<string, string> = {
  */
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 
-/** A start tag from a bounded prefix: exact names, quote-aware values, no entity expansion. */
-function readStartTag(head: string, at: number): { name: string; attrs: Map<string, string>; selfClosed: boolean } | undefined {
+/** Whitespace as XML defines it, not JavaScript's `\s` (which includes NBSP and friends). */
+const XML_SPACE = new Set([" ", "\t", "\r", "\n"])
+
+/**
+ * A well-formed start tag from a bounded prefix.
+ *
+ * Strict on purpose: XML requires whitespace between attributes, quoted values, and unique attribute names.
+ * A lenient reader silently accepts `xmlns="urn:other"xmlns="svg"`, unquoted values, and a second xmlns that
+ * shadows the first, which is exactly how a foreign document would pass as SVG.
+ */
+function readStartTag(
+	head: string,
+	at: number,
+): { name: string; attrs: Map<string, string> } | undefined {
 	if (head[at] !== "<") return undefined
 	let i = at + 1
 	const nameStart = i
-	while (i < head.length && /[^\s/>]/.test(head[i]!)) i += 1
+	while (i < head.length && !XML_SPACE.has(head[i]!) && head[i] !== ">" && head[i] !== "/") i += 1
 	const name = head.slice(nameStart, i)
-	if (!name) return undefined
+	if (!name || !/^[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?$/.test(name)) return undefined
 	const attrs = new Map<string, string>()
 	for (;;) {
-		while (i < head.length && /\s/.test(head[i]!)) i += 1
 		if (i >= head.length) return undefined
-		if (head[i] === ">") return { name, attrs, selfClosed: false }
-		if (head[i] === "/" && head[i + 1] === ">") return { name, attrs, selfClosed: true }
+		if (head[i] === ">") return { name, attrs }
+		if (head[i] === "/" && head[i + 1] === ">") return { name, attrs }
+		// Attributes are separated from the name and from each other by whitespace.
+		if (!XML_SPACE.has(head[i]!)) return undefined
+		while (i < head.length && XML_SPACE.has(head[i]!)) i += 1
+		if (head[i] === ">") return { name, attrs }
+		if (head[i] === "/" && head[i + 1] === ">") return { name, attrs }
 		const attrStart = i
-		while (i < head.length && /[^\s=/>]/.test(head[i]!)) i += 1
+		while (i < head.length && !XML_SPACE.has(head[i]!) && head[i] !== "=" && head[i] !== ">" && head[i] !== "/") i += 1
 		const attr = head.slice(attrStart, i)
-		if (!attr) return undefined
-		while (i < head.length && /\s/.test(head[i]!)) i += 1
-		if (head[i] !== "=") {
-			attrs.set(attr, "")
-			continue
-		}
+		if (!attr || !/^[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?$/.test(attr)) return undefined
+		while (i < head.length && XML_SPACE.has(head[i]!)) i += 1
+		if (head[i] !== "=") return undefined
 		i += 1
-		while (i < head.length && /\s/.test(head[i]!)) i += 1
+		while (i < head.length && XML_SPACE.has(head[i]!)) i += 1
 		const quote = head[i]
-		if (quote === '"' || quote === "'") {
-			const close = head.indexOf(quote, i + 1)
-			if (close === -1) return undefined
-			attrs.set(attr, head.slice(i + 1, close))
-			i = close + 1
-		} else {
-			const valueStart = i
-			while (i < head.length && /[^\s>]/.test(head[i]!)) i += 1
-			attrs.set(attr, head.slice(valueStart, i))
-		}
+		if (quote !== '"' && quote !== "'") return undefined
+		const close = head.indexOf(quote, i + 1)
+		if (close === -1) return undefined
+		if (attrs.has(attr)) return undefined
+		attrs.set(attr, head.slice(i + 1, close))
+		i = close + 1
 	}
 }
 
@@ -206,6 +215,7 @@ function readStartTag(head: string, at: number): { name: string; attrs: Map<stri
 export function sniffSvg(buffer: Buffer): boolean {
 	const head = buffer.subarray(0, 8192).toString("utf8")
 	let i = head.charCodeAt(0) === 0xfeff ? 1 : 0
+	let doctypes = 0
 	for (;;) {
 		while (i < head.length && /\s/.test(head[i]!)) i += 1
 		if (head.startsWith("<!--", i)) {
@@ -221,7 +231,15 @@ export function sniffSvg(buffer: Buffer): boolean {
 			continue
 		}
 		if (/^<!doctype/i.test(head.slice(i, i + 9))) {
+			// `<!DOCTYPEish>` is not a doctype: the keyword must be followed by whitespace.
+			if (!XML_SPACE.has(head[i + 9] ?? "")) break
+			if (doctypes > 0) return false
+			doctypes += 1
 			let j = i + 9
+			while (j < head.length && XML_SPACE.has(head[j]!)) j += 1
+			const nameStart = j
+			while (j < head.length && !XML_SPACE.has(head[j]!) && head[j] !== ">") j += 1
+			if (head.slice(nameStart, j) !== "svg") return false
 			let quote: string | undefined
 			for (; j < head.length; j += 1) {
 				const ch = head[j]!
@@ -230,8 +248,9 @@ export function sniffSvg(buffer: Buffer): boolean {
 					continue
 				}
 				if (ch === '"' || ch === "'") {
-					quote = ch
-					continue
+					// A quoted literal here is an external identifier (SYSTEM/PUBLIC): its DTD can declare a
+					// default namespace we cannot resolve, so the document is not inlined.
+					return false
 				}
 				if (ch === "[") return false
 				if (ch === ">") break
@@ -245,11 +264,15 @@ export function sniffSvg(buffer: Buffer): boolean {
 
 	const root = readStartTag(head, i)
 	if (!root) return false
-	if (root.name !== "svg" && root.name !== "svg:svg") return false
+	const prefixed = /^([A-Za-z_][\w.-]*):svg$/.exec(root.name)
+	if (root.name !== "svg" && !prefixed) return false
+	if (prefixed) {
+		// The prefix must be bound to the SVG namespace; an unrelated default namespace is irrelevant to a
+		// prefixed name and does not make the document non-SVG.
+		return root.attrs.get(`xmlns:${prefixed[1]}`) === SVG_NAMESPACE
+	}
 	const declared = root.attrs.get("xmlns")
-	if (declared !== undefined && declared !== SVG_NAMESPACE) return false
-	if (root.name === "svg:svg" && root.attrs.get("xmlns:svg") !== SVG_NAMESPACE) return false
-	return true
+	return declared === undefined || declared === SVG_NAMESPACE
 }
 
 export function sniffImage(buffer: Buffer): { contentType: string; ext: string } | undefined {

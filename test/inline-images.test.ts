@@ -509,9 +509,9 @@ test("sniffSvg checks the first element, not a mention of <svg>", () => {
 	assert.equal(sniffSvg(Buffer.from('\uFEFF<?xml version="1.0"?><svg width="1"/>')), true)
 	assert.equal(sniffSvg(Buffer.from('<svg/>')), true)
 	assert.equal(
-		sniffSvg(Buffer.from('<?xml version="1.0"?><!-- note <svg> --><!DOCTYPE svg PUBLIC "x" "y"><svg xmlns="http://www.w3.org/2000/svg"/>')),
+		sniffSvg(Buffer.from('<?xml version="1.0"?><!-- note <svg> --><!DOCTYPE svg><svg xmlns="http://www.w3.org/2000/svg"/>')),
 		true,
-		"BOM, declaration, comment and doctype before the root",
+		"declaration, comment and a bare doctype before the root",
 	)
 	assert.equal(sniffSvg(Buffer.from('<svg:svg xmlns:svg="http://www.w3.org/2000/svg"/>')), true)
 	assert.equal(
@@ -550,6 +550,24 @@ test("sniffSvg checks the first element, not a mention of <svg>", () => {
 	assert.equal(sniffSvg(Buffer.from('<?xml version="1.0"?><rss><channel/></rss>')), false)
 	assert.equal(sniffSvg(Buffer.from("not xml at all")), false)
 	assert.equal(sniffSvg(Buffer.alloc(0)), false)
+})
+
+test("the root check is strict about XML well-formedness and namespaces", () => {
+	const ok = (text: string) => sniffSvg(Buffer.from(text))
+	// A DTD we cannot resolve must not be trusted: an external identifier can declare a default namespace.
+	assert.equal(ok('<!DOCTYPE svg SYSTEM "http://example.com/svg.dtd"><svg/>'), false)
+	assert.equal(ok('<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "x"><svg/>'), false)
+	assert.equal(ok('<!DOCTYPE svg><!DOCTYPE svg><svg/>'), false, "one doctype only")
+	assert.equal(ok('<!DOCTYPEish svg><svg/>'), false, "`<!DOCTYPEish` is not a doctype")
+	assert.equal(ok('<!DOCTYPE svg><svg/>'), true)
+	// Malformed tags: XML demands whitespace, quoted values and unique attributes.
+	assert.equal(ok('<svg xmlns="urn:other"xmlns="http://www.w3.org/2000/svg"/>'), false)
+	assert.equal(ok('<svg xmlns=urn:other/>'), false)
+	assert.equal(ok('<svg xmlns="urn:other" xmlns="urn:other2"/>'), false, "duplicate attribute")
+	assert.equal(ok('<svg xmlns="urn:other"><!-- x --><svg/>'), false)
+	assert.equal(ok('<svg xmlns="http://www.w3.org/2000/svg" data-x="1"/>'), false, "NBSP is not XML whitespace")
+	// A prefixed root is SVG when its own prefix is bound, whatever the default namespace says.
+	assert.equal(ok('<s:svg xmlns:s="http://www.w3.org/2000/svg" xmlns="urn:other"/>'), true)
 })
 
 test("an SVG is inlined as a cid image only when the switch is on", () => {
