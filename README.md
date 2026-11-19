@@ -749,7 +749,7 @@ table and the module map: [docs/ARCHITECTURE.md](https://github.com/DumbMice/pi-
 
 ## Status
 
-`0.2.2` is feature-complete for the single-user, one-mailbox case, and has been exercised end to end
+`0.3.0` adds the optional session starter and stays feature-complete for the single-user, one-mailbox case, and has been exercised end to end
 against a live QQ mailbox in both layouts: two addresses (DMARC verified on the reply) and one
 address for both roles (self-delivery, the self-echo guard, and a reply routed by the chain).
 
