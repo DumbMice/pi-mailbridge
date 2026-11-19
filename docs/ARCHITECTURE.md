@@ -93,7 +93,7 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 | POST | `/shutdown` | stop the daemon (used by the restart path) |
 
 Every successful reply is JSON, and the client treats anything else as `code: "bad_response"` rather than
-`network`, an empty or HTML `200` on that port means something else is answering (a wrong
+`network`: an empty or HTML `200` on that port means something else is answering (a wrong
 `daemon.port`), which is a different problem from "the daemon is down" and must not be reported as
 either success or unreachable.
 
@@ -387,11 +387,11 @@ operator started by hand.
 **A stale lock is neither stolen nor cleared automatically.** A crashed starter leaves `starter.lock`; the
 next start refuses and points at `starter locks`, which reports the path and the pid and removes nothing.
 In user space there is no primitive that removes *this* file only if it is unchanged, so any helper that
-clears a stale lock can delete a lock another process acquired in the meantime, the operator, who can
+clears a stale lock can delete a lock another process acquired in the meantime. The operator, who can
 confirm the pid is gone, does the removal.
 
 Operationally: a `SIGKILL` (or a power loss) can leave any of the three locks needing manual cleanup, and a
-supervisor restarting the process will not clear them. The report is observational, it is not authorisation
+supervisor restarting the process will not clear them. The report is observational; it is not authorisation
 to delete. Confirm the holder independently, make sure no supervisor or restart will recreate the lock,
 quiesce the processes that share the state directory, and only then remove the file. An unreadable lock is
 reported as `UNKNOWN`, not `free`.
