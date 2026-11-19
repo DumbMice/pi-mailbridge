@@ -131,3 +131,9 @@ test("a dedicated starter address becomes Reply-To on results", async () => {
 	assert.equal(seen[0]?.replyTo, "start@example.com")
 })
 
+test("the refusal sanitizer strips control bytes before normalising line endings", () => {
+	// The old implementation stripped first, so a NUL between CR and LF still collapsed to one newline.
+	assert.equal(cleanDiagnostic("a\r\u0000\nb"), "a\nb")
+	assert.equal(cleanDiagnostic("a\r\nb"), "a\nb")
+})
+
