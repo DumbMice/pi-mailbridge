@@ -181,7 +181,9 @@ export function imapFailureHint(error: unknown): string | undefined {
 		/\b535\b(?!\.)\s+\d\.\d{1,3}\.\d{1,3}\b/.test(fields) ||
 		// `535 Authentication failed`, `535 … Username and Password not accepted`, or a bare `535`.
 		/\b535\b(?!\.)\s*(?:authentication|auth|login|username|password)/i.test(fields) ||
-		/\b535\b(?!\.)\s*$/.test(fields)
+		// A bare `535` as the *whole* message. Anchored: `connect ECONNREFUSED 127.0.0.1:535` ends in 535 too
+		// and is a connection failure, not an authentication one.
+		/^\s*535\s*$/.test(fields)
 	if (failedFlag || smtpAuth || /AUTHENTICATIONFAILED|authentication failed|login fail|EAUTH|invalid credentials/i.test(fields)) {
 		return "authentication failed: check the account's authorisation code (QQ: Settings → Account → POP3/IMAP/SMTP → 授权码), not the web password"
 	}

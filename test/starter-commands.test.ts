@@ -515,6 +515,8 @@ test("check says it is offline, and an auth failure is named as one", () => {
 		assert.match(imapFailureHint({ message: "535 5.7.8" }) ?? "", /authorisation code/)
 		assert.match(imapFailureHint({ message: "535 5.7.8 Bad credentials" }) ?? "", /authorisation code/)
 		assert.match(imapFailureHint({ message: "535" }) ?? "", /authorisation code/)
+		// A port number is not an SMTP reply code.
+		assert.equal(imapFailureHint({ message: "connect ECONNREFUSED 127.0.0.1:535" }), undefined)
 		assert.equal(imapFailureHint(undefined), undefined)
 	})
 })
