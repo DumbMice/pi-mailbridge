@@ -514,6 +514,17 @@ test("sniffSvg checks the first element, not a mention of <svg>", () => {
 		"BOM, declaration, comment and doctype before the root",
 	)
 	assert.equal(sniffSvg(Buffer.from('<svg:svg xmlns:svg="http://www.w3.org/2000/svg"/>')), true)
+	assert.equal(
+		sniffSvg(Buffer.from('<svg:svg xmlns:svg="http://www.w3.org/2000/svg" xmlns="http://www.w3.org/2000/svg"/>')),
+		true,
+		"a redundant correct default namespace is fine",
+	)
+	// A `>` inside a quoted attribute must not end the tag, and the name is matched whole.
+	assert.equal(sniffSvg(Buffer.from('<svg aria-label="A > B" xmlns="http://www.w3.org/2000/svg"/>')), true)
+	assert.equal(sniffSvg(Buffer.from('<svgé/>')), false)
+	assert.equal(sniffSvg(Buffer.from('<svg data-xmlns="urn:other"/>')), true, "data-xmlns is not xmlns")
+	assert.equal(sniffSvg(Buffer.from('<svg XMLNS="urn:other"/>')), true, "attribute names are case-sensitive")
+	assert.equal(sniffSvg(Buffer.from('<svg:svg xmlns:svg="urn:other"/>')), false)
 
 	// Negatives: a comment or a nested element is not a root, and the root must be svg in the SVG namespace.
 	assert.equal(sniffSvg(Buffer.from('<!-- <svg xmlns="http://www.w3.org/2000/svg"/> -->')), false)
@@ -523,6 +534,17 @@ test("sniffSvg checks the first element, not a mention of <svg>", () => {
 		"an HTML page that embeds an SVG is not an SVG",
 	)
 	assert.equal(sniffSvg(Buffer.from('<rss><svg/></rss>')), false)
+	// Fail closed on an internal DTD subset: entity declarations and namespace defaults cannot be resolved
+	// without a parser, so the file is not inlined (a link still attaches it).
+	assert.equal(
+		sniffSvg(Buffer.from('<!DOCTYPE svg [ <!ENTITY x "y"> ]><svg xmlns="http://www.w3.org/2000/svg"/>')),
+		false,
+	)
+	assert.equal(
+		sniffSvg(Buffer.from('<svg aria-label="A > B" xmlns="urn:other"/>')),
+		false,
+		"the attribute ends at the real tag close, so the wrong namespace is seen",
+	)
 	assert.equal(sniffSvg(Buffer.from('<SVG/>')), false, "XML element names are case-sensitive")
 	assert.equal(sniffSvg(Buffer.from('<svg xmlns="http://example.com/not-svg"/>')), false)
 	assert.equal(sniffSvg(Buffer.from('<?xml version="1.0"?><rss><channel/></rss>')), false)

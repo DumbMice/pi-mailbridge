@@ -148,9 +148,63 @@ const ALLOWED_FILE_EXTENSIONS: Record<string, string> = {
  * Kept separate from `sniffImage` because an SVG is only ever inlined here - the inbound path must not hand
  * `image/svg+xml` to a model that accepts raster images only.
  */
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg"
+
+/** A start tag from a bounded prefix: exact names, quote-aware values, no entity expansion. */
+function readStartTag(head: string, at: number): { name: string; attrs: Map<string, string>; selfClosed: boolean } | undefined {
+	if (head[at] !== "<") return undefined
+	let i = at + 1
+	const nameStart = i
+	while (i < head.length && /[^\s/>]/.test(head[i]!)) i += 1
+	const name = head.slice(nameStart, i)
+	if (!name) return undefined
+	const attrs = new Map<string, string>()
+	for (;;) {
+		while (i < head.length && /\s/.test(head[i]!)) i += 1
+		if (i >= head.length) return undefined
+		if (head[i] === ">") return { name, attrs, selfClosed: false }
+		if (head[i] === "/" && head[i + 1] === ">") return { name, attrs, selfClosed: true }
+		const attrStart = i
+		while (i < head.length && /[^\s=/>]/.test(head[i]!)) i += 1
+		const attr = head.slice(attrStart, i)
+		if (!attr) return undefined
+		while (i < head.length && /\s/.test(head[i]!)) i += 1
+		if (head[i] !== "=") {
+			attrs.set(attr, "")
+			continue
+		}
+		i += 1
+		while (i < head.length && /\s/.test(head[i]!)) i += 1
+		const quote = head[i]
+		if (quote === '"' || quote === "'") {
+			const close = head.indexOf(quote, i + 1)
+			if (close === -1) return undefined
+			attrs.set(attr, head.slice(i + 1, close))
+			i = close + 1
+		} else {
+			const valueStart = i
+			while (i < head.length && /[^\s>]/.test(head[i]!)) i += 1
+			attrs.set(attr, head.slice(valueStart, i))
+		}
+	}
+}
+
+/**
+ * Is this an SVG document? XML, so there is no magic number: walk a bounded prolog (BOM, whitespace,
+ * comments, processing instructions, at most one doctype) and require the first *element* to be `svg` in the
+ * SVG namespace. A comment mentioning `<svg>`, an HTML page that embeds one, and XML with SVG somewhere below
+ * its root are all rejected, or a mislabelled file becomes an image part that renders as nothing.
+ *
+ * The start tag is tokenized with a quote-aware reader rather than a regex: `aria-label="A > B"` must not end
+ * the tag, `svgé` is not `svg`, and `data-xmlns` is not a namespace declaration. Attribute names are matched
+ * case-sensitively, because XML is.
+ *
+ * A doctype with an internal subset is rejected rather than skipped: entity declarations and namespace
+ * defaults cannot be resolved without a parser, and guessing them is how a non-SVG document would pass. Such
+ * a file is not inlined; linking it still attaches it as a file.
+ */
 export function sniffSvg(buffer: Buffer): boolean {
 	const head = buffer.subarray(0, 8192).toString("utf8")
-	const SVG_NS = "http://www.w3.org/2000/svg"
 	let i = head.charCodeAt(0) === 0xfeff ? 1 : 0
 	for (;;) {
 		while (i < head.length && /\s/.test(head[i]!)) i += 1
@@ -167,14 +221,20 @@ export function sniffSvg(buffer: Buffer): boolean {
 			continue
 		}
 		if (/^<!doctype/i.test(head.slice(i, i + 9))) {
-			// The internal subset `[...]` may contain `>`, so track it rather than stopping at the first.
-			let depth = 0
-			let j = i
+			let j = i + 9
+			let quote: string | undefined
 			for (; j < head.length; j += 1) {
-				const ch = head[j]
-				if (ch === "[") depth += 1
-				else if (ch === "]") depth -= 1
-				else if (ch === ">" && depth <= 0) break
+				const ch = head[j]!
+				if (quote) {
+					if (ch === quote) quote = undefined
+					continue
+				}
+				if (ch === '"' || ch === "'") {
+					quote = ch
+					continue
+				}
+				if (ch === "[") return false
+				if (ch === ">") break
 			}
 			if (j >= head.length) return false
 			i = j + 1
@@ -183,22 +243,12 @@ export function sniffSvg(buffer: Buffer): boolean {
 		break
 	}
 
-	const root = /^<([A-Za-z][\w.:-]*)([^>]*)>/.exec(head.slice(i))
+	const root = readStartTag(head, i)
 	if (!root) return false
-	const name = root[1]!
-	if (name !== "svg" && name !== "svg:svg") return false
-	const attrs = root[2] ?? ""
-	const xmlns = /\bxmlns\s*=\s*("([^"]*)"|'([^']*)')/i.exec(attrs)
-	if (xmlns) {
-		const ns = xmlns[2] ?? xmlns[3] ?? ""
-		// A plain root must carry the SVG namespace when it declares one; a prefixed root must declare it
-		// on the prefix.
-		if (name !== "svg" || ns !== SVG_NS) return false
-	}
-	if (name === "svg:svg") {
-		const prefixed = /\bxmlns:svg\s*=\s*("([^"]*)"|'([^']*)')/i.exec(attrs)
-		if ((prefixed?.[2] ?? prefixed?.[3]) !== SVG_NS) return false
-	}
+	if (root.name !== "svg" && root.name !== "svg:svg") return false
+	const declared = root.attrs.get("xmlns")
+	if (declared !== undefined && declared !== SVG_NAMESPACE) return false
+	if (root.name === "svg:svg" && root.attrs.get("xmlns:svg") !== SVG_NAMESPACE) return false
 	return true
 }
 
