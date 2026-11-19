@@ -9,7 +9,8 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, 
 import { execFileSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
+import MarkdownIt from "markdown-it"
 
 const root = fileURLToPath(new URL("..", import.meta.url))
 const read = (relative: string) => readFileSync(new URL(relative, import.meta.url), "utf8")
@@ -25,6 +26,7 @@ const packageJson = JSON.parse(read("../package.json")) as {
 }
 
 const readme = read("../README.md")
+const reference = read("../docs/REFERENCE.md")
 const extensionSource = read("../src/extension.ts")
 const configSource = read("../src/core/config.ts")
 const example = JSON.parse(read("../config.example.json")) as Record<string, unknown>
@@ -215,10 +217,37 @@ test("the example never contains a live-looking secret", () => {
 })
 
 
-test("README links to the three design docs", () => {
-	for (const doc of ["docs/ARCHITECTURE.md", "docs/MAPPING.md", "docs/SECURITY.md"]) {
-		assert.ok(readme.includes(doc), `README should link ${doc}`)
-		assert.ok(existsSync(new URL(`../${doc}`, import.meta.url)), `${doc} must exist`)
+test("README links to the guides on npm, and guide links resolve to files and headings", () => {
+	const repository = "https://github.com/DumbMice/pi-mailbridge/blob/main/"
+	const cdn = `https://cdn.jsdelivr.net/npm/${packageJson.name}@latest/`
+	const guides = ["REFERENCE", "STARTER", "TROUBLESHOOTING"].map((name) => `docs/${name}.md`)
+	const readmeLinks = new Set<string>()
+	const markdown = new MarkdownIt()
+	for (const file of ["README.md", ...guides]) {
+		// Parse real links (not the sample Markdown inside backticks). Don't fetch remote URLs.
+		const tokens = markdown.parse(read(`../${file}`), {}).flatMap((token) => token.children ?? [])
+		for (const token of tokens) {
+			const href = token.attrGet("href") ?? token.attrGet("src")
+			if (typeof href !== "string" || !href) continue
+			if (file === "README.md") assert.match(href, /^(https:\/\/|#)/, `relative link on npm: ${href}`)
+			if (/^https?:/.test(href) && !href.startsWith(repository) && !href.startsWith(cdn)) continue
+			const target = href.startsWith(repository) || href.startsWith(cdn)
+				? new URL(href.slice(href.startsWith(repository) ? repository.length : cdn.length), pathToFileURL(root))
+				: new URL(href, pathToFileURL(join(root, file)))
+			const path = fileURLToPath(target)
+			assert.ok(existsSync(path), `${file}: missing target ${href}`)
+			if (file === "README.md") readmeLinks.add(path)
+			if (target.hash) {
+				// These guides use plain ATX headings and GitHub's lowercase, punctuation-free anchors.
+				const headings = [...readFileSync(path, "utf8").matchAll(/^#+ (.+)$/gm)].map((m) =>
+					m[1]!.toLowerCase().replace(/[^\p{L}\p{N} _-]/gu, "").replace(/ /g, "-"),
+				)
+				assert.ok(headings.includes(decodeURIComponent(target.hash.slice(1))), `${file}: missing heading for ${href}`)
+			}
+		}
+	}
+	for (const guide of [...guides, "docs/ARCHITECTURE.md", "docs/MAPPING.md", "docs/SECURITY.md", "docs/OAUTH.md"]) {
+		assert.ok(readmeLinks.has(join(root, guide)), `README should link ${guide}`)
 	}
 })
 
@@ -268,16 +297,11 @@ test("README states the shipped version", () => {
 // --- any-device framing + device identity ---------------------------------
 
 test("docs say any device with email, not phone-only", () => {
-	const docs = [readme, read("../docs/ARCHITECTURE.md"), read("../docs/SECURITY.md")].join("\n").toLowerCase()
-	// Positive assertions: the universal framing is present.
-	for (const phrase of ["any device", "tablet", "another pc", "webmail"]) {
-		assert.ok(docs.includes(phrase), `docs should mention "${phrase}"`)
-	}
-	assert.ok(readme.includes("No app, no account, no relay, no push service"))
+	assert.match(readme, /any device[^.]*\b(?:e?mail|inbox)/i, "readers need email, not a particular device")
 })
 
 test("device.name is documented and shipped in the example config", () => {
-	assert.ok(readme.includes("device.name"), "README config table must document device.name")
+	assert.match(reference, /^\| `device\.name` \|/m, "reference config table must document device.name")
 	const device = example["device"] as Record<string, unknown>
 	assert.ok(device && typeof device["name"] === "string", "config.example.json must include device.name")
 	assert.ok(configSource.includes("device"), "config.ts must read device settings")
@@ -289,13 +313,13 @@ test("the README shows a notification naming both device and session", () => {
 	assert.match(readme, /@ .*is waiting for you/, "the sample subject should name the device")
 })
 
-test("the reply identification rule is documented in README and ARCHITECTURE", () => {
-	for (const doc of [readme, read("../docs/ARCHITECTURE.md")]) {
+test("the reply identification rule is documented in REFERENCE and ARCHITECTURE", () => {
+	for (const doc of [reference, read("../docs/ARCHITECTURE.md")]) {
 		assert.match(doc, /In-Reply-To/, "must name In-Reply-To")
 		assert.match(doc, /References/, "must name References")
 		assert.match(doc, /no-token/, "must say what happens when nothing matches")
 	}
-	assert.ok(readme.includes("security.allowHeaderThreading"), "README must document the switch")
+	assert.match(reference, /^\| `security\.allowHeaderThreading` \|/m, "the reference must document the switch")
 	const security = example["security"] as Record<string, unknown>
 	assert.equal(security["allowHeaderThreading"], true, "example config must ship the default")
 })
@@ -326,9 +350,9 @@ test("the in-pi flow is documented first, CLI only as headless", () => {
 	for (const sub of ["setup", "auth", "smoke"]) {
 		assert.match(readme, new RegExp(`/mailbridge ${sub}`), `README must document /mailbridge ${sub}`)
 	}
-	// The CLI must be framed as the headless entry point, not the normal path.
-	assert.match(readme, /headless/i, "README should label the CLI as headless")
-	assert.match(readme, /--check/, "README should keep the ExecStartPre check documented")
+	// CLI details belong in the headless reference, not in the interactive quick start.
+	assert.match(reference, /^### .*headless/im, "the reference should label the CLI as headless")
+	assert.match(reference, /^\| `--check` \|/m, "the reference should keep the ExecStartPre check documented")
 })
 
 test("the extension resolves the daemon script through the shared resolver", () => {

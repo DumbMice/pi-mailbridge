@@ -2,11 +2,7 @@
 
 ## The short version
 
-Bad news only for passwords. **OAuth2 works.** Microsoft retired *Basic
-Authentication* for `outlook.com`/`hotmail.com` on **2024-09-16**. App passwords can still
-be created in some tenants, but **IMAP rejects them** and SMTP acceptance is inconsistent —
-treat password auth as unusable for personal Microsoft accounts and use OAuth2. The fix is a token, and this package now gets
-one for you with a device-code login.
+Personal Outlook and Hotmail accounts require OAuth2. Microsoft retired Basic Authentication for these accounts on 2024-09-16. Use device-code login after registering an app. If the server refuses a valid token, see [IMAP and SMTP failures](#when-imapsmtp-oauth2-still-fails).
 
 ```bash
 # 1. once: register an app and paste the client id into config.json
@@ -31,10 +27,7 @@ human consented to. It is free and takes about two minutes.
 5. Register, then copy **Application (client) ID**
 6. **Authentication** → *Allow public client flows* → **Yes**
    (device code is a public client flow; without this the request is rejected)
-7. **API permissions** → *Add a permission* → *APIs my organization uses* is not
-   needed for personal accounts; for work accounts add **Microsoft Graph →
-   Delegated → `offline_access`, `IMAP.AccessAsUser.All`, `SMTP.Send`** and grant
-   consent
+7. For work accounts, add the delegated `IMAP.AccessAsUser.All` and `SMTP.Send` permissions for **Office 365 Exchange Online** and grant consent as your tenant requires. Request `offline_access` in the OAuth scope to get a refresh token. See [which scopes to use](#scopes-are-not-interchangeable).
 
 For Gmail: [Google Cloud console](https://console.cloud.google.com) → APIs &
 Services → Credentials → *Create OAuth client ID* → **TVs and Limited Input
@@ -416,10 +409,7 @@ This is the honest part, and it applies to **personal** `outlook.com` only:
 | `535 Authentication unsuccessful, SmtpClientAuthentication is disabled for the Mailbox` | SMTP AUTH disabled at the mailbox level, even though IMAP works | use the Graph API |
 | Works on IMAP but not SMTP, or vice versa | per-protocol policy | use the Graph API for both |
 
-**The reliable answer for personal Outlook is Graph** (`POST /me/sendMail`,
-`GET /me/mailFolders/inbox/messages/delta`) because it never speaks SMTP. It is a
-free API, the same OAuth token works, and it needs no extra package — Node 22 has
-global `fetch`. It is not implemented in this package yet; see the *Status* section of the README.
+Microsoft Graph can send and receive mail without IMAP or SMTP. It needs a token with [Graph permissions](#scopes-are-not-interchangeable). Mailbridge does not implement Graph. To keep using your Outlook address for replies, use another provider for pi's mailbox and set `mail.to` to your Outlook address.
 
 Microsoft 365 (work) accounts usually work fine on IMAP/SMTP XOAUTH2.
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2 — 2026-11-19
+
+The README now walks through connecting a mailbox and replying to your first notification. Settings and commands, the optional session starter, and troubleshooting have separate guides. No runtime behaviour or configuration defaults changed.
+
 ## 0.3.1 — 2026-11-19
 
 ### A referenced SVG can be inlined

@@ -135,8 +135,7 @@ announced intention is not consent. Two rules learned the hard way: never releas
 after the last review verdict (review the exact commit you tag), and never treat silence as approval.
 
 A tag publishes; nothing does it from a laptop any more. Bump `package.json`
-(and the two version mentions in the README, and `package-lock.json` — `npm version patch` does
-both lockfile fields for you), date the changelog, then:
+(and `package-lock.json`; `npm version patch` updates both lockfile fields), update the release note link's version in the README, date the changelog, then:
 
 ```bash
 git tag -a v<version> -m "pi-mailbridge <version>" && git push origin main --tags

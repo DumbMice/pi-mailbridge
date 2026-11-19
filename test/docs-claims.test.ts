@@ -1,11 +1,12 @@
 import { test } from "node:test"
 import { SUBCOMMAND_INFO } from "../src/core/commands.ts"
+import { MAIL_REFUSED_SUBCOMMANDS, MAIL_SAFE_SUBCOMMANDS } from "../src/core/mail-command.ts"
 import { PENDING_CAP as pendingCap, PENDING_MAX_BYTES as pendingMaxBytes } from "../src/store/pending-store.ts"
 import { MAX_FILE_BYTES, MAX_FILES_TOTAL_BYTES, MAX_TOTAL_BYTES } from "../src/core/attachments.ts"
 import { MAX_MESSAGE_BYTES } from "../src/daemon/watcher.ts"
 import assert from "node:assert/strict"
 import { existsSync, readFileSync, readdirSync } from "node:fs"
-import { join } from "node:path"
+import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
 // The first review found the docs confidently describing behaviour the code did not have
@@ -18,6 +19,20 @@ const root = fileURLToPath(new URL("..", import.meta.url))
 
 function doc(name: string): string {
 	return readFileSync(join(root, name), "utf8")
+}
+
+const reference = "docs/REFERENCE.md"
+const troubleshooting = "docs/TROUBLESHOOTING.md"
+const starter = "docs/STARTER.md"
+
+/** Text directly under the heading, excluding any subsequent (even nested) heading. */
+function section(file: string, heading: string): string {
+	const lines = doc(file).split("\n")
+	const start = lines.findIndex((line) => /^#+ /.test(line) && line.replace(/^#+ /, "") === heading)
+	assert.notEqual(start, -1, `${file} is missing the heading: ${heading}`)
+	const body = lines.slice(start + 1)
+	const end = body.findIndex((line) => /^#+ /.test(line))
+	return (end < 0 ? body : body.slice(0, end)).join("\n")
 }
 
 const prose = [
@@ -205,7 +220,7 @@ test("the documented routing order is the implemented one, in every file that st
 		return (block ?? []).map((b) => b.label)
 	}
 
-	for (const name of ["README.md", "docs/ARCHITECTURE.md"]) {
+	for (const name of [reference, "docs/ARCHITECTURE.md"]) {
 		const list = rules(doc(name))
 		assert.ok(list.length >= 3, `${name} must state the routing rules as a numbered list`)
 		expected.forEach((pattern, i) => {
@@ -235,10 +250,9 @@ test("every environment override is documented", () => {
 		for (const m of text.matchAll(/env\.(PI_MAILBRIDGE_[A-Z_]+)/g)) names.add(m[1]!)
 	}
 	assert.ok(names.size >= 8, `expected the override list, got ${names.size}`)
-	const readme = doc("README.md")
+	const overrides = section(reference, "Environment overrides")
 	for (const name of names) {
-
-		assert.ok(readme.includes(name), `${name} is read by src/ but not documented`)
+		assert.ok(overrides.includes(`\`${name}\``), `${name} is read by src/ but missing from ${reference}`)
 	}
 })
 
@@ -247,25 +261,14 @@ test("the documented /mailbridge subcommands are exactly the implemented ones", 
 	// `/mailbridge doctor` would have shipped.
 	// The single source is `SUBCOMMAND_INFO` (usage text, parse whitelist and Tab completion all
 	// read it), so that is what a stray `/mailbridge doctor` would have to appear in.
-	const commands = readFileSync(join(root, "src/core/commands.ts"), "utf8")
-	const block = /export const SUBCOMMAND_INFO[^=]*=\s*\[([\s\S]*?)\n\]/.exec(commands)?.[1]
-	assert.ok(block, "SUBCOMMAND_INFO should be a literal array")
-	const implemented = new Set([...block.matchAll(/name:\s*"([a-z]+)"/g)].map((m) => m[1]!))
-	assert.ok(implemented.size >= 6, `expected the subcommand list, got ${implemented.size}`)
-
-	const documented = new Set(
-		[...doc("README.md").matchAll(/`\/mailbridge ([a-z]+)/g)].map((m) => m[1]!),
-	)
-	for (const name of documented) {
-		if (name === "mailbridge") continue
-		assert.ok(implemented.has(name), `README documents /mailbridge ${name}, which has no handler`)
-	}
-	// `status` is what bare `/mailbridge` does, and `help` is offered by the usage text.
-	const bareStatus = /\/mailbridge\s{2,}#/.test(doc("README.md"))
-	for (const name of implemented) {
-		if (name === "status" && bareStatus) continue
-		if (name === "help") continue
-		assert.ok(documented.has(name), `/mailbridge ${name} exists but is undocumented`)
+	const implemented = new Set<string>(SUBCOMMAND_INFO.map((command) => command.name))
+	const rows = section(reference, "Commands").split("\n").map((row) => row.split("|")[1] ?? "")
+	const documented = new Set(rows.flatMap((cell) => [...cell.matchAll(/`\/mailbridge ([a-z]+)/g)].map((m) => m[1]!)))
+	assert.deepEqual(documented, implemented, `${reference}'s command table must match SUBCOMMAND_INFO`)
+	for (const { file, text } of allProse()) {
+		for (const match of text.matchAll(/(?:`|^)\/mailbridge ([a-z]+)/gm)) {
+			assert.ok(implemented.has(match[1]!), `${file} documents unknown command ${match[0]}`)
+		}
 	}
 })
 
@@ -397,38 +400,25 @@ test("no document claims request_decision blocks the agent", () => {
 })
 
 test("the troubleshooting section names the reasons the scanner produces", async () => {
-	const readme = doc("README.md")
-	const section = /## A reply did not arrive[\s\S]*?(?=\n## )/.exec(readme)?.[0]
-	assert.ok(section, "README should have a troubleshooting section")
+	const guide = section(troubleshooting, "A reply did not arrive")
+	const reasonCells = guide.split("\n").map((row) => row.split("|")[1] ?? "")
 	// Every reason process.ts can emit should be answerable from that section.
 	// Reasons are emitted from process.ts and from authorize() in authz.ts.
 	const emitted = new Set<string>()
-	for (const file of ["src/daemon/process.ts", "src/core/authz.ts", "src/daemon/source-proxy.ts"]) {
-		const text = readFileSync(join(root, file), "utf8")
-		// Three shapes only: `bump(result.reasons, "x")`, an attachment `reason: "x"`, and the denial
-		// codes authorize() returns or types.
-		for (const m of text.matchAll(/bump\(result\.reasons,\s*"([a-z][a-z-]+)"\)/g)) emitted.add(m[1]!)
-		for (const m of text.matchAll(/reason:\s*"(mime-not-allowed|too-many|too-large|empty|write-failed)"/g)) {
-			emitted.add(`attachment-${m[1]!}`)
-		}
-		for (const m of text.matchAll(/\|\s*"([a-z][a-z-]+)"/g)) {
-			const reason = m[1]!
-			if (/^(from|to|subject|text|html|inline)$/.test(reason)) continue
-			emitted.add(reason)
-		}
-	}
-	// Attachment reasons are emitted as `attachment-<suffix>`; the table documents the prefix.
-	for (const reason of [...emitted]) if (reason.startsWith("attachment-")) emitted.add("attachment-*")
+	for (const m of doc("src/daemon/process.ts").matchAll(/bump\(result\.reasons,\s*"([a-z][a-z-]+)"\)/g)) emitted.add(m[1]!)
+	// Match denials, not unrelated string unions like the "reply" / "request" context.
+	for (const m of doc("src/core/authz.ts").matchAll(/reason:\s*"([a-z][a-z-]+)"/g)) emitted.add(m[1]!)
+	assert.ok(reasonCells.some((cell) => cell.includes("`attachment-*`")), "document attachment drops by prefix")
 	// Only refusals belong in that table: `routed`/`journaled`/`self-echo` are the system working, and
 	// they are printed under `handled:`.
 	const { isRefusalReason } = await import("../src/core/status.ts")
 	assert.equal(typeof isRefusalReason, "function")
 	for (const reason of emitted) {
 		if (!isRefusalReason(reason)) continue
-		assert.ok(section.includes(reason), `the troubleshooting table omits ${reason}`)
+		assert.ok(reasonCells.some((cell) => cell.includes(`\`${reason}\``)), `the troubleshooting table omits ${reason}`)
 	}
 	assert.ok([...emitted].filter(isRefusalReason).length >= 6, "expected a refusal set")
-	assert.match(section, /daemon\.log/, "and must say where the log is")
+	assert.match(guide, /daemon\.log/, "and must say where the log is")
 })
 
 test("the live-mailbox status is stated the same way in README and CHANGELOG", () => {
@@ -444,12 +434,10 @@ test("the live-mailbox status is stated the same way in README and CHANGELOG", (
 
 test("the README says how to remove the package and its state", () => {
 	// A user who tried it and wants it gone needs a path out; there was none.
-	const readme = doc("README.md")
-	const section = /## Turning it off for good[\s\S]*?(?=\n## )/.exec(readme)?.[0]
-	assert.ok(section, "README should have an uninstall section")
-	assert.match(section, /pi remove npm:@dumbmice\/pi-mailbridge|however you installed it/, "says how to remove it")
-	assert.match(section, /state\/pi-mailbridge/, "and says where the state lives")
-	assert.match(section, /config\/pi-mailbridge/, "including the credentials")
+	const uninstall = section("README.md", "Uninstall")
+	assert.match(uninstall, /pi remove npm:@dumbmice\/pi-mailbridge/, "says how to remove it")
+	assert.match(uninstall, /state\/pi-mailbridge/, "and says where the state lives")
+	assert.match(uninstall, /config\/pi-mailbridge/, "including the credentials")
 })
 
 test("no doc claims the machines share one secret", () => {
@@ -459,11 +447,11 @@ test("no doc claims the machines share one secret", () => {
 	}
 })
 
-test("the README's status example matches the formatter's shape", () => {
-	const readme = doc("README.md")
+test("the troubleshooting status example matches the formatter's shape", () => {
+	const guide = doc(troubleshooting)
 	// The label changed to "last scan with mail"; the pattern follows the formatter, so keep the
 	// two in step by deriving it from status.ts rather than hardcoding the wording twice.
-	const sample = /last scan(?: with mail)?: [^\n]*examined \d+, kept \d+, rejected \d+/.exec(readme)
+	const sample = /last scan(?: with mail)?: [^\n]*examined \d+, kept \d+, rejected \d+/.exec(guide)
 	assert.ok(sample, "the example should show the fields status prints")
 	const status = readFileSync(join(root, "src/core/status.ts"), "utf8")
 	assert.match(status, /last scan with mail: .*examined .*kept .*rejected/s, "and the formatter should print them")
@@ -515,11 +503,9 @@ test("the device-and-session claim is scoped to settle mails", () => {
 })
 
 test("the reload promise matches what setup can do when no daemon is running", () => {
-	const readme = doc("README.md")
-	// setup/reload only touch a daemon that exists; the docs must not promise otherwise.
-	const row = readme.split("\n").find((l) => /\/mailbridge setup/.test(l) && /reload the daemon/.test(l))
-	assert.ok(row, "the setup row should describe what it does to the daemon")
-	assert.match(row!, /start or reload the daemon/, "and must say it can start one")
+	const row = section(reference, "Commands").split("\n").find((line) => line.startsWith("| `/mailbridge setup"))
+	assert.match(row ?? "", /\bstart\w*\b/i, "setup can start the daemon")
+	assert.match(row ?? "", /\breload\w*\b/i, "or reload an existing one")
 })
 
 test("no doc claims every notification names the device", () => {
@@ -545,10 +531,9 @@ test("prime is advised before the first /mailbridge on, not before the daemon", 
 		!/prime the cursor before starting the daemon/i.test(readme),
 		"setup starts the daemon now, so that advice is un-followable",
 	)
-	const primeIdx = readme.indexOf("Start watching from now")
-	const firstMailIdx = readme.indexOf("Your first notification")
-	assert.ok(primeIdx > -1 && firstMailIdx > -1)
-	assert.ok(primeIdx < firstMailIdx, "prime must be explained before the first /mailbridge on")
+	assert.match(section("README.md", "Test the connection"), /\/mailbridge prime\b/)
+	assert.match(section("README.md", "Your first notification"), /^\/mailbridge on$/m)
+	assert.ok(readme.indexOf("### Test the connection") < readme.indexOf("### Your first notification"), "prime before on")
 })
 
 test("only the settle module puts a device name in a mail", () => {
@@ -627,27 +612,21 @@ test("no doc claims the daemon stops when a token is rejected", () => {
 test("the single-mailbox layout states its three requirements", () => {
 	// This section is the whole story for one-address users, and it used to say "keep the
 	// [pi:...] tag" - which the reply-evidence gate rejects.
-	const readme = flat(doc("README.md"))
-	const at = readme.indexOf("One mailbox (single personal account)")
-	assert.ok(at > -1, "the layout-B section should exist")
-	// Bounded by the next section so a later mention elsewhere cannot satisfy the checks.
-	const end = readme.indexOf("Once configured, prove it without pi")
-	const section = readme.slice(at, end > at ? end : at + 2200)
-	assert.match(section, /X-Pi-Mailbridge/, "names the marker guard")
-	assert.match(section, /In-Reply-To/, "states that a reply must carry threading headers")
-	// Check the config block itself, not the prose: the prose repeats the key name, so a
-	// claim-matched assertion would pass even if the block said true.
-	const from = Math.max(0, section.indexOf("allowSelfReplies") - 400)
-	const block = /```([\s\S]*?)```/.exec(section.slice(from))?.[1] ?? ""
-	assert.match(block, /requireDmarcPass\s*=\s*false/, "the layout-B config sets DMARC off")
-	assert.match(section, /only supported way in|Reply \(or Forward-then-Reply\)/, "and that Reply is the way in")
+	const layout = section(reference, "B. One mailbox (single personal account)")
+	for (const guard of ["X-Pi-Mailbridge", "In-Reply-To", "Message-ID", "no-reply-evidence"]) {
+		assert.ok(layout.includes(guard), `the one-mailbox guide omits ${guard}`)
+	}
+	const block = /```text\n([\s\S]*?)```/.exec(layout)?.[1] ?? ""
+	assert.match(block, /allowSelfReplies\s*=\s*true/)
+	assert.match(block, /requireDmarcPass\s*=\s*false/)
 })
 
 test("the tag advice is qualified as layout A only", () => {
-	const readme = flat(doc("README.md"))
-	for (const sentence of readme.split(/(?<=[.!?])\s+/)) {
-		if (!/keep the `\[pi:…\]` tag/.test(sentence)) continue
-		assert.match(sentence, /layout A|one address|layout B/i, `unqualified tag advice: ${sentence}`)
+	for (const { file, text } of allProse()) {
+		for (const sentence of flat(text).split(/(?<=[.!?])\s+/)) {
+			if (!/keep the `\[pi:…\]` tag/.test(sentence)) continue
+			assert.match(sentence, /layout A|one address|layout B/i, `${file}: unqualified tag advice: ${sentence}`)
+		}
 	}
 })
 
@@ -659,7 +638,7 @@ test("no doc still says two things make single-mailbox mode safe", () => {
 })
 
 test("the QQ provider row carries the 14-day activation rule", () => {
-	const row = doc("README.md")
+	const row = section(reference, "Provider support")
 		.split("\n")
 		.find((l) => /QQ Mail/.test(l) && /\|/.test(l))
 	assert.ok(row, "the provider table should have a QQ row")
@@ -669,13 +648,13 @@ test("the QQ provider row carries the 14-day activation rule", () => {
 test("the DMARC-off explanation says what it costs", () => {
 	// "DMARC was never what separated you from a stranger" was backwards: it is exactly the
 	// control that would stop address forgery, and the docs must not quietly drop it.
-	const readme = flat(doc("README.md"))
-	const at = readme.indexOf("DMARC cannot work here")
-	assert.ok(at > -1, "the layout-B section should explain the DMARC decision")
-	const paragraph = readme.slice(at, at + 1200)
-	assert.match(paragraph, /forging your address/i, "names the risk that is given up")
-	assert.match(paragraph, /route id|routing/i, "and what still keeps a stranger out")
-	assert.ok(!/DMARC was never what separated/i.test(readme), "the old claim must not return")
+	const detail = section(reference, "B. One mailbox (single personal account)")
+	for (const layout of [section("README.md", "One mailbox or two?"), detail]) {
+		assert.match(layout, /DMARC/i)
+		assert.match(layout, /forg(?:e|ed|ing|ery)|spoof/i, "disabling DMARC gives up protection against a forged address")
+		assert.doesNotMatch(layout, /DMARC was never what separated/i)
+	}
+	assert.match(detail, /route id|reply chain/i, "ordinary replies must still route")
 })
 
 test("no doc claims the token provider dies on one failure", () => {
@@ -771,8 +750,7 @@ test("the clock-skew row names the right direction", () => {
 })
 
 test("the single-mailbox DMARC advice does not contradict itself", () => {
-	const readme = flat(doc("README.md"))
-	const table = readme.split("| `security.requireDmarcPass` |")[1]?.split("\n")[0] ?? ""
+	const table = section(reference, "Configuration").split("\n").find((row) => row.startsWith("| `security.requireDmarcPass` |"))
 	assert.ok(table, "the config table should document requireDmarcPass")
 	// "Must be false" and "set this back to true" cannot both be unconditional.
 	if (/must be `false`/i.test(table)) assert.match(table, /unless/i, "state the exception")
@@ -787,7 +765,7 @@ test("the first-run command does not silently pick the single-mailbox layout", (
 	const [, from, to] = /setup (\S+) to (\S+)/.exec(setupLine!) ?? []
 	assert.ok(from && to, `unreadable setup line: ${setupLine}`)
 	assert.notEqual(from, to, "the example must not be the single-mailbox shape by accident")
-	assert.match(flat(readme), /`to` is optional and defaults to the pi address/i, "and the default is documented")
+	assert.match(flat(section("README.md", "One mailbox or two?")), /(?:omit|without|leave out)[^.]*`to`|`to`[^.]*optional/i, "and the one-address form is intentional")
 })
 
 test("rotation says how, not just that", () => {
@@ -826,11 +804,8 @@ test("the daemon's mode gate is present in the code that runs it", () => {
 test("the sentFolder caveat is stated where the reply chain is explained", () => {
 	// The chain cannot match a provider that rewrites Message-ID, and that is the section a
 	// reader consults when a reply "did not arrive".
-	const readme = flat(doc("README.md"))
-	const at = readme.indexOf("Editing the subject is safe")
-	assert.ok(at > -1, "the chain advice should exist")
-	const paragraph = readme.slice(at, at + 400)
-	assert.match(paragraph, /sentFolder/, "it must name the option that makes it work")
+	const routing = section(reference, "How a reply is identified")
+	assert.match(routing, /mail\.imap\.sentFolder/, "name the fallback for providers that rewrite Message-ID")
 })
 
 test("every daemon config key is documented where users look", () => {
@@ -840,7 +815,7 @@ test("every daemon config key is documented where users look", () => {
 	const daemonBlock = /daemon: \{([\s\S]*?)\n\t\}/.exec(config)?.[1] ?? ""
 	const keys = [...daemonBlock.matchAll(/^\t\t([a-zA-Z]+)\??:/gm)].map((m) => m[1]!)
 	assert.ok(keys.length >= 3, `expected the daemon keys, got ${keys.length}`)
-	const readme = doc("README.md")
+	const configTable = section(reference, "Configuration")
 	const example = JSON.parse(readFileSync(join(root, "config.example.json"), "utf8")) as {
 		daemon: Record<string, unknown>
 	}
@@ -848,13 +823,13 @@ test("every daemon config key is documented where users look", () => {
 		// The table row, not just any mention: prose elsewhere named the key and hid the gap.
 		// Rows may combine keys (`daemon.host` / `.port`), so accept `.key` in a daemon row.
 		assert.ok(
-			readme
+			configTable
 				.split("\n")
 				.some(
 					(line) =>
 						line.startsWith("| `daemon.") && (line.includes(`daemon.${key}`) || line.includes(`.${key}`)),
 				),
-			`README's config table has no row for daemon.${key}`,
+			`${reference}'s config table has no row for daemon.${key}`,
 		)
 		assert.ok(key in example.daemon, `config.example.json omits daemon.${key}`)
 	}
@@ -888,27 +863,11 @@ test("the periodic scan is pinned where no test can drive it", () => {
 })
 
 test("the commands a mail reply may run match the code", () => {
-	// The README table and SECURITY's threat note both name the accepted and refused commands;
-	// a drift between them and mail-command.ts is a security claim, not a doc nit.
-	const source = readFileSync(join(root, "src/core/mail-command.ts"), "utf8")
-	const safe = /MAIL_SAFE_SUBCOMMANDS[^=]*=\s*\[([^\]]*)\]/.exec(source)?.[1] ?? ""
-	const refused = /MAIL_REFUSED_SUBCOMMANDS\s*=\s*\[([^\]]*)\]/.exec(source)?.[1] ?? ""
-	const readme = doc("README.md")
+	const mail = section(reference, "Commands by mail")
+	const rows = mail.split("\n").filter((line) => line.startsWith("| `/mailbridge"))
+	const documented = rows.flatMap((row) => [...row.split("|")[1]!.matchAll(/`\/mailbridge ([a-z]+)`/g)].map((m) => m[1]!))
+	assert.deepEqual(new Set(documented), new Set(MAIL_SAFE_SUBCOMMANDS), "the mail table must match the dispatcher")
 	const security = doc("docs/SECURITY.md")
-	// Pin the table row for each safe subcommand. The old fallback was constant-true: the README
-	// contains "`/mailbridge` or `/mailbridge status`" somewhere, so every name passed without a
-	// row. `status` is the one that may be written as the bare command.
-	// Scope to the Commands table: the mail table repeats some of these rows, so an unscoped
-	// search kept passing after the Commands row was deleted.
-	const commandsTable = readme.slice(readme.indexOf("## Commands"), readme.indexOf("### Commands by mail"))
-	for (const sub of safe.match(/"[a-z]+"/g) ?? []) {
-		const name = sub.replace(/"/g, "")
-		const hasRow = commandsTable
-			.split("\n")
-			.some((line) => line.startsWith("| `/mailbridge") && line.includes(`/mailbridge ${name}\` |`))
-		const asBareStatus = name === "status" && /`\/mailbridge` or `\/mailbridge status`/.test(readme)
-		assert.ok(hasRow || asBareStatus, `README's table has no row for /mailbridge ${name}`)
-	}
 	// Refused subcommands must be named in the sentence that refuses them. A bare word match was
 	// satisfied by "authserv-id", "restart pi" and "re-prime the cursor"; the list is also
 	// wrapped across lines, so flatten before looking.
@@ -924,13 +883,12 @@ test("the commands a mail reply may run match the code", () => {
 		}
 		return windows.join(" | ")
 	}
-	const readmeRefusal = near(readme, /not runnable by mail/i)
-	assert.ok(readmeRefusal.length > 0, "README's mail section names what it refuses")
+	const mailRefusal = mail.split(/\n\s*\n/).filter((p) => /refus|not runnable|terminal.only/i.test(p)).join(" ")
+	assert.ok(mailRefusal.length > 0, "the mail section names what it refuses")
 	const securityRefusal = near(security, /refused by the dispatcher|are refused/i)
 	assert.ok(securityRefusal.length > 0, "SECURITY says the dispatcher refuses them")
-	for (const sub of refused.match(/"[a-z]+"/g) ?? []) {
-		const name = sub.replace(/"/g, "")
-		assert.ok(new RegExp(`\\b${name}\\b`).test(readmeRefusal), `README's refusal list omits ${name}`)
+	for (const name of MAIL_REFUSED_SUBCOMMANDS) {
+		assert.match(mailRefusal, new RegExp(`\`(?:/mailbridge )?${name}\``), `${reference}'s refusal list omits ${name}`)
 		assert.ok(new RegExp(`\\b${name}\\b`).test(securityRefusal), `SECURITY's refusal list omits ${name}`)
 	}
 })
@@ -984,7 +942,7 @@ test("the docs do not claim a mail reply can reopen the mode", () => {
 test("the single-instance mechanism is described as the lock file, not the port", () => {
 	// AGENTS #5 said "the port is the lock" for ten rounds after the code stopped relying on it.
 	// Four files repeated it; none was pinned.
-	for (const file of ["AGENTS.md", "README.md", "docs/ARCHITECTURE.md"]) {
+	for (const file of ["AGENTS.md", troubleshooting, "docs/ARCHITECTURE.md"]) {
 		const text = flat(doc(file))
 		assert.match(text, /daemon\.lock/, `${file} must name the lock file`)
 		assert.doesNotMatch(
@@ -998,26 +956,24 @@ test("the single-instance mechanism is described as the lock file, not the port"
 test("the lifecycle says install starts nothing and a session starts the daemon", () => {
 	// The package's own history: a reader could not tell whether `pi install` ran anything, and a
 	// commit message of mine claimed the daemon started at install. State it, and pin it.
-	const readme = doc("README.md")
-	const section = /## Lifecycle[\s\S]*?(?=\n## )/.exec(readme)?.[0] ?? ""
-	assert.ok(section, "README should have a lifecycle section")
-	assert.match(section, /install[^\n]*Nothing runs/i, "install must be described as inert")
-	assert.match(section, /first pi session/i, "and the session start as the thing that spawns")
-	assert.match(section, /--setup[^\n]*no daemon|no daemon[^\n]*--setup/i, "headless setup starts nothing")
-	assert.match(section, /idleTimeoutSecs/, "and the daemon's exit condition")
+	const lifecycle = section(reference, "Lifecycle: who starts what")
+	assert.match(lifecycle, /install[^\n]*(?:nothing runs|no daemon|does not start)/i, "install is inert")
+	assert.match(lifecycle, /session[^\n]*\/health[^\n]*(?:spawn|start)/i, "session start probes then spawns")
+	assert.match(lifecycle, /--setup[^\n]*(?:no daemon|without starting|does not start)/i, "headless setup starts nothing")
+	assert.match(lifecycle, /idleTimeoutSecs/, "and the daemon's exit condition")
 
 	// The code, not just the prose: session_start is what probes and spawns.
 	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
 	assert.match(extension, /pi\.on\("session_start"[\s\S]{0,1600}ensureDaemonDetailed\(\)/, "session_start spawns")
 })
 
-test("the docs say a session replaces a daemon from an older build", () => {
+test("the docs say a session replaces a daemon on an older protocol", () => {
 	// Without this, `pi update` leaves a daemon minting ids the new extension cannot resolve.
-	for (const file of ["README.md", "docs/ARCHITECTURE.md", "CHANGELOG.md"]) {
+	for (const file of [reference, "docs/ARCHITECTURE.md", "CHANGELOG.md"]) {
 		assert.match(doc(file), /version/i, `${file} should mention the version check`)
 	}
-	const readme = flat(doc("README.md"))
-	assert.match(readme, /replaces? (?:it|the daemon)|replaced/i, "README states the replacement")
+	const lifecycle = flat(section(reference, "Lifecycle: who starts what"))
+	assert.match(lifecycle, /replac\w*[^.]*older|older[^.]*replac/i, "replacement is for older protocols")
 	const source = readFileSync(join(root, "src/extension.ts"), "utf8")
 	assert.match(source, /replaceOutdatedDaemon/, "and the code does it")
 	assert.match(source, /VERSION_CHECK_MS/, "throttled, so a failing respawn cannot loop")
@@ -1093,9 +1049,9 @@ test("the in-pi check never claims to exit with a code", () => {
 })
 
 test("the reason table covers every reason the scanner can emit for a delivered mail", () => {
-	const readme = doc("README.md")
-	assert.match(readme, /attachment-only-dropped/, "the stub reason is documented")
-	assert.match(readme, /attachments dropped/, "and filed with the other attachment losses")
+	const reasons = section(troubleshooting, "A reply did not arrive")
+	assert.match(reasons, /^\| `attachment-only-dropped`/m, "the stub reason is documented")
+	assert.match(reasons, /attachments dropped:/, "and filed with the other attachment losses")
 })
 
 test("the README's flow diagram exists, is referenced, and matches the gate order", () => {
@@ -1132,14 +1088,14 @@ test("every image the README embeds actually exists", () => {
 test("the starter diagrams exist, are referenced, and state what the section promises", () => {
 	// Same rule as the flow diagram: a rotting image is worse than none, and one that disagrees with the
 	// section is a confident lie. These are checked for the load-bearing strings, not their layout.
-	const readme = doc("README.md")
+	const guide = doc(starter)
 	// Each is embedded as <picture>: SVG first, PNG fallback for clients that drop SVG.
 	for (const name of ["starter-mail", "starter-flow"]) {
 		for (const ext of ["svg", "png"]) {
-			assert.match(readme, new RegExp(`docs/images/${name}\\.${ext}`), `README references ${name}.${ext}`)
+			assert.match(guide, new RegExp(`docs/images/${name}\\.${ext}`), `${starter} references ${name}.${ext}`)
 			assert.ok(existsSync(join(root, "docs", "images", `${name}.${ext}`)), `${name}.${ext} is in the package`)
 		}
-		assert.match(readme, new RegExp(`type="image/svg\\+xml"`), "the SVG is the preferred source")
+		assert.match(guide, /type="image\/svg\+xml"/, "the SVG is the preferred source")
 	}
 	const mail = readFileSync(join(root, "docs/images/starter-mail.svg"), "utf8")
 	for (const needle of ["[pi-start]", "cwd:", "prompt:", "stop:", "list:", "attach:"]) {
@@ -1176,10 +1132,8 @@ test("the documented queue bounds match the constants they describe", () => {
 	const spaced = String(pendingCap).replace(/\B(?=(\d{3})+(?!\d))/g, " ")
 	const megabytes = `${Math.round(pendingMaxBytes / 1024 / 1024)} MB`
 
-	assert.ok(
-		flat(doc("README.md")).includes(`${spaced} undelivered replies, or ${megabytes}`),
-		"README's pending-full row must state both bounds",
-	)
+	const row = doc(troubleshooting).split("\n").find((line) => line.startsWith("| `pending-full`")) ?? ""
+	assert.ok(row.includes(spaced) && row.includes(megabytes), "the pending-full row must state both bounds")
 	assert.ok(
 		flat(doc("docs/ARCHITECTURE.md")).includes(`at most ${spaced} records or ${megabytes}`),
 		"ARCHITECTURE's pipeline invariant must state both bounds",
@@ -1193,12 +1147,11 @@ test("the inbound document caps agree with the constants and with the wire ceili
 	const wireCeiling = MAX_MESSAGE_BYTES
 	// Four numbers that only make sense together: a reply's files, the mail that carries them after
 	// base64, the per-file cap, and the retention. They were documented before they were reachable.
-	const prose = [doc("README.md"), doc("docs/SECURITY.md"), doc("CHANGELOG.md")]
-		.join("\n")
-		.replace(/\s+/g, " ")
+	const files = flat(section(troubleshooting, "Replying with a file"))
 	const mb = (n: number): string => `${Math.round(n / 1024 / 1024)} MB`
-	assert.ok(prose.includes(`${mb(fileCap)} per file`), "per-file cap is stated")
-	assert.ok(prose.includes(mb(filesTotal)), "per-reply total is stated")
+	assert.match(files, new RegExp(`${mb(fileCap)} (?:each|per file)`), "per-file cap is stated")
+	assert.ok(files.includes(`${mb(filesTotal)} per reply`), "per-reply total is stated")
+	assert.ok(files.includes(mb(wireCeiling)), "mail size ceiling is stated")
 	const encoded = (bytes: number): number => Math.ceil(bytes / 3) * 4
 	assert.ok(
 		encoded(filesTotal) + encoded(inlineTotal) < wireCeiling,
@@ -1348,7 +1301,7 @@ test("the docs state the protocol direction rule, not a blanket replacement", ()
 	// The code refuses to replace a daemon that is NEWER than this session (killing it would break
 	// every newer session on the machine). Prose said "a daemon on another protocol is replaced" in
 	// three files for two rounds after the code stopped doing that.
-	for (const file of ["README.md", "AGENTS.md", "docs/ARCHITECTURE.md"]) {
+	for (const file of [reference, troubleshooting, "AGENTS.md", "docs/ARCHITECTURE.md"]) {
 		const text = flat(doc(file))
 		assert.match(text, /older|newer/, `${file} must name the direction`)
 		assert.match(
@@ -1401,10 +1354,11 @@ test("the panel's mode line names the scope it is reporting", () => {
 	// `mode: on` teaches a shape the product never emits.
 	const extension = readFileSync(join(root, "src/extension.ts"), "utf8")
 	assert.match(extension, /\(this session\)/, "the formatter distinguishes the scopes")
-	const readme = doc("README.md")
-	for (const match of readme.matchAll(/^mode: (.+)$/gm)) {
+	const guide = doc(troubleshooting)
+	assert.match(guide, /^mode: /m, "the status example must show the mode")
+	for (const match of guide.matchAll(/^mode: (.+)$/gm)) {
 		if (/^\$|mode: \$|mode: <|mode: \(unknown\)/i.test(match[0])) continue
-		assert.match(match[1] ?? "", /\(this session\)|\(global\)/, `README example prints a shape the product cannot emit: ${match[0]}`)
+		assert.match(match[1] ?? "", /\(this session\)|\(global\)/, `status example prints a shape the product cannot emit: ${match[0]}`)
 	}
 })
 
@@ -1493,13 +1447,13 @@ test("the inbound document list names every extension the code accepts", () => {
 	assert.ok(block, "the allowlist should be a literal object")
 	const allowed = [...(block[1] ?? "").matchAll(/^\s*([a-z0-9]+):/gm)].map((m) => m[1] as string)
 	assert.ok(allowed.length > 5, "the scan should find the extensions")
-	const readme = flat(doc("README.md")).toLowerCase()
+	const files = section(troubleshooting, "Replying with a file").toLowerCase()
 	// The table writes families (`ppt/pptx`) and image *types* (`PNG / JPEG / GIF / WebP`), so a few
 	// extensions are named differently there.
 	const alias: Record<string, string> = { jpg: "jpeg", tif: "tiff", htm: "html" }
 	for (const ext of allowed) {
 		const needle = alias[ext] ?? ext
-		assert.match(readme, new RegExp(`(?<![a-z])${needle}(?![a-z])`), `README's inbound list omits .${ext}`)
+		assert.match(files, new RegExp(`(?<![a-z])${needle}(?![a-z])`), `${troubleshooting}'s inbound list omits .${ext}`)
 	}
 })
 
@@ -1540,18 +1494,31 @@ test("the docs no longer claim the package never creates sessions, and say what 
 
 	const readme = flat(doc("README.md"))
 	assert.match(readme, /pi-mailbridge starter run/)
-	assert.match(readme, /cwd must be INSIDE one of these/i)
+	assert.match(readme, /\[pi-start\]/)
+	assert.match(readme, /tmux/)
 })
 
-test("the starter's config is documented as example keys and in the README", () => {
+test("the starter guide's request uses a permitted project and model from its sample config", () => {
 	const example = JSON.parse(doc("config.example.json")) as { starter?: Record<string, unknown> }
 	assert.ok(example.starter, "config.example.json has the section")
 	for (const key of ["enabled", "roots", "models", "maxSessions", "startsPerHour", "parse"]) {
 		assert.ok(key in (example.starter ?? {}), `config.example.json: ${key}`)
 	}
-	const readme = flat(doc("README.md"))
-	for (const key of ["enabled", "roots", "models", "autoEnableMail"]) {
-		assert.match(readme, new RegExp(`"${key}"`), `README documents starter.${key}`)
-	}
+	const guide = doc(starter)
+	const snippet = /```json\n([\s\S]*?)```/.exec(guide)?.[1]
+	assert.ok(snippet, "starter guide must show a JSON config")
+	const config = (JSON.parse(snippet) as { starter: { enabled: boolean; roots: string[]; models: string[]; autoEnableMail: boolean } }).starter
+	assert.equal(config.enabled, true)
+	assert.equal(config.autoEnableMail, true)
+	const request = /^```(?:text)?\n([\s\S]*?)^```/m.exec(section(starter, "Send a request"))?.[1] ?? ""
+	assert.match(request, /^Subject:\s*\[pi-start\]/m)
+	const cwd = /^cwd:\s*(\S+)$/m.exec(request)?.[1]
+	assert.ok(cwd && config.roots.some((root) => {
+		const path = relative(root, cwd)
+		return path !== "" && path !== ".." && !path.startsWith("../")
+	}), "request cwd is below a configured root")
+	const model = /^model:\s*(\S+)$/m.exec(request)?.[1]
+	assert.ok(model && config.models.includes(model), "request uses an allowed model")
+	assert.match(request, /^prompt:\s*\|\n\s+\S/m)
 })
 
