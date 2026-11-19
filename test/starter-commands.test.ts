@@ -521,3 +521,22 @@ test("check says it is offline, and an auth failure is named as one", () => {
 	})
 })
 
+test("a lock is not re-acquired by the process that already holds it", () => {
+	// A same-PID second acquisition used to be treated as a corpse and stolen, so an older handle could release
+	// a replacement. With the fail-closed policy it is simply held.
+	const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-selflock-")) }
+	const first = acquireLock(env, "starter.lock")
+	assert.equal(first.ok, true)
+	if (!first.ok) return
+	const second = acquireLock(env, "starter.lock")
+	assert.equal(second.ok, false)
+	if (!second.ok) {
+		assert.equal(second.holder, process.pid)
+		assert.equal(second.stale, undefined, "our own pid is alive, so the lock is not stale")
+	}
+	first.lock.release()
+	const third = acquireLock(env, "starter.lock")
+	assert.equal(third.ok, true)
+	if (third.ok) third.lock.release()
+})
+
