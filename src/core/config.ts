@@ -117,6 +117,12 @@ export interface ResolvedConfig {
 		 * still be sent as a plain link. `false` restores the raster-only behaviour.
 		 */
 		inlineSvg: boolean
+		/**
+		 * Convert a referenced SVG to PNG before inlining, when a rasteriser is on PATH. Outlook mobile and
+		 * most Android galleries render no SVG at all, so the PNG is the only form they show. Falls back to
+		 * the SVG when no converter is found or it fails.
+		 */
+		rasteriseSvg: boolean
 	}
 	tuning: { idleRenewMs: number; backoffInitialMs: number; backoffMaxMs: number }
 	/**
@@ -177,6 +183,7 @@ const DEFAULTS: Omit<ResolvedConfig, "warnings"> = {
 		// Outlook.com enforce. A provider that allows more (QQ: 50 MB) can raise it.
 		maxAttachmentMb: 18,
 		inlineSvg: true,
+		rasteriseSvg: true,
 	},
 	tuning: {
 		idleRenewMs: 25 * 60 * 1000,
@@ -397,6 +404,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 	}
 	// Explicitly true, not "the value we read": `null`, `0` and `"false"` must not silence the switch.
 	resolved.notify = { ...resolved.notify, inlineSvg: typeof rawInlineSvg === "boolean" ? rawInlineSvg : true }
+
+	const rawRasterise: unknown = resolved.notify.rasteriseSvg
+	if (rawRasterise !== undefined && typeof rawRasterise !== "boolean") {
+		warnings.push("notify.rasteriseSvg must be true or false — using true")
+	}
+	resolved.notify = { ...resolved.notify, rasteriseSvg: typeof rawRasterise === "boolean" ? rawRasterise : true }
 
 	const rawMaxMb: unknown = resolved.notify.maxAttachmentMb
 	if (rawMaxMb !== undefined) {

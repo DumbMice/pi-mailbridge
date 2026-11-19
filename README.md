@@ -421,8 +421,11 @@ A notification carries what it needs to be useful away from the desk:
 | `![shot](./shot.png)` | the image **inline**, embedded in the body where the agent put it, via `Content-ID` (`<img src="cid:…">`), so it renders there instead of sitting in the attachment tray. PNG/JPEG/GIF/WebP, plus SVG while `notify.inlineSvg` is on; up to 5 MB each |
 | `[the log](./build.log)` | `build.log` as an **attachment**; nothing renders a PDF or a zip inside a mail body, so it is named beside the link: `the log [attached: build.log]` |
 
-An SVG is inlined too (`notify.inlineSvg`, default true): `![](diagram.svg)` becomes a cid image with
-`image/svg+xml`. Only a simple document is recognised: no doctype (a DTD can declare entities or a default
+An SVG is inlined too (`notify.inlineSvg`, default true): `![](diagram.svg)` becomes a cid image. By default
+it is **rasterised to PNG first** (`notify.rasteriseSvg`), because Outlook mobile and most Android galleries
+show no SVG at all: `rsvg-convert`, ImageMagick `convert` or `inkscape` is used when one is on `PATH`, and the
+SVG is used as-is when none is. Set `PI_MAILBRIDGE_SVG_RASTERISER=0` or `notify.rasteriseSvg: false` to skip
+that step. Only a simple document is recognised: no doctype (a DTD can declare entities or a default
 namespace this code does not parse), no processing instruction other than a UTF-8 XML declaration, and a
 well-formed start tag; a namespace-less `<svg/>` is accepted, and when a namespace is written it must be the
 SVG one. Anything else falls back to the note. Whether you see it depends on the client's CID-SVG support: Gmail rasterises it, **Outlook
@@ -652,6 +655,7 @@ environment variables. A working example: [`config.example.json`](https://github
 | `notify.notifyOnAborted` | `false` | also mail when you hit Escape |
 | `notify.maxAttachmentMb` | `18` | total size of files attached to one notification, before base64. Default sits under Gmail/Outlook.com's 25 MB; QQ allows 50 MB, so a QQ account can raise it |
 | `notify.inlineSvg` | `true` | inline `![](x.svg)` as a cid image. `false` restores raster-only inlining; Outlook desktop shows no SVG either way |
+| `notify.rasteriseSvg` | `true` | convert a referenced SVG to PNG before inlining when `rsvg-convert`, ImageMagick `convert` or `inkscape` is on `PATH`, because Outlook mobile and most Android galleries render no SVG. Falls back to the SVG when no converter works |
 | `tuning.idleRenewMs` | `1500000` | IDLE renew interval (keep under ~29 min) |
 | `tuning.backoffInitialMs` / `.backoffMaxMs` | `1000` / `60000` | reconnect backoff bounds |
 
@@ -732,6 +736,7 @@ the daemon without editing your config file:
 | `PI_MAILBRIDGE_IMAP_TOKEN_CMD`, `PI_MAILBRIDGE_SMTP_TOKEN_CMD` | `mail.imap.tokenCommand`, `mail.smtp.tokenCommand` (argv list; JSON or comma-separated) |
 | `PI_MAILBRIDGE_SESSION_MODE` | this session's email-mode override at start (`on`/`off`), set by the session starter and by anything else that wants a started session to mail you back |
 | `PI_MAILBRIDGE_START_REQUEST`, `PI_MAILBRIDGE_START_PROMPT`, `PI_MAILBRIDGE_START_READY`, `PI_MAILBRIDGE_START_MAX_BYTES` | the session starter's bootstrap: the request id, the `0600` prompt file it reads and removes, the readiness marker it writes, and the size cap it enforces (not for humans to set by hand) |
+| `PI_MAILBRIDGE_SVG_RASTERISER` | `0` disables converting a referenced SVG to PNG (see `notify.rasteriseSvg`); any other value is ignored |
 | `PI_MAILBRIDGE_BOOTSTRAP` | absolute path to the bootstrap extension, for a starter that is not running from the package layout (`starter check` and the dry run use it) |
 
 ## Agent tools

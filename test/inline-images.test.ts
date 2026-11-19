@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { inlineLocalImages, sniffImage, sniffSvg, MAX_INLINE_BYTES, MAX_INLINE_COUNT, MAX_FILE_BYTES, MAX_INLINE_TOTAL_BYTES } from "../src/core/inline-images.ts"
+import { inlineLocalImages, rasteriseSvg, sniffImage, sniffSvg, MAX_INLINE_BYTES, MAX_INLINE_COUNT, MAX_FILE_BYTES, MAX_INLINE_TOTAL_BYTES } from "../src/core/inline-images.ts"
 import { renderMessage } from "../src/core/html.ts"
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
@@ -606,14 +606,14 @@ test("an SVG is inlined as a cid image only when the switch is on", () => {
 	writeFileSync(join(root, "diagram.svg"), SVG)
 	const html = '<p><img src="./diagram.svg" alt="diagram"></p>'
 
-	const on = inlineLocalImages(html, { root, inlineSvg: true })
+	const on = inlineLocalImages(html, { root, inlineSvg: true, rasteriseSvg: false })
 	assert.equal(on.attachments.length, 1)
 	assert.equal(on.attachments[0]!.contentType, "image/svg+xml")
 	assert.match(on.attachments[0]!.filename, /\.svg$/)
 	assert.match(on.html, /<img src="cid:/)
 
 	// The switch off keeps the old behaviour: no attachment, and a note the reader can act on.
-	const off = inlineLocalImages(html, { root, inlineSvg: false })
+	const off = inlineLocalImages(html, { root, inlineSvg: false, rasteriseSvg: false })
 	assert.equal(off.attachments.length, 0)
 	assert.match(off.html, /not attached, not an image/)
 })
@@ -622,7 +622,56 @@ test("an oversized SVG is refused before it is inlined", () => {
 	const root = dir()
 	const big = Buffer.concat([SVG, Buffer.alloc(MAX_INLINE_BYTES + 1, 0x20)])
 	writeFileSync(join(root, "big.svg"), big)
-	const result = inlineLocalImages('<img src="./big.svg" alt="big">', { root, inlineSvg: true })
+	const result = inlineLocalImages('<img src="./big.svg" alt="big">', { root, inlineSvg: true, rasteriseSvg: false })
 	assert.equal(result.attachments.length, 0)
 	assert.match(result.html, /over the/)
 })
+
+test("an SVG is rasterised to PNG when a converter is available", () => {
+	const root = dir()
+	writeFileSync(join(root, "diagram.svg"), SVG)
+	const html = '<p><img src="./diagram.svg" alt="diagram"></p>'
+
+	// Injected converter: the part must become a PNG, because Outlook mobile and Android galleries show no SVG.
+	let asked = 0
+	const converted = inlineLocalImages(html, {
+		root,
+		inlineSvg: true,
+		rasteriseSvg: true,
+		rasteriser: (path) => {
+			asked += 1
+			return path.endsWith("diagram.svg") ? PNG : undefined
+		},
+	})
+	assert.equal(asked, 1)
+	assert.equal(converted.attachments[0]!.contentType, "image/png")
+	assert.match(converted.attachments[0]!.filename, /\.png$/)
+
+	// A converter that cannot do it falls back to the SVG rather than losing the image.
+	const failed = inlineLocalImages(html, { root, inlineSvg: true, rasteriseSvg: true, rasteriser: () => undefined })
+	assert.equal(failed.attachments[0]!.contentType, "image/svg+xml")
+
+	// The switch off keeps the SVG even when a converter exists.
+	const off = inlineLocalImages(html, { root, inlineSvg: true, rasteriseSvg: false, rasteriser: () => PNG })
+	assert.equal(off.attachments[0]!.contentType, "image/svg+xml")
+})
+
+test("the real rasteriser produces a PNG for a simple SVG", { skip: !hasConverter() }, () => {
+	const root = dir()
+	writeFileSync(join(root, "diagram.svg"), SVG)
+	const bytes = rasteriseSvg(join(root, "diagram.svg"), MAX_INLINE_BYTES)
+	assert.ok(bytes, "a converter is present, so it must produce bytes")
+	assert.equal(sniffImage(bytes!)?.contentType, "image/png")
+})
+
+function hasConverter(): boolean {
+	for (const tool of ["rsvg-convert", "convert", "inkscape"]) {
+		try {
+			execFileSync("which", [tool], { stdio: "ignore" })
+			return true
+		} catch {
+			continue
+		}
+	}
+	return false
+}

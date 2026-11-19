@@ -128,6 +128,7 @@ export async function sendMail(
 		// send that fails at the provider.
 		maxTotalBytes: Math.round(config.notify.maxAttachmentMb * 1024 * 1024),
 		inlineSvg: config.notify.inlineSvg,
+		rasteriseSvg: config.notify.rasteriseSvg,
 	})
 
 	// withFreshToken hands each attempt its token; use it directly rather than fetching a

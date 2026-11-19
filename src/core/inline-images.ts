@@ -29,9 +29,10 @@
 // attached once.
 
 import { createHash } from "node:crypto"
-import { readFileSync, realpathSync, statSync } from "node:fs"
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path"
-import { homedir } from "node:os"
+import { execFileSync } from "node:child_process"
+import { mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs"
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path"
+import { homedir, tmpdir } from "node:os"
 import { configDir, stateDir } from "../store/paths.ts"
 import { contains, hasHiddenSegmentBelow } from "./containment.ts"
 
@@ -273,6 +274,43 @@ export function sniffSvg(buffer: Buffer): boolean {
 	return declared === undefined || decodeNumericReferences(declared) === SVG_NAMESPACE
 }
 
+/**
+ * Render an SVG file to PNG with whatever converter the host has.
+ *
+ * Outlook mobile and most Android galleries render no SVG, so the PNG is the only form that shows there.
+ * This spawns a tool on a file from the agent's own project; it is bounded by a timeout, an output cap, and
+ * the same containment that already decided the path is allowed. Any failure returns undefined and the
+ * caller falls back to the SVG or the note.
+ */
+export function rasteriseSvg(path: string, maxBytes: number): Buffer | undefined {
+	if (process.env.PI_MAILBRIDGE_SVG_RASTERISER === "0") return undefined
+	const limit = Math.min(maxBytes, MAX_INLINE_BYTES)
+	const attempt = (argv: string[]): Buffer | undefined => {
+		try {
+			const out = execFileSync(argv[0]!, argv.slice(1), { timeout: 10_000, maxBuffer: limit, stdio: ["ignore", "pipe", "ignore"] })
+			// The output must be a real PNG; a tool that failed and printed text is not.
+			return sniffImage(out)?.contentType === "image/png" ? out : undefined
+		} catch {
+			return undefined
+		}
+	}
+	const rsvg = attempt(["rsvg-convert", "-f", "png", "-w", "1600", "-o", "-", path])
+	if (rsvg) return rsvg
+	const magick = attempt(["convert", "-background", "none", path, "png:-"])
+	if (magick) return magick
+	// Inkscape writes files, not stdout.
+	try {
+		const dir = mkdtempSync(join(tmpdir(), "pmb-svg-"))
+		const out = join(dir, "out.png")
+		execFileSync("inkscape", ["--export-type=png", `--export-filename=${out}`, path], { timeout: 10_000, stdio: "ignore" })
+		const bytes = readFileSync(out)
+		rmSync(dir, { recursive: true, force: true })
+		return bytes.length <= limit && sniffImage(bytes)?.contentType === "image/png" ? bytes : undefined
+	} catch {
+		return undefined
+	}
+}
+
 export function sniffImage(buffer: Buffer): { contentType: string; ext: string } | undefined {
 	if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
 		return { contentType: "image/png", ext: "png" }
@@ -446,6 +484,10 @@ export interface InlineOptions {
 	maxTotalBytes?: number
 	/** Inline SVG as a cid image; the caller passes `notify.inlineSvg`, which defaults to true. */
 	inlineSvg?: boolean
+	/** Rasterise an SVG to PNG before inlining (Outlook mobile and Android galleries show no SVG). */
+	rasteriseSvg?: boolean
+	/** Injected for tests: turns an SVG file into PNG bytes, or undefined when it cannot. */
+	rasteriser?: (path: string, maxBytes: number) => Buffer | undefined
 	/** Injected for tests. */
 	readFile?: (path: string) => Buffer
 	sizeOf?: (path: string) => number
@@ -510,30 +552,38 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 			return note(alt || "image", "not attached, file not found")
 		}
 
-		const kind = sniffImage(bytes) ?? (options.inlineSvg && sniffSvg(bytes) ? { contentType: "image/svg+xml", ext: "svg" } : undefined)
+		let kind = sniffImage(bytes) ?? (options.inlineSvg && sniffSvg(bytes) ? { contentType: "image/svg+xml", ext: "svg" } : undefined)
+		let payload = bytes
+		if (kind?.contentType === "image/svg+xml" && options.rasteriseSvg !== false) {
+			const png = (options.rasteriser ?? rasteriseSvg)(path, maxBytes)
+			if (png) {
+				payload = png
+				kind = sniffImage(png) ?? kind
+			}
+		}
 		if (!kind) {
 			skipped.push({ src, reason: "not-an-image" })
 			return note(alt || "image", "not attached, not an image")
 		}
-		if (bytes.length > maxBytes || total + bytes.length > maxTotal) {
+		if (payload.length > maxBytes || total + payload.length > maxTotal) {
 			skipped.push({ src, reason: "too-large" })
 			return note(alt || "image", "not attached, too large")
 		}
 
-		const digest = createHash("sha256").update(bytes).digest("hex").slice(0, 16)
+		const digest = createHash("sha256").update(payload).digest("hex").slice(0, 16)
 		const cid = `pi-${digest}@pi.local`
 		const existing = byCid.get(cid)
 		if (!existing) {
 			const base = (alt || "image").replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 40) || "image"
 			const attachment: InlineAttachment = {
 				filename: `${base}.${kind.ext}`,
-				content: bytes,
+				content: payload,
 				contentType: kind.contentType,
 				cid,
 			}
 			byCid.set(cid, attachment)
 			attachments.push(attachment)
-			total += bytes.length
+			total += payload.length
 		}
 
 		return `<img src="cid:${cid}" alt="${escapeHtml(alt)}" style="max-width:100%;height:auto">`

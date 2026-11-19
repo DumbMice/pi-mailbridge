@@ -397,7 +397,7 @@ test("notify.inlineSvg resolves to a real boolean", () => {
 		return loadConfig(env)
 	}
 	assert.equal(write({}).notify.inlineSvg, true, "missing means on")
-	assert.equal(write({ inlineSvg: false }).notify.inlineSvg, false, "explicit off is honoured")
+	assert.equal(write({ inlineSvg: false, rasteriseSvg: false }).notify.inlineSvg, false, "explicit off is honoured")
 	for (const bad of [null, 0, "false", 1]) {
 		const config = write({ inlineSvg: bad })
 		assert.equal(config.notify.inlineSvg, true, `${JSON.stringify(bad)} falls back to true`)

@@ -59,7 +59,7 @@ export interface RenderedMessage {
  */
 export function renderMessage(
 	text: string,
-	options: { root?: string; maxTotalBytes?: number; inlineSvg?: boolean } = {},
+	options: { root?: string; maxTotalBytes?: number; inlineSvg?: boolean; rasteriseSvg?: boolean } = {},
 ): RenderedMessage {
 	const rendered = inlineLocalImages(textToHtml(text), options)
 	return { html: rendered.html, attachments: rendered.attachments, skipped: rendered.skipped }
