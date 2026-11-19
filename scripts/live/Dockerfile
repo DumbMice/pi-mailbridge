@@ -31,6 +31,7 @@ WORKDIR /work
 COPY scripts/live/entry.sh /usr/local/bin/live-entry
 COPY scripts/live/send.mjs /usr/local/bin/live-send.mjs
 COPY scripts/live/await-prime.mjs /usr/local/bin/live-await-prime.mjs
+COPY scripts/live/tmux-restart.mjs /usr/local/bin/live-tmux-restart.mjs
 RUN chmod +x /usr/local/bin/live-entry
 
 ENTRYPOINT ["/usr/local/bin/live-entry"]

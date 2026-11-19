@@ -61,6 +61,19 @@ live-...: 1 windows (created ...)
 == LIVE TEST PASSED
 ```
 
+## Real tmux restart, without mail
+
+The fake executors in the unit tests cannot show that tmux actually reuses a `$N` and that the ownership
+marker saves us. This runs against a disposable socket inside the same image:
+
+```bash
+docker run --rm --entrypoint node pi-mailbridge-live:local /usr/local/bin/live-tmux-restart.mjs
+```
+
+It creates a session named `probe` with request `req-1`, kills the server, recreates the same name with
+`req-2` (tmux reuses `$0`), and checks that stopping the old id with the old marker is refused while the
+new session survives its own stop.
+
 ## What it does not prove
 
 - That the launched agent answers *correctly* — only that pi started a turn with the literal prompt.
