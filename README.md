@@ -184,6 +184,12 @@ be aware that a self-sent copy may carry **no** `Authentication-Results` header 
 with `requireDmarcPass` on the request is silently ignored — `check` reports that DMARC-off state, and the
 watcher log names the ignore reason (`ignored uid N: …`), which is how you tell the two apart.
 
+**Upgrading from 0.2.x?** Three behaviour changes, none of which touches the starter's default-off state:
+a stale `daemon.lock` is no longer stolen (a `SIGKILL`ed daemon now needs one manual `rm`, see
+`starter locks`); `security.requireDmarcPass` / `allowSelfReplies` accept only real booleans (malformed values
+resolve to the safe default with a warning — `0` no longer disables DMARC); and `starter check` prints an
+extra line saying it is an offline check. Details and the two log-parsing changes are in the CHANGELOG.
+
 **This turns a mailbox into a way to launch processes**, so read `docs/SECURITY.md` §4a first: the `roots`
 list is a launch restriction (not a sandbox), and a request is authorized by your address and DMARC — there
 is no routing token to steal, and none to rely on either. The starter needs its own IMAP connection and runs

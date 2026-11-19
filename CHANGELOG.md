@@ -19,6 +19,27 @@ than double-starting; `stop` kills by immutable tmux session id; and unauthentic
 all. Optional stage B runs one isolated, read-only pi to fill a missing `cwd`, and its answer is validated
 like a human's.
 
+### Changed (behaviour that can affect an existing install)
+
+- **A stale `daemon.lock` is no longer stolen.** A lock left by a `SIGKILL`ed process used to be taken over
+  by atomic rename; it is now reported, and an operator removes the file after confirming the pid is gone
+  (`pi-mailbridge starter locks` prints the path and holder and removes nothing). Renaming another process's
+  lock cannot be made race-free in user space, and the takeover could let two processes both believe they
+  held it. **Migration:** after an unclean daemon kill, remove `<state>/pi-mailbridge/daemon.lock` once.
+- **`security.requireDmarcPass` and `security.allowSelfReplies` must be real booleans.** `null`, `0`, `""`
+  and the truthy string `"false"` used to survive resolution — `0` disabled DMARC, and `"false"` *enabled*
+  self-replies. Malformed values now resolve to the safe default (`true` / `false`) and add a warning naming
+  the key. **Migration:** write `true`/`false`, and re-run `starter check` (or the daemon) to see the warning.
+- **`starter check` prints one extra line** after its result: that it is an offline configuration check and
+  does not log in, pointing at `--smoke` for credentials. "check: ok" with a wrong authorisation code was
+  read as success; the exit status is unchanged.
+- **`list-sessions` parsing no longer loses session names.** `tmux -F` does not expand `\t`, so the previous
+  format produced ids like `$0\tname` with an empty name; the sweep then failed to match a running session
+  and marked it ended. The separator is now a literal space, split at the first one.
+- **An ignored mail is logged with its reason** (`ignored uid N: …`, including `unauthenticated:self` and
+  `dmarc-missing`). These paths stay silent on the wire — no reply is sent — but a gate nobody can observe is
+  a gate nobody can debug.
+
 ### DMARC pinning no longer needs a human to read headers
 
 `security.trustedAuthservId` is the receiving provider's own `authserv-id`, and it exists only in a
