@@ -595,6 +595,12 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 		const cid = `pi-${digest}@pi.local`
 		const existing = byCid.get(cid)
 		if (!existing) {
+			// The cap is enforced where a part is actually appended, not only where one is first considered:
+			// a repeated path whose contents changed is a new part, and must not slip past on a cached slot.
+			if (attachments.length >= maxCount) {
+				skipped.push({ src, reason: "too-many" })
+				return note(alt || "image", "not attached, too many images")
+			}
 			// Only a new part costs bytes: a second reference to the same content is free.
 			if (payload.length > maxBytes || total + payload.length > maxTotal) {
 				skipped.push({ src, reason: "too-large" })
@@ -675,6 +681,7 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 		const existing = byCid.get(`file-${digest}`)
 		const name = existing?.filename ?? filename
 		if (!existing) {
+			if (attachments.length >= maxCount) return refuse("too-many", "too many attachments")
 			if (total + bytes.length > maxTotal) {
 				return refuse("too-large", `${Math.round(bytes.length / 1024)} KB, over the limit`)
 			}

@@ -767,3 +767,37 @@ test("a link to a file already inlined still counts against the count cap", () =
 	assert.equal(result.attachments.length, 1, "only the image part fits")
 	assert.match(result.html, /not attached: too many attachments/, "the link is refused, not silently added")
 })
+
+test("the count cap holds even when a repeated file changes between references", () => {
+	// A same-mode repeat skips the first count check; if the file changed, its new digest is a new part, so the
+	// append itself has to enforce the cap. Each read returns different bytes here.
+	const root = dir()
+	writeFileSync(join(root, "diagram.svg"), SVG)
+	const second = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect width="20" height="20"/></svg>')
+	let read = 0
+	const result = inlineLocalImages('<img src="./diagram.svg"><img src="./diagram.svg">', {
+		root,
+		inlineSvg: true,
+		rasteriseSvg: false,
+		maxCount: 1,
+		readFile: () => (read++ === 0 ? SVG : second),
+		sizeOf: () => SVG.length,
+	})
+	assert.equal(result.attachments.length, 1, "the second, different part is refused")
+	assert.match(result.html, /not attached, too many images/)
+})
+
+test("the link count cap holds when the file changes between references", () => {
+	const root = dir()
+	writeFileSync(join(root, "build.log"), "one")
+	const second = Buffer.from("two")
+	let read = 0
+	const result = inlineLocalImages('<a href="./build.log">a</a><a href="./build.log">b</a>', {
+		root,
+		maxCount: 1,
+		readFile: () => (read++ === 0 ? Buffer.from("one") : second),
+		sizeOf: () => 3,
+	})
+	assert.equal(result.attachments.length, 1)
+	assert.match(result.html, /too many attachments/)
+})
