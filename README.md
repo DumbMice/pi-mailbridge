@@ -10,23 +10,22 @@
 Answer your coding agent from your mailbox.
 
 When a [pi](https://pi.dev) session needs a decision, it emails you. You reply from your phone,
-your work laptop, a webmail tab — anything that can read mail — and **that same session
-continues**, with your answer as the next message. Notifications also carry rendered Markdown,
-images embedded in the body where the agent put them, and any local file it linked attached with
-its real name.
+your work laptop, or a webmail tab, and **that same session continues**, with your answer as the
+next message. Notifications also carry rendered Markdown, images embedded in the body where the
+agent put them, and any local file it linked, attached with its real name.
 
 ![A pi-mailbridge notification in a mail client: a decision request with rendered Markdown, a recommendation, and a build log attached](https://cdn.jsdelivr.net/npm/@dumbmice/pi-mailbridge@latest/docs/images/notification.png)
 
-- **Your inbox is the client.** No app, no account, no relay, no push service. Any device with
-  email works: a phone, a tablet, another PC, a webmail tab.
-- **Reply = resume.** The reply is injected into the session that sent the mail, as a follow-up,
-  so it queues correctly if a run is still in flight.
-- **One mailbox connection per machine.** A small loopback daemon owns a single IMAP IDLE
-  connection; every pi session is a thin client, so N sessions never race over one mailbox.
-- **Explicit, not inferred.** Email mode is a switch: on while you are away, off when you are at
-  the desk. No focus heuristics, no "probably idle".
-- **Crash-safe.** Mail is marked seen only after the reply is delivered and acknowledged. A crash
-  leaves it unread, so nothing is lost.
+- Your inbox is the client. No app, no account, no relay, no push service. Any device with email
+  works: a phone, a tablet, another PC, a webmail tab.
+- A reply resumes the run. It is injected into the session that sent the mail, as a follow-up, so
+  it queues correctly if a run is still in flight.
+- One mailbox connection per machine. A small loopback daemon owns a single IMAP IDLE connection;
+  every pi session is a thin client, so N sessions never race over one mailbox.
+- Email mode is a switch: on while you are away, off when you are at the desk. There are no focus
+  heuristics and no guessing at whether you are idle.
+- Mail is marked seen only after the reply is delivered and acknowledged. A crash leaves it unread,
+  so nothing is lost.
 
 > **This turns your inbox into a control channel for an agent that can run shell commands.**
 > Read [docs/SECURITY.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/SECURITY.md) before installing, and point it at a mailbox you
@@ -46,50 +45,50 @@ pi install npm:@dumbmice/pi-mailbridge
 | Event | What happens |
 | --- | --- |
 | `pi install npm:@dumbmice/pi-mailbridge` | **Nothing runs.** The package is placed; no config, no daemon, no state directory. |
-| first pi session after a usable config exists | the extension probes `/health` and, if nothing answers, spawns the daemon detached — this is why a daemon can appear without you running `setup` in that session |
+| first pi session after a usable config exists | the extension probes `/health` and, if nothing answers, spawns the daemon detached; that is why a daemon can appear without you running `setup` in that session |
 | `/mailbridge setup` | writes the config, then starts (or reloads) the daemon and wires this session to it |
 | `/mailbridge smoke` | re-read the config in the running daemon (mail password, allowlist) |
 | `/mailbridge restart` | stop the process, so it comes back running the current code |
-| `pi-mailbridge --setup` (headless) | writes the config and exits — **no daemon**. Start it yourself, and run `/mailbridge restart` in an already-open session so that session attaches |
-| last pi session closes | the daemon exits after `daemon.idleTimeoutSecs` (120 s) — always; there is no "stay resident" switch |
+| `pi-mailbridge --setup` (headless) | writes the config and exits, with **no daemon**. Start it yourself, and run `/mailbridge restart` in an already-open session so that session attaches |
+| last pi session closes | the daemon exits after `daemon.idleTimeoutSecs` (120 s), always; there is no "stay resident" switch |
 
-A session attaches to whatever already answers on the port — a daemon started by hand or by an
+A session attaches to whatever already answers on the port: a daemon started by hand or by an
 earlier session is reused, never duplicated. Nothing keeps it resident: with no sessions it scans
 but cannot deliver, so a daemon that outlived pi would read a mailbox for nobody.
 
-After `pi update` the session notices a daemon on a different **protocol** — `/health` carries
-`apiVersion` — and replaces it (once a minute at most). A different package *version* on the same
+After `pi update` the session notices a daemon on a different **protocol** (`/health` carries
+`apiVersion`) and replaces it, once a minute at most. A different package *version* on the same
 protocol is left alone. Without that, a new extension
 would mint routing ids an old daemon cannot resolve, and replies would be rejected with the
 cursor already past them.
 
 The replacement is: shut the old daemon down (`POST /shutdown`), spawn the daemon entry this copy of
-the package carries — the compiled `dist/daemon/main.js` for an installed package (no build runs at
-runtime: it is built once, at publish time), or `src/daemon/main.ts` when you run from a checkout —
-and have this session re-create its client. Queued
+the package carries, and have this session re-create its client. That entry is the compiled
+`dist/daemon/main.js` for an installed package, or `src/daemon/main.ts` when you run from a checkout.
+No build runs at runtime; it is built once, at publish time. Queued
 replies, the cursor and the journal are on disk and untouched, so the gap costs nothing but the
-seconds the old daemon spent not watching IMAP. The global switch survives because it is a file; a
-per-session override does not — it lives in the daemon's memory and the session re-applies it when it
-rewires, so a restart does not quietly let mail back in. If the respawn fails, the session warns and keeps polling, retrying within a minute;
+seconds the old daemon spent not watching IMAP. The global switch survives because it is a file.
+A per-session override does not: it lives in the daemon's memory, and the session re-applies it when
+it rewires, so a restart does not quietly let mail back in. If the respawn fails, the session warns and keeps polling, retrying within a minute;
 `/mailbridge restart` forces it.
 
 The daemon exists whether or not email mode is on; `/mailbridge on` and `off` gate scanning and
 delivery, not the process. So a hung daemon is never "because the mode is off", and the mode being
 off does not stop it from answering `/health`.
 
-**The switch has two scopes.** A bare `/mailbridge off` quiets *this* session only — the other
-agents you are running keep mailing you — and a bare `on` puts this session back on **even while the
-machine switch is off**. Neither touches the persisted switch — while a daemon is running to hold them; with no daemon at all,
-a bare command falls back to the file and says so. `--all` is the machine-wide one and
+The switch has two scopes. A bare `/mailbridge off` quiets *this* session only: the other agents
+you are running keep mailing you. A bare `on` puts this session back on **even while the machine
+switch is off**. Neither touches the persisted switch while a daemon is running to hold them; with no
+daemon at all, a bare command falls back to the file and says so. `--all` is the machine-wide one and
 it is the only form that does two things at once: it writes the persisted state *and* overrides every
-session, both directions. So `/mailbridge off --all` stops every session — within a poll tick, the
-interval at which each session re-reads its mode — and every session you start later, and `/mailbridge on --all` revives one that had silenced itself. The persisted default is
+session, both directions. So `/mailbridge off --all` stops every session, within a poll tick (the interval at which each
+session re-reads its mode), and every session you start later, and `/mailbridge on --all` revives one that had silenced itself. The persisted default is
 off, so installing never mails you unprompted. `/mailbridge status` shows both when they differ:
 `mode: off (this session) · global on`.
 
 ## Start a session by mail
 
-Optional, off by default, and a **separate process** — `pi-mailbridge starter run`. Mail it a request and it
+Optional, off by default, and a **separate process**: `pi-mailbridge starter run`. Mail it a request and it
 starts a detached pi session in tmux; mail it `stop:` and it closes one.
 
 ```
@@ -105,11 +104,11 @@ prompt: |
 Values are literal: there are no inline comments, so `model: deepseek/deepseek-flash  # optional` would be
 read as part of the model id and refused. `model` is optional but must be on `starter.models`.
 
-`prompt` defaults to `hi`, and the session name comes from the subject. A request normally gets one reply —
-`started` (with the `tmux attach` line and the exact `stop:` text) or `refused` with the reason — but replies
-are bound by `starter.confirmationsPerHour` and by SMTP itself. The two are not quite symmetric: a result
+`prompt` defaults to `hi`, and the session name comes from the subject. A request normally gets one
+reply: `started` (with the `tmux attach` line and the exact `stop:` text) or `refused` with the
+reason. Replies are bound by `starter.confirmationsPerHour` and by SMTP itself. The two are not quite symmetric: a result
 mail that fails to send is recorded as still owed and is sent on a later scan, while a *refusal* the
-budget swallowed is not retried — send the mail again if you need it answered. A reply to a result that is not `stop:`/`list:` is
+budget swallowed is not retried; send the mail again if you need it answered. A reply to a result that is not `stop:`/`list:` is
 answered with a refusal, never treated as a request: start sessions with a new mail. `list:` lists live
 sessions, and says "tmux did not answer" rather than "no sessions" when the socket is unavailable. Stopping
 a session ends the session, not the delivery of its result: if the "started" mail never went out, it is
@@ -120,14 +119,14 @@ Operational limits worth knowing before you turn it on:
 - **One machine, one channel.** There is no device tag; two starters watching the same mailbox will both
   act on the same request. Give each machine its own prefix, address or folder.
 - **`starter-journal.json` has one budget of 500 records** shared by starts, commands and refusals. If it
-  fills, admission fails closed — including a mailed `stop:` — until old enough records age out or you run
+  fills, admission fails closed, including a mailed `stop:`, until old enough records age out or you run
   `starter repair` (which discards replay history).
 - **Receipts grow without bound** by design: one tiny `.handled` file per request and one intent receipt per
   started session. They are what makes a reload safe; deleting them reopens what a reload would reapply.
 - **A crash can need a human.** A `SIGKILL` leaves a lock file; nothing clears it automatically. Use
   `starter locks`, confirm the pid is gone, and remove the file by hand.
-- **Result delivery is retryable, not exactly-once.** A crash after SMTP accepted a result but before it was
-  recorded can duplicate that mail.
+- Result delivery retries. A crash after SMTP accepted a result but before it was recorded can
+  duplicate that mail.
 
 ```jsonc
 "starter": {
@@ -167,7 +166,7 @@ Every starter key, with the behaviour it controls:
 Setup and surgery:
 
 ```bash
-pi-mailbridge starter check            # config, roots, tmux, pi, DMARC — refuses on a problem
+pi-mailbridge starter check            # config, roots, tmux, pi, DMARC; refuses on a problem
 pi-mailbridge starter repair           # after an unreadable journal: set it aside, keep the bytes
 pi-mailbridge starter locks             # report stale locks (path + pid); removal is yours to make
 pi-mailbridge starter run              # the watcher (singleton; run it under a supervisor)
@@ -178,20 +177,20 @@ pi-mailbridge starter once --dry-run   # show what an interrupted request would 
 ./scripts/live/run.sh                  # end-to-end proof in Docker: one real mail, one real session
 ```
 
-**Two settings to get right in the single-mailbox layout** (request sent by the account the bridge reads): set
+Two settings to get right in the single-mailbox layout (request sent by the account the bridge reads): set
 `security.allowSelfReplies: true`, or the self-reply guard refuses the request as `unauthenticated:self`; and
 be aware that a self-sent copy may carry **no** `Authentication-Results` header (QQ does not stamp one), so
-with `requireDmarcPass` on the request is silently ignored — `check` reports that DMARC-off state, and the
+with `requireDmarcPass` on the request is silently ignored. `check` reports that DMARC-off state, and the
 watcher log names the ignore reason (`ignored uid N: …`), which is how you tell the two apart.
 
-**Upgrading from 0.2.x?** Three behaviour changes, none of which touches the starter's default-off state:
+Upgrading from 0.2.x? Three behaviour changes, none of which touches the starter's default-off state:
 a stale `daemon.lock` is no longer stolen (a `SIGKILL`ed daemon now needs one manual `rm`, see
 `starter locks`); `security.requireDmarcPass` / `allowSelfReplies` accept only real booleans (malformed values
-resolve to the safe default with a warning — `0` no longer disables DMARC); and `starter check` prints an
+resolve to the safe default with a warning; `0` no longer disables DMARC); and `starter check` prints an
 extra line saying it is an offline check. Details and the two log-parsing changes are in the CHANGELOG.
 
 **This turns a mailbox into a way to launch processes**, so read `docs/SECURITY.md` §4a first: the `roots`
-list is a launch restriction (not a sandbox), and a request is authorized by your address and DMARC — there
+list is a launch restriction (not a sandbox), and a request is authorized by your address and DMARC. There
 is no routing token to steal, and none to rely on either. The starter needs its own IMAP connection and runs
 whether or not pi is up.
 
@@ -207,7 +206,7 @@ Inside pi:
 `setup` discovers the provider's servers and auth from its published settings (Thunderbird's
 autoconfig database plus a small built-in table), so you normally never hand-write hosts or ports. A
 domain in neither is reported as having no published settings, and `setup` points you at
-`config.example.json`. `to` is optional and defaults to the pi address — that selects the
+`config.example.json`. `to` is optional and defaults to the pi address, which selects the
 single-mailbox layout, described below. It refuses to overwrite an existing config unless you
 add `force`.
 
@@ -268,7 +267,7 @@ turns: 3
 Reply above this line to continue the session.
 ```
 
-Reply normally — plain Reply is enough. The subject id routes it back; `In-Reply-To` and
+Reply normally; plain Reply is enough. The subject id routes it back; `In-Reply-To` and
 `References` are the fallback if the subject is edited. `/mailbridge off` closes the channel in
 both directions: no notifications, and replies stay unread in the mailbox until you turn it on
 again.
@@ -277,12 +276,12 @@ again.
 
 Two layouts work; pick before you start, because it changes the allowlist.
 
-| | **A. Dedicated mailbox** (recommended) | **B. One mailbox** |
+| | A. Dedicated mailbox (recommended) | B. One mailbox |
 | --- | --- | --- |
 | Who | pi gets its own address, you use yours | one address for both |
 | `mail.to` | `you@example.com` | `you@qq.com` |
-| `security.allowSelfReplies` | `false` (default) | `true` — required |
-| `security.requireDmarcPass` | `true` (default) | `false` — setup writes this |
+| `security.allowSelfReplies` | `false` (default) | `true`; required |
+| `security.requireDmarcPass` | `true` (default) | `false`; setup writes this |
 | Isolation | a compromised pi mailbox is not your inbox | none; point it at a mailbox you would not mind an agent reading |
 
 ### A. Dedicated mailbox
@@ -319,14 +318,13 @@ Three requirements keep this shape safe, and they constrain how you reply:
 3. **The outbound registry.** Our own `Message-ID`s are recorded when sending, so a copy of our
    own mail is recognised even if the marker was stripped.
 
-**DMARC cannot work here**, and that is not a loophole to leave open by accident. A message from
-your address to the same address is delivered by your own provider, and some (QQ is one) add no
-`Authentication-Results` header at all. Requiring one rejects every genuine reply, so `setup`
-turns it off when the addresses match and says so. What that costs: **DMARC is what would stop
-someone forging your address.** With it off, a spoofed `From` passes the allowlist, so what keeps
-a stranger out is **routing** — they would need a live `[pi:…]` route id they had read from one of
-your notifications. If your provider does stamp `Authentication-Results` on self-mail you can set
-it back to `true`, but `/mailbridge check` and `--check` then report the combination —
+DMARC cannot work here. A message from your address to the same address is delivered by your own
+provider, and some (QQ is one) add no `Authentication-Results` header at all. Requiring one rejects
+every genuine reply, so `setup` turns it off when the addresses match and says so. What that costs:
+DMARC is what would stop someone forging your address. With it off, a spoofed `From` passes the
+allowlist, so what keeps a stranger out is **routing**: they would need a live `[pi:…]` route id
+they had read from one of your notifications. If your provider does stamp `Authentication-Results` on self-mail you can set
+it back to `true`, but `/mailbridge check` and `--check` then report the combination:
 `pi-mailbridge --check` exits non-zero, which is what a CI job or a process manager should gate
 on, while the in-pi command only reports it.
 
@@ -354,21 +352,21 @@ pi-mailbridge --smoke     # sends one real mail, then opens the folder and count
 
 ### Commands by mail
 
-A reply whose body — after the quoted original and signature are stripped — is one command line
-runs that command instead of being read by the agent. Useful when you are away and want the phone
+A reply whose body, after the quoted original and signature are stripped, is one command line runs
+that command instead of being read by the agent. Useful when you are away and want the phone
 to do something:
 
 | Reply | Effect |
 | --- | --- |
 | `/mailbridge on` | only while the mode is already on (a no-op). It cannot re-open the channel from off: nothing scans and no session drains, so the reply is never read. Use the terminal |
-| `/mailbridge off` | email mode OFF for this session; by mail it is one-way, since re-opening needs a terminal the mailbox cannot reach — anything else in that batch stays pending |
+| `/mailbridge off` | email mode OFF for this session; by mail it is one-way, since re-opening needs a terminal the mailbox cannot reach; anything else in that batch stays pending |
 | `/mailbridge` or `/mailbridge status` | the status panel |
 | `/mailbridge check` / `/mailbridge smoke` | validate the config / send one test mail |
 | `/mailbridge help` | the command list |
 
 Output appears in the pi session, **not** in a reply mail. Four are deliberately **not** runnable
-by mail — `/mailbridge setup`, `auth`, `restart` and `prime` — and anything longer than one line
-is a message, so a quoted command never fires. The dispatch is ours, not pi's, so a refused
+by mail (`/mailbridge setup`, `auth`, `restart` and `prime`), and anything longer than one line is a
+message, so a quoted command never fires. The dispatch is ours, not pi's, so a refused
 command cannot reconfigure the account even if someone forges your address. What the dispatcher
 refuses is still delivered to the agent as text, so §1/§3 of SECURITY apply to it: the refusal is
 about what runs automatically, not about what the model may then do.
@@ -385,7 +383,7 @@ For a container, a headless box, or a first run on a remote machine:
 | `--smoke` | send one real mail, read the folder back |
 | `--auth` | OAuth2 device login |
 | `--prime` | first-run cursor move; exits 2 if it has already run |
-| `--print-token` | print the bearer secret to stdout — never paste it anywhere |
+| `--print-token` | print the bearer secret to stdout; never paste it anywhere |
 
 ```bash
 node "$HOME/.pi/agent/npm/node_modules/pi-mailbridge/dist/daemon/main.js"
@@ -401,8 +399,8 @@ A notification carries what it needs to be useful away from the desk:
 
 | In the mail body | What arrives |
 | --- | --- |
-| `![shot](./shot.png)` | the image **inline** — embedded in the body where the agent put it, via `Content-ID` (`<img src="cid:…">`), so it renders exactly there instead of sitting in the attachment tray. PNG/JPEG/GIF/WebP only, up to 5 MB each |
-| `[the log](./build.log)` | `build.log` as an **attachment** — nothing renders a PDF or a zip inside a mail body, so it is named beside the link: `the log [attached: build.log]` |
+| `![shot](./shot.png)` | the image **inline**, embedded in the body where the agent put it, via `Content-ID` (`<img src="cid:…">`), so it renders there instead of sitting in the attachment tray. PNG/JPEG/GIF/WebP only, up to 5 MB each |
+| `[the log](./build.log)` | `build.log` as an **attachment**; nothing renders a PDF or a zip inside a mail body, so it is named beside the link: `the log [attached: build.log]` |
 
 Up to 10 attachments, 15 MB each for a linked file and 5 MB for an inline image, 18 MB in total
 by default (`notify.maxAttachmentMb`). Attachments are
@@ -416,15 +414,15 @@ ceiling:
 | Microsoft 365 (work) | 35 MB sent by default; on-prem Exchange often 10 MB |
 | QQ | 50 MB (+5 MB body), 200 MB/day |
 
-Attachments come only from **inside the agent's working directory** — which may be `$HOME`, since
-that is where a fresh `pi` starts and where a deck usually ends up — and only for allowlisted types
+Attachments come only from **inside the agent's working directory**, which may be `$HOME` (that is
+where a fresh `pi` starts, and where a deck usually ends up), and only for allowlisted types
 (`pdf txt log md csv tsv json yml yaml xml html zip gz tar docx xlsx pptx`, plus images and
-`mp4/m4v/mov/webm` video — attached as files, under the same 15 MB per file and
+`mp4/m4v/mov/webm` video, attached as files, under the same 15 MB per file and
 `notify.maxAttachmentMb` total). What is
 refused inside that root: any path segment beginning with a dot (`.ssh`, `.config`, `.local`,
 `.env`), the daemon's own config and state directories, and anything outside the root. A root of `/`
 attaches nothing. The allowlist keeps obvious key *filenames* out of an accidental attach; it is not
-a content filter — an agent told to `cp ~/.ssh/id_rsa notes.txt` or `tar` a directory can still mail
+a content filter. An agent told to `cp ~/.ssh/id_rsa notes.txt` or `tar` a directory can still mail
 the result, and a hardlink defeats the path check as it defeats any other copy. See
 [docs/SECURITY.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/SECURITY.md) §6b for the full boundary.
 
@@ -439,7 +437,7 @@ A reply can carry:
 | --- | --- |
 | PNG / JPEG / GIF / WebP, up to 4 and 1 MB in total per reply | the images themselves, as message parts it can see |
 | `text/plain`, `text/markdown`, `application/json`, same 1 MB in total | the text, inline |
-| PDF, PPT/PPTX, DOC/DOCX, XLS/XLSX, ODT/ODP, CSV, ZIP, GZ, TAR, MD, TXT, LOG, JSON, SVG, HEIC/HEIF — or an image too big to inline — up to 20 MB each | the file, written to `~/.local/state/pi-mailbridge/attachments/`, with its absolute path in the message. The agent opens it with its own tools |
+| PDF, PPT/PPTX, DOC/DOCX, XLS/XLSX, ODT/ODP, CSV, ZIP, GZ, TAR, MD, TXT, LOG, JSON, SVG, HEIC/HEIF, or an image too big to inline, up to 20 MB each | the file, written to `~/.local/state/pi-mailbridge/attachments/`, with its absolute path in the message. The agent opens it with its own tools |
 | anything else (video, executables, an unknown extension) | not delivered; the drop is named in the agent's message and counted under `/mailbridge status` (`attachments dropped:`) |
 
 Up to 10 files and 25 MB per reply; the mail itself may be up to 40 MB, because base64 inflates by
@@ -459,17 +457,17 @@ If the agent needs the contents, it has to open it: `read` for text-ish files, o
 ## When it helps
 
 - Long runs where the agent stops to ask something and you are not at the desk.
-- Work you start and then leave — the decision reaches you wherever you are.
+- Work you start and then leave, where the decision reaches you wherever you are.
 - Sending an image or a log file as the answer instead of prose.
 
 ## When it does not
 
-- **You need an answer now.** Mail latency is mail latency; there is no push channel.
-- **The mailbox gets untrusted mail.** Everything in `security.allowFrom` can command the agent;
-  keep the mailbox narrow.
-- **You want a session started from untrusted mail.** Starting one from *your own* mail is the optional
+- You need an answer now. Mail latency is mail latency; there is no push channel.
+- The mailbox gets untrusted mail. Everything in `security.allowFrom` can command the agent; keep
+  the mailbox narrow.
+- You want a session started from untrusted mail. Starting one from *your own* mail is the optional
   [`starter`](#start-a-session-by-mail) process; a reply still resumes the session that asked.
-- **You need S/MIME or PGP.** Not implemented; transport encryption is the provider's.
+- You need S/MIME or PGP. Not implemented; transport encryption is the provider's.
 
 ## How a reply is identified
 
@@ -477,21 +475,21 @@ A reply is matched to a session by the first rule that succeeds:
 
 | # | Rule | Survives | Notes |
 | --- | --- | --- | --- |
-| 1 | **Short route id** — `[pi:f913c9]`, matched anywhere in the subject | subject intact | What every notification carries. A lookup key in this machine's route table, not a credential: an id never minted here resolves to nothing. TTL-bounded. `Re:`, `RE:`, `Aw:`, `Re[2]:` are fine because the id is not anchored. |
-| 2 | **Legacy signed token** — `[pi:<payload>.<mac>]` | subject intact | Still verified (HMAC, TTL-bounded) so older mail keeps working. New notifications no longer use it. |
-| 3 | **The reply chain** — `In-Reply-To`, or any id in `References`, equals a Message-ID we recorded | subject edited, rewritten or purged | Recorded when the notification is sent, kept for the last 2,000 sends, aged out with `security.tokenTtlHours`. |
-| 4 | None of the above | — | Rejected as `no-token`. The mail stays unread, but the cursor has passed it, so reply again rather than editing the old subject. |
+| 1 | **Short route id**: `[pi:f913c9]`, matched anywhere in the subject | subject intact | What every notification carries. A lookup key in this machine's route table, not a credential: an id never minted here resolves to nothing. TTL-bounded. `Re:`, `RE:`, `Aw:`, `Re[2]:` are fine because the id is not anchored. |
+| 2 | **Legacy signed token**: `[pi:<payload>.<mac>]` | subject intact | Still verified (HMAC, TTL-bounded) so older mail keeps working. New notifications no longer use it. |
+| 3 | **The reply chain**: `In-Reply-To`, or any id in `References`, equals a Message-ID we recorded | subject edited, rewritten or purged | Recorded when the notification is sent, kept for the last 2,000 sends, aged out with `security.tokenTtlHours`. |
+| 4 | None of the above | n/a | Rejected as `no-token`. The mail stays unread, but the cursor has passed it, so reply again rather than editing the old subject. |
 
 Every rule is routing only. Authorization happens before it: the sender allowlist, plus DMARC
-(off in the single-mailbox layout — see above).
+(off in the single-mailbox layout; see above).
 
-- **Reply normally.** Mail clients set `In-Reply-To` or at least `References`; either is accepted.
-- **Editing the subject is safe** — the chain still routes it until the TTL expires. On a
+- Reply normally. Mail clients set `In-Reply-To` or at least `References`; either is accepted.
+- **Editing the subject is safe**: the chain still routes it until the TTL expires. On a
   provider that rewrites `Message-ID` (QQ does; `setup` names `Sent Messages` for
   `qq.com`/`foxmail.com`), set `mail.imap.sentFolder` or this fallback cannot match: the reply
   references an id the provider invented, not the one we recorded.
 - **Composing a brand-new email** with no id and no reference is not identified.
-- **Quoted text is stripped** before the agent sees it, so leave the quote in.
+- Quoted text is stripped before the agent sees it, so leave the quote in.
 - **A reply to a reply** still works: the chain carries the original id.
 
 Rule 3 is a convenience fallback, not authentication. Set `security.allowHeaderThreading: false`
@@ -521,15 +519,15 @@ rejections: not-allowlisted 1
 
 The version on the first line is the daemon's package version. What decides whether the session can
 use it is the **protocol** (`protocol 1`): a daemon on an *older* protocol is replaced within a
-minute (see Lifecycle); one on a *newer* protocol is not killed — it belongs to a newer pi, and the
+minute (see Lifecycle); one on a *newer* protocol is not killed: it belongs to a newer pi, and the
 session stops consuming it and asks you to restart pi. A different package version on the same
 protocol is fine.
 
-A non-zero `rejected` count means mail was not persisted — including our own echo, which is the guard working; the `rejections:` line lists what was actually refused. A reply delivered only as an attachment-drop
-notice counts as **kept**; `attachments dropped:` names its loss separately. `handled:` lines are the
+A non-zero `rejected` count means mail was not persisted, including our own echo, which is the guard working; the `rejections:` line lists what was refused. A reply delivered only as an attachment-drop
+notice counts as `kept`; `attachments dropped:` names its loss separately. `handled:` lines are the
 accepted paths, `attachments dropped:` is a partial loss, and a full queue defers rather than
 discards. Counters of zero are omitted, so a quiet scan prints no scan line; while mode is off
-nothing is scanned and the panel shows the previous scan, so `mode:` — not the scan time — is the
+nothing is scanned and the panel shows the previous scan, so `mode:`, not the scan time, is the
 proof the channel is open.
 
 | Reason | What it means | Fix |
@@ -538,20 +536,20 @@ proof the channel is open.
 | `allowlist-empty` | `security.allowFrom` is empty, which denies everything | set it |
 | `dmarc-missing` / `dmarc-failed` | no `Authentication-Results` with `dmarc=pass` from a trusted relay | check `security.requireDmarcPass`; Microsoft consumer accounts need `trustedAuthservId` unset |
 | `no-token` | the subject lost its `[pi:…]` id **and** no `In-Reply-To`/`References` matched | reply to the original mail |
-| `route-miss` | the subject's id expired or was minted on another machine | nothing, if it routed by the chain — it appears under `handled:` |
+| `route-miss` | the subject's id expired or was minted on another machine | nothing, if it routed by the chain; it appears under `handled:` |
 | `other-device` | the notification came from another pi machine, or `device.name` changed | reply to a notification from this machine |
 | `self` | single-mailbox mode with `security.allowSelfReplies: false` | set it `true` |
-| `self-echo` | our own notification looping back — the guard working | nothing |
-| `starter-request` | mail for the session starter's channel (`[pi-start] …`), which the daemon deliberately does not deliver — the starter reads it on its own cursor | nothing |
-| `expired` | a queued reply aged out under queue pressure — reported on its own `aged out under queue pressure:` line, not under `rejections:` | send it again; the original never arrived |
+| `self-echo` | our own notification looping back, which is the guard working | nothing |
+| `starter-request` | mail for the session starter's channel (`[pi-start] …`), which the daemon deliberately does not deliver; the starter reads it on its own cursor | nothing |
+| `expired` | a queued reply aged out under queue pressure, reported on its own `aged out under queue pressure:` line, not under `rejections:` | send it again; the original never arrived |
 | `no-reply-evidence` | a self-addressed mail with no threading headers | reply to the notification instead |
 | `empty-body` from a `From:`/`>`-leading reply | the first line starts with a quote marker, so the whole body is treated as quoted | write your text above the quote, or paste logs after a sentence |
 | `auto-generated` | a robot, mailing list or bounce | nothing |
 | `attachment-only-dropped` | the reply's only content was an attachment nothing could deliver (a refused type, or past 20 MB); a note naming the drop is delivered | send the text, or a type on the list below |
-| `empty-body` | no prose, no attachment at all | — |
+| `empty-body` | no prose, no attachment at all | n/a |
 | `attachment-*` | an attachment was dropped (type, size, count, or `write-failed`/`attachment-write-failed` for a document that could not be saved) | see the suffix |
 | `pending-full` | the queue is at its limit: 1 000 undelivered replies, or 8 MB of queued bodies and attachments - a few attachment-heavy replies can fill it | start a session so they drain; nothing is discarded, the cursor waits |
-| `send_budget` | more than ten notifications in a minute were requested — a tool's refusal message, never a scan reason, so it is not on the `rejections:` line | a loop is mailing; the budget refuses rather than spending the account's quota |
+| `send_budget` | more than ten notifications in a minute were requested. This is a tool's refusal message, never a scan reason, so it is not on the `rejections:` line | a loop is mailing; the budget refuses rather than spending the account's quota |
 | `too-large` | over 40 MB, refused before the body was downloaded | send a smaller one; a document is capped at 20 MB and 25 MB per reply, images are inlined below 1 MB |
 
 Where to look:
@@ -559,16 +557,16 @@ Where to look:
 | Path | What it holds |
 | --- | --- |
 | `…/uid-cursor.json` | last seen UID + the mailbox UIDVALIDITY |
-| `…/daemon.lock` | the running daemon's pid — the file to look at when a start says another daemon is already running |
+| `…/daemon.lock` | the running daemon's pid; this is the file to look at when a start says another daemon is already running |
 | `…/routes.lock` | held for the instant a routing id is minted |
 | `…/daemon.log` | the daemon's own log (0600, rotates once at 5 MB): scan summaries, connect errors, refusal reasons |
-| `…/mode.json` | the persisted global switch — written by `/mailbridge on --all` and `off --all`; a bare `on`/`off` lives in the daemon's memory, and only falls back to this file when no daemon is running |
+| `…/mode.json` | the persisted global switch, written by `/mailbridge on --all` and `off --all`; a bare `on`/`off` lives in the daemon's memory, and only falls back to this file when no daemon is running |
 | `…/pending.json` | accepted replies waiting for a session (each stamped with the device that scanned it; `held for another device` counts the ones this device will not claim) |
 | `…/routes.json` | short routing ids (`security.tokenTtlHours`) |
 | `…/threads.json` | outbound Message-IDs for threading and the reply chain |
 | `…/journal.json` | acked UIDs, tagged with the UIDVALIDITY |
 
-If `imap:` says `disconnected`, the credentials or host are wrong even though the daemon is up —
+If `imap:` says `disconnected`, the credentials or host are wrong even though the daemon is up,
 the state a revoked app password leaves you in. If `/mailbridge status` says the daemon is
 unreachable, `/mailbridge restart` both starts it and wires this session.
 
@@ -592,23 +590,23 @@ environment variables. A working example: [`config.example.json`](https://github
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `mail.imap.host` / `.port` / `.secure` | — / 993 / true | IMAP server |
-| `mail.imap.user` | — | pi's mailbox account |
-| `mail.imap.sentFolder` | — | where the account keeps sent mail (`Sent Messages` on QQ, `Sent Items` on Outlook). Set it when the provider rewrites the `Message-ID` we stamp — QQ does, and `setup` writes it for `qq.com`/`foxmail.com`. Costs one short-lived IMAP connection per notification; the copy must appear within about two minutes |
-| `mail.imap.password` | — | password or app password for `LOGIN` |
+| `mail.imap.host` / `.port` / `.secure` | none / 993 / true | IMAP server |
+| `mail.imap.user` | none | pi's mailbox account |
+| `mail.imap.sentFolder` | none | where the account keeps sent mail (`Sent Messages` on QQ, `Sent Items` on Outlook). Set it when the provider rewrites the `Message-ID` we stamp: QQ does, and `setup` writes it for `qq.com`/`foxmail.com`. Costs one short-lived IMAP connection per notification; the copy must appear within about two minutes |
+| `mail.imap.password` | none | password or app password for `LOGIN` |
 | `mail.imap.folder` | `INBOX` | watched folder |
 | `mail.imap.authType` | `LOGIN` | `LOGIN` or `XOAUTH2` |
 | `mail.imap.tokenCommand` | `[]` | argv whose stdout is an access token |
-| `mail.smtp.host` / `.port` / `.secure` | — / 465 / true | SMTP server |
-| `mail.smtp.user` | — | also the `From:` and the loop-guard identity |
-| `mail.smtp.password` | — | password or app password for `LOGIN` |
+| `mail.smtp.host` / `.port` / `.secure` | none / 465 / true | SMTP server |
+| `mail.smtp.user` | none | also the `From:` and the loop-guard identity |
+| `mail.smtp.password` | none | password or app password for `LOGIN` |
 | `mail.smtp.authType` | `LOGIN` | `LOGIN` or `XOAUTH2` |
 | `mail.smtp.tokenCommand` | `[]` | argv whose stdout is an access token |
-| `mail.to` | — | **your** address: where notifications go |
-| `oauth.issuer` | — | OAuth2 discovery base URL |
-| `oauth.clientId` | — | your app registration's client id |
-| `oauth.clientSecret` | — | confidential clients only; omit for device code |
-| `oauth.scope` | — | must include `offline_access` for a refresh token |
+| `mail.to` | none | **your** address: where notifications go |
+| `oauth.issuer` | none | OAuth2 discovery base URL |
+| `oauth.clientId` | none | your app registration's client id |
+| `oauth.clientSecret` | none | confidential clients only; omit for device code |
+| `oauth.scope` | none | must include `offline_access` for a refresh token |
 | `device.name` | hostname | machine name in settle notifications and routing records |
 | `security.allowFrom` | `[]` | senders allowed to command the agent; empty denies all |
 | `security.requireDmarcPass` | `true` | require a DMARC pass, pinned to `trustedAuthservId` when set. `false` for a single mailbox unless your provider stamps `Authentication-Results` on self-mail |
@@ -630,12 +628,12 @@ environment variables. A working example: [`config.example.json`](https://github
 
 | Provider | Auth | Status |
 | --- | --- | --- |
-| Any IMAP/SMTP host (self-hosted, Posteo, Fastmail, Zoho…) | `LOGIN` — account or app password | ✅ works |
+| Any IMAP/SMTP host (self-hosted, Posteo, Fastmail, Zoho…) | `LOGIN`: account or app password | ✅ works |
 | **QQ Mail / Foxmail** | `LOGIN` 授权码 | ✅ built-in discovery; QQ accounts must be 14 days old before IMAP/SMTP can be enabled |
 | **163 / 126 / yeah.net / 188.com** | `LOGIN` 授权码 | ✅ built-in discovery; no waiting period |
 | Gmail | app password (`LOGIN`) | ✅ works |
 | Microsoft 365 / work accounts | `XOAUTH2` | ✅ usually works |
-| **Personal** `@outlook.com` / `@hotmail.com` | `XOAUTH2` only | ⚠️ app passwords are rejected over IMAP — see below |
+| **Personal** `@outlook.com` / `@hotmail.com` | `XOAUTH2` only | ⚠️ app passwords are rejected over IMAP; see below |
 
 **Outlook needs OAuth2, not a password.** Enabling IMAP/SMTP in the settings does not restore
 password login. The package ships a device-code flow:
@@ -656,7 +654,7 @@ pi-mailbridge --auth      # prints a URL + code, waits for approval
 Registering the app is free and takes about two minutes (Entra → *Allow public client flows*).
 Walkthrough, scope tables and the Gmail equivalent: [docs/OAUTH.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/OAUTH.md).
 
-**In mainland China, use QQ or 163** — 授权码 works exactly like an app password:
+**In mainland China, use QQ or 163**: 授权码 works exactly like an app password:
 
 ```text
 /mailbridge setup pi-you@qq.com to you@hotmail.com
@@ -667,17 +665,17 @@ Then paste the 授权码 into both password fields and `/mailbridge smoke`. `set
 `Message-ID` we stamp; add it by hand for any other provider that rewrites ids.
 
 **Elsewhere, Gmail with an app password** is the path with fewest moving parts: no OAuth app, no
-tenant, no refresh token that dies weekly. Gmail *OAuth* is the harder route — restricted scopes
+tenant, no refresh token that dies weekly. Gmail *OAuth* is the harder route: restricted scopes
 (verification + CASA) and consent screens in Testing expire refresh tokens every 7 days.
 
-**Personal Outlook has a real caveat:** Microsoft sometimes rejects IMAP/SMTP OAuth2 even with a
+Personal Outlook has a real caveat: Microsoft sometimes rejects IMAP/SMTP OAuth2 even with a
 valid token (`User is authenticated but not connected`, `SmtpClientAuthentication is disabled`).
 That is their side. The reliable answer is Microsoft Graph, which is not implemented here yet;
 [docs/OAUTH.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/OAUTH.md) explains the options, including turnkey services.
 
 ### A token command instead
 
-If you already run a broker, `oauth.*` takes precedence over `tokenCommand` — remove the `oauth`
+If you already run a broker, `oauth.*` takes precedence over `tokenCommand`; remove the `oauth`
 block to use it:
 
 ```json
@@ -701,7 +699,7 @@ the daemon without editing your config file:
 | `PI_MAILBRIDGE_PORT` | `daemon.port` |
 | `PI_MAILBRIDGE_DEVICE` | `device.name` |
 | `PI_MAILBRIDGE_IMAP_TOKEN_CMD`, `PI_MAILBRIDGE_SMTP_TOKEN_CMD` | `mail.imap.tokenCommand`, `mail.smtp.tokenCommand` (argv list; JSON or comma-separated) |
-| `PI_MAILBRIDGE_SESSION_MODE` | this session's email-mode override at start (`on`/`off`) — set by the session starter, and by anything else that wants a started session to mail you back |
+| `PI_MAILBRIDGE_SESSION_MODE` | this session's email-mode override at start (`on`/`off`), set by the session starter and by anything else that wants a started session to mail you back |
 | `PI_MAILBRIDGE_START_REQUEST`, `PI_MAILBRIDGE_START_PROMPT`, `PI_MAILBRIDGE_START_READY`, `PI_MAILBRIDGE_START_MAX_BYTES` | the session starter's bootstrap: the request id, the `0600` prompt file it reads and removes, the readiness marker it writes, and the size cap it enforces (not for humans to set by hand) |
 | `PI_MAILBRIDGE_BOOTSTRAP` | absolute path to the bootstrap extension, for a starter that is not running from the package layout (`starter check` and the dry run use it) |
 
@@ -709,7 +707,7 @@ the daemon without editing your config file:
 
 | Tool | Behaviour |
 | --- | --- |
-| `request_decision` | Emails a question with optional options and a recommendation, then ends the turn. One outstanding decision per session. Ending the turn is a convention, not an enforced gate — see [docs/SECURITY.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/SECURITY.md) §3. |
+| `request_decision` | Emails a question with optional options and a recommendation, then ends the turn. One outstanding decision per session. Ending the turn is a convention, not an enforced gate; see [docs/SECURITY.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/SECURITY.md) §3. |
 | `notify_user` | One-way update. Does not reserve a slot and does not wait. |
 
 Both refuse cleanly when email mode is off or the daemon is unreachable.
@@ -730,34 +728,34 @@ rm -rf ~/.local/state/pi-mailbridge ~/.config/pi-mailbridge
 ```
 
 Nothing is installed system-wide: the daemon runs as you, binds loopback, and its state is the
-two directories above. If you created an Entra app or a provider app password, revoke those too —
+two directories above. If you created an Entra app or a provider app password, revoke those too;
 that is the credential that actually reaches your mailbox.
 
 ## How it works
 
 ![Diagram: the pi session sends through the local daemon over SMTP to your mailbox; you reply from any device; the daemon reads it over IMAP, authorizes, routes and persists it; the session claims it, injects it, and acknowledges, which marks the mail seen](https://cdn.jsdelivr.net/npm/@dumbmice/pi-mailbridge@latest/docs/images/flow.svg)
 
-The numbered path is the whole product. **1** The agent finishes its turn and goes idle — that is
-the normal case, one mail per finished turn — or it stops to ask you a question; either way the
-session hands that mail to the daemon. **2** The daemon sends it over SMTP. **3** It reaches you on
+**1** The agent finishes its turn and goes idle, which is the normal case, one mail per finished
+turn, or it stops to ask you a question; either way the session hands that mail to the daemon. **2** The daemon sends it over SMTP. **3** It reaches you on
 any device. **4** You reply. **5** The daemon reads the reply over IMAP and runs it through the
 gates printed under the diagram. **6** The session claims it and continues: your reply is the next
-message, not a new conversation. **7** It acknowledges — and only then is the mail marked seen and
+message, not a new conversation. **7** It acknowledges, and only then is the mail marked seen and
 journalled.
 
 One daemon per machine owns the mailbox; sessions never touch IMAP. `smoke` and `prime` are the
-deliberate exceptions — each opens one short-lived connection. Design notes, the failure-mode
+deliberate exceptions; each opens one short-lived connection. Design notes, the failure-mode
 table and the module map: [docs/ARCHITECTURE.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/ARCHITECTURE.md) and
 [docs/MAPPING.md](https://github.com/DumbMice/pi-mailbridge/blob/main/docs/MAPPING.md).
 
 ## Status
 
-`0.2.2` — feature-complete for the single-user, one-mailbox case, and exercised end to end
+`0.2.2` is feature-complete for the single-user, one-mailbox case, and has been exercised end to end
 against a live QQ mailbox in both layouts: two addresses (DMARC verified on the reply) and one
 address for both roles (self-delivery, the self-echo guard, and a reply routed by the chain).
 
-What that does not buy you: there is **no automated live-mailbox test**. Provider behaviour is
-observed, not guaranteed — a provider can change how it rewrites headers or pushes `EXISTS`. The
+What that does not buy you: the live test is opt-in and self-hosted (`scripts/live/run.sh`, one real
+mail through Docker), not a gate on every change, and provider behaviour is observed rather than
+guaranteed. A provider can change how it rewrites headers or pushes `EXISTS`. The
 hermetic suite covers the token, authz, scan pipeline, stores, daemon HTTP surface, lifecycle,
 extension surface, tools, attachments and the full end-to-end loop; it needs no network, no
 mailbox, and no socket off the loopback interface.

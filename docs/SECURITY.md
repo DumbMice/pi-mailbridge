@@ -6,7 +6,7 @@ Read this before installing.
 ## 1. Threat model
 
 If an attacker can get one message into the watched mailbox, they may be able to
-make your agent do work — with whatever tools that session has. The agent has
+make your agent do work, with whatever tools that session has. The agent has
 `bash`, `edit`, and `write`. That is remote code execution with extra steps.
 
 Sequence:
@@ -19,7 +19,7 @@ Sequence:
 
 Every control below exists to break one link in that chain.
 
-## 2. Defence in depth — all layers, not a subset
+## 2. Defence in depth
 
 | Layer | Control | Breaks |
 | --- | --- | --- |
@@ -29,7 +29,7 @@ Every control below exists to break one link in that chain.
 | Replay | **journal + expiry** (durable, survives restart) | step 2 |
 | Human | **`request_decision` asks and ends the turn**; only a reply resumes it | step 4 |
 
-### 2.1 DMARC — trust the delivering relay's header
+### 2.1 DMARC: trust the delivering relay's header
 
 `Authentication-Results` is an ordinary, append-only, sender-writable header. A
 message can arrive with a forged `Authentication-Results` from the attacker's own
