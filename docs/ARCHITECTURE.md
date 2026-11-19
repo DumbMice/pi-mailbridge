@@ -78,7 +78,7 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/health` | liveness probe; **unauthenticated** by design (`mode`, pending count, the decision-registry size, emitted as both `sessions` and `registry`: sessions *with an outstanding decision*, not live sessions; live ones are `clients`: ping timing, SSE subscribers, the last scan's summary, `configLoadedAt`, `version`, `apiVersion` and `capabilities`; no content, no addresses. `ok: true` is **required**: the client tells our daemon from anything else on the port by it plus `mode`/`apiVersion`/`capabilities`) |
+| GET | `/health` | liveness probe; **unauthenticated** by design (`mode`, pending count and the decision-registry size (emitted as both `sessions` and `registry`: sessions *with an outstanding decision*, not live sessions; live ones are `clients`), ping timing, SSE subscribers, the last scan's summary, `configLoadedAt`, `version`, `apiVersion` and `capabilities`; no content, no addresses. `ok: true` is **required**: the client tells our daemon from anything else on the port by it plus `mode`/`apiVersion`/`capabilities`) |
 | GET | `/events` | SSE: `delivery`, `mode` (no client uses it; sessions poll) |
 | GET | `/pending` | the delivery channel: polled every 10 s, replayed on reconnect; returns the daemon's own device's records plus untagged ones |
 | POST | `/claim` | `{uid, instanceId, uidValidity?}`: atomic claim; refused as `stale-space` for another UID space and `foreign-device` for a record another device scanned |
@@ -87,7 +87,7 @@ Loopback only by default (`daemon.host`). Every request except `/health` carries
 | POST | `/bye` | a session is leaving; the daemon exits once no session has pinged for `idleTimeoutSecs` |
 | POST | `/ping` | heartbeat, the other half of the idle exit |
 | DELETE | `/register` | release the reservation |
-| GET/POST | `/mode` | **email mode, in two scopes.** GET returns `mode` (effective for the asking `?instanceId`), `global` (the persisted switch) and `session` (the override, when there is one). POST takes `{mode, scope}`: `global` writes the persisted switch and broadcasts; `session` sets an in-memory override for one attached session (dropped by `/bye`, refreshed on every ping, and expired after 24 h without one: the crash case). The payload carries `globalUpdatedAt`, the persisted switch's timestamp (omitted when that file cannot be read - a session then keeps its own override rather than treating an unreadable stamp as a change), so a session that reconnects can tell whether a decision it made was superseded by a global write. The daemon scans when the global switch is on **or** any attached session overrode itself on. A bare `/mailbridge off` is per session; `--all` is the persisted global switch |
+| GET/POST | `/mode` | **email mode, in two scopes.** GET returns `mode` (effective for the asking `?instanceId`), `global` (the persisted switch) and `session` (the override, when there is one). POST takes `{mode, scope}`: `global` writes the persisted switch and broadcasts; `session` sets an in-memory override for one attached session (dropped by `/bye`, refreshed on every ping, and expired after 24 h without one, which is the crash case). The payload carries `globalUpdatedAt`, the persisted switch's timestamp (omitted when that file cannot be read - a session then keeps its own override rather than treating an unreadable stamp as a change), so a session that reconnects can tell whether a decision it made was superseded by a global write. The daemon scans when the global switch is on **or** any attached session overrode itself on. A bare `/mailbridge off` is per session; `--all` is the persisted global switch |
 | POST | `/send` | send one mail via the daemon's SMTP config; at most ten `notification` sends a minute, then `429 send_budget` (`kind: "settle"` and `"decision"` are exempt) |
 | POST | `/reload` | re-read config: stop the watcher, reload, redial. On failure it restores the previous config and warns; a refused connect returns `ok` with a warning |
 | POST | `/shutdown` | stop the daemon (used by the restart path) |
@@ -163,10 +163,9 @@ An inbound message is matched to a session by the first rule that succeeds:
    cannot route mail forever.
    Some providers replace the `Message-ID` we stamp (QQ rewrites it to `<tencent_…@qq.com>`),
    so the id the reply actually references is one we never minted. With
-   `mail.imap.sentFolder` set, which `setup` writes automatically for `qq.com` and
-   `foxmail.com`, so a QQ install holds this extra connection by default, the daemon reads the
-   just-sent copy back and records the
-   delivered id as well. Best-effort: it retries for about two minutes, six attempts totalling 112 s (the provider appends the
+   `mail.imap.sentFolder` set (which `setup` writes automatically for `qq.com` and `foxmail.com`,
+   so a QQ install holds this extra connection by default), the daemon reads the just-sent copy
+   back and records the delivered id as well. Best-effort: it retries for about two minutes, six attempts totalling 112 s (the provider appends the
    copy asynchronously) and matches on the `X-Pi-Mailbridge-Id` header we stamp, so it can only
    ever record the copy of that exact notification. A capture in flight when the daemon stops
    is lost, and that notification falls back to the subject id.
@@ -176,7 +175,7 @@ An inbound message is matched to a session by the first rule that succeeds:
 None of these is authentication: they route, they do not authorize. Authorization is the
 allowlist plus DMARC (off in the single-mailbox layout), and it happens before any of this
 (§2). A signed token is not
-stronger than a short id for routing purposes, the signature stops someone *predicting*
+stronger than a short id for routing purposes: the signature stops someone *predicting*
 an id, but guessing is pointless when any unresolvable id simply falls through to no
 route. `security.allowHeaderThreading: false` disables rule 3 only.
 
