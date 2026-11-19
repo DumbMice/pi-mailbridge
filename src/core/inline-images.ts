@@ -294,20 +294,33 @@ export function rasteriseSvg(path: string, maxBytes: number): Buffer | undefined
 			return undefined
 		}
 	}
-	const rsvg = attempt(["rsvg-convert", "-f", "png", "-w", "1600", "-o", "-", path])
+	// `-o -` is a filename, not stdout, in librsvg: it writes a file called "-" and prints nothing.
+	const rsvg = attempt(["rsvg-convert", "-f", "png", "-w", "1600", path])
 	if (rsvg) return rsvg
 	const magick = attempt(["convert", "-background", "none", path, "png:-"])
 	if (magick) return magick
-	// Inkscape writes files, not stdout.
+	// Inkscape writes files, not stdout. The directory is removed in `finally`: an absent tool, a non-zero
+	// exit, a timeout and an empty export all used to leave one behind per attempted image.
+	let dir: string | undefined
 	try {
-		const dir = mkdtempSync(join(tmpdir(), "pmb-svg-"))
+		dir = mkdtempSync(join(tmpdir(), "pmb-svg-"))
 		const out = join(dir, "out.png")
 		execFileSync("inkscape", ["--export-type=png", `--export-filename=${out}`, path], { timeout: 10_000, stdio: "ignore" })
+		// Size before reading: an export larger than the cap should not be loaded to discover that.
+		if (statSync(out).size > limit) return undefined
 		const bytes = readFileSync(out)
-		rmSync(dir, { recursive: true, force: true })
-		return bytes.length <= limit && sniffImage(bytes)?.contentType === "image/png" ? bytes : undefined
+		return sniffImage(bytes)?.contentType === "image/png" ? bytes : undefined
 	} catch {
 		return undefined
+	} finally {
+		// Best effort: a failing cleanup must not replace a good PNG, or abort the mail with the SVG fallback.
+		if (dir) {
+			try {
+				rmSync(dir, { recursive: true, force: true })
+			} catch {
+				/* nothing useful to do; the OS will reap it */
+			}
+		}
 	}
 }
 
@@ -495,6 +508,8 @@ export interface InlineOptions {
 
 export function inlineLocalImages(html: string, options: InlineOptions = {}): InlineResult {
 	const root = options.root ?? process.cwd()
+	/** Rasterised bytes per source path (null = conversion failed), so one file is tried once per call. */
+	const rasterCache = new Map<string, Buffer | null>()
 	const maxBytes = options.maxBytes ?? MAX_INLINE_BYTES
 	const maxCount = options.maxCount ?? MAX_INLINE_COUNT
 	const maxTotal = options.maxTotalBytes ?? MAX_INLINE_TOTAL_BYTES
@@ -555,25 +570,31 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 		let kind = sniffImage(bytes) ?? (options.inlineSvg && sniffSvg(bytes) ? { contentType: "image/svg+xml", ext: "svg" } : undefined)
 		let payload = bytes
 		if (kind?.contentType === "image/svg+xml" && options.rasteriseSvg !== false) {
-			const png = (options.rasteriser ?? rasteriseSvg)(path, maxBytes)
-			if (png) {
-				payload = png
-				kind = sniffImage(png) ?? kind
+			// One conversion per file: the same reference twice must not run the converter twice, and
+			// ImageMagick's output is not byte-stable, so the content hash cannot dedupe it on its own.
+			const cached = rasterCache.get(path)
+			if (cached) {
+				payload = cached
+			} else if (cached === undefined) {
+				const png = (options.rasteriser ?? rasteriseSvg)(path, maxBytes)
+				rasterCache.set(path, png ?? null)
+				if (png) payload = png
 			}
+			kind = sniffImage(payload) ?? kind
 		}
 		if (!kind) {
 			skipped.push({ src, reason: "not-an-image" })
 			return note(alt || "image", "not attached, not an image")
 		}
-		if (payload.length > maxBytes || total + payload.length > maxTotal) {
-			skipped.push({ src, reason: "too-large" })
-			return note(alt || "image", "not attached, too large")
-		}
-
 		const digest = createHash("sha256").update(payload).digest("hex").slice(0, 16)
 		const cid = `pi-${digest}@pi.local`
 		const existing = byCid.get(cid)
 		if (!existing) {
+			// Only a new part costs bytes: a second reference to the same content is free.
+			if (payload.length > maxBytes || total + payload.length > maxTotal) {
+				skipped.push({ src, reason: "too-large" })
+				return note(alt || "image", "not attached, too large")
+			}
 			const base = (alt || "image").replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 40) || "image"
 			const attachment: InlineAttachment = {
 				filename: `${base}.${kind.ext}`,

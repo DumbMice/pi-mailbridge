@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import { execFileSync } from "node:child_process"
 import assert from "node:assert/strict"
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readdirSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -675,3 +675,62 @@ function hasConverter(): boolean {
 	}
 	return false
 }
+
+test("one SVG reference is converted once, and a repeated reference is free", () => {
+	const root = dir()
+	writeFileSync(join(root, "diagram.svg"), SVG)
+	let calls = 0
+	const result = inlineLocalImages('<img src="./diagram.svg"><img src="./diagram.svg">', {
+		root,
+		inlineSvg: true,
+		rasteriseSvg: true,
+		// Exactly one PNG fits: charging the repeat would refuse it, so this pins the accounting.
+		maxTotalBytes: PNG.length,
+		rasteriser: () => {
+			calls += 1
+			return PNG
+		},
+	})
+	assert.equal(calls, 1, "the converter runs once for the same file")
+	assert.equal(result.attachments.length, 1, "and the part is shared")
+	assert.doesNotMatch(result.html, /not attached, too large/, "a repeat costs no bytes, so the total cap cannot refuse it")
+})
+
+test("a failed Inkscape conversion leaves no temporary directory", () => {
+	// The branch used to leak a directory per attempt when the tool was absent, failed, timed out or exported
+	// nothing. It now removes it in `finally`. A private TMPDIR keeps this independent of parallel test files.
+	const tmp = mkdtempSync(join(tmpdir(), "pmb-svgtest-"))
+	const root = dir()
+	writeFileSync(join(root, "diagram.svg"), SVG)
+	const savedPath = process.env.PATH
+	const savedTmp = process.env.TMPDIR
+	process.env.PATH = "/nonexistent"
+	process.env.TMPDIR = tmp
+	try {
+		assert.equal(rasteriseSvg(join(root, "diagram.svg"), MAX_INLINE_BYTES), undefined)
+		assert.deepEqual(readdirSync(tmp), [], "no directory is left behind")
+	} finally {
+		process.env.PATH = savedPath
+		// `process.env.X = undefined` stores the string "undefined"; delete instead.
+		if (savedTmp === undefined) delete process.env.TMPDIR
+		else process.env.TMPDIR = savedTmp
+	}
+})
+
+test("a failing converter is not retried for the same file", () => {
+	const root = dir()
+	writeFileSync(join(root, "diagram.svg"), SVG)
+	let calls = 0
+	const result = inlineLocalImages('<img src="./diagram.svg"><img src="./diagram.svg">', {
+		root,
+		inlineSvg: true,
+		rasteriseSvg: true,
+		rasteriser: () => {
+			calls += 1
+			return undefined
+		},
+	})
+	assert.equal(calls, 1, "one attempt per file, even when it fails")
+	assert.equal(result.attachments.length, 1, "both references share the SVG fallback")
+	assert.equal(result.attachments[0]!.contentType, "image/svg+xml")
+})
