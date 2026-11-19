@@ -1,7 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 660" width="1200" height="660" role="img" aria-labelledby="t d">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 620" width="1000" height="620" role="img" aria-labelledby="t d">
 <title id="t">How a starter request becomes a session</title>
 <desc id="d">Three stations: the mailbox, the starter process and the tmux session. Mail is read on the starter's own cursor; the gates run; a reservation is journalled before spawning; the bootstrap reads the prompt file literally and reports readiness; the result is mailed back. stop and list arrive the same way and act on the journal.</desc>
-
 <defs>
   <marker id="fa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
     <path d="M0 0 L10 5 L0 10z" fill="#5b6673"/>
@@ -10,72 +9,67 @@
     <path d="M0 0 L10 5 L0 10z" fill="#2f6f4f"/>
   </marker>
   <style>
-    .h{font:600 22px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;fill:#18212b}
-    .b{font:17px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;fill:#39434f}
-    .s{font:15px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;fill:#6a7683}
-    .lbl{font:600 15px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;fill:#33404d}
-    .flow{stroke:#5b6673;stroke-width:2;fill:none}
-    .flow-g{stroke:#2f6f4f;stroke-width:2.2;fill:none}
-    .card{fill:#fff;stroke:#cbd4de;stroke-width:1.5}
+    .h{font:600 23px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;fill:#18212b}
+    .b{font:18px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;fill:#39434f}
+    .s{font:15.5px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;fill:#6a7683}
+    .lbl{font:600 16px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;fill:#33404d}
+    .flow{stroke:#5b6673;stroke-width:2.2;fill:none}
+    .flow-g{stroke:#2f6f4f;stroke-width:2.4;fill:none}
+    .card{fill:#fff;stroke:#cbd4de;stroke-width:1.6}
     .box{fill:#f6f9f7;stroke:#84b097;stroke-width:1.6}
     .pill{fill:#eef3f8;stroke:#d3dee9;stroke-width:1}
   </style>
 </defs>
 
-<text class="h" x="24" y="40">A request travels this way</text>
+<text class="h" x="16" y="34">A request travels this way</text>
 
-<!-- stations -->
-<rect class="card" x="24" y="150" width="236" height="170" rx="14"/>
-<text class="lbl" x="48" y="186">Mailbox</text>
-<text class="b" x="48" y="220">[pi-start] request</text>
-<text class="b" x="48" y="248">stop: / list:</text>
-<text class="s" x="48" y="280">the starter's own</text>
-<text class="s" x="48" y="302">folder and cursor</text>
+<rect class="card" x="16" y="140" width="200" height="170" rx="14"/>
+<text class="lbl" x="38" y="176">Mailbox</text>
+<text class="b" x="38" y="210">[pi-start] request</text>
+<text class="b" x="38" y="238">stop: / list:</text>
+<text class="s" x="38" y="270">own folder and</text>
+<text class="s" x="38" y="292">cursor</text>
 
-<rect class="box" x="392" y="120" width="440" height="390" rx="16"/>
-<text class="h" x="416" y="158">Starter process</text>
-<text class="b" x="416" y="194">own IMAP connection</text>
-<text class="b" x="416" y="222">own lock, cursor, journal</text>
-<text class="b" x="416" y="250">gates, all fail-closed</text>
-<text class="s" x="416" y="276">authenticated, on-channel, fresh</text>
-<text class="b" x="416" y="312">reservation before spawn</text>
-<text class="s" x="416" y="338">the journal says what should exist</text>
-<text class="b" x="416" y="374">spawn: tmux plus pi</text>
-<text class="s" x="416" y="400">prompt in a 0600 file, not argv</text>
-<text class="b" x="416" y="436">readiness, then result mail</text>
-<text class="s" x="416" y="462">turn_start marker, not a pane scrape</text>
+<rect class="box" x="320" y="110" width="380" height="350" rx="16"/>
+<text class="h" x="342" y="148">Starter process</text>
+<text class="b" x="342" y="184">own IMAP connection</text>
+<text class="b" x="342" y="212">own lock, cursor, journal</text>
+<text class="b" x="342" y="240">gates, all fail-closed</text>
+<text class="s" x="342" y="266">authenticated, on-channel, fresh</text>
+<text class="b" x="342" y="302">reservation before spawn</text>
+<text class="s" x="342" y="328">the journal says what should exist</text>
+<text class="b" x="342" y="364">spawn: tmux plus pi</text>
+<text class="s" x="342" y="390">prompt in a 0600 file, not argv</text>
+<text class="b" x="342" y="426">readiness, then result mail</text>
 
-<rect class="card" x="960" y="150" width="216" height="170" rx="14"/>
-<text class="lbl" x="984" y="186">tmux session</text>
-<text class="b" x="984" y="220">pi, detached</text>
-<text class="b" x="984" y="248">bootstrap extension</text>
-<text class="s" x="984" y="280">literal prompt to the model</text>
-<text class="s" x="984" y="302">ownership marker in env</text>
+<rect class="card" x="780" y="140" width="204" height="170" rx="14"/>
+<text class="lbl" x="802" y="176">tmux session</text>
+<text class="b" x="802" y="210">pi, detached</text>
+<text class="b" x="802" y="238">bootstrap</text>
+<text class="s" x="802" y="270">literal prompt to</text>
+<text class="s" x="802" y="292">the model</text>
 
-<!-- arrows between stations -->
-<path class="flow" d="M260 214 C 300 214, 340 214, 384 214" marker-end="url(#fa)"/>
-<text class="s" x="268" y="202">1 fetch</text>
-<path class="flow" d="M836 206 C 880 206, 920 206, 952 206" marker-end="url(#fa)"/>
-<text class="s" x="844" y="194">2 spawn</text>
-<path class="flow-g" d="M952 258 C 920 258, 880 258, 844 258" marker-end="url(#fg)"/>
-<text class="s" x="852" y="246">3 ready</text>
-<path class="flow-g" d="M384 288 C 340 288, 300 288, 268 288" marker-end="url(#fg)"/>
-<text class="s" x="276" y="276">4 result</text>
+<path class="flow" d="M216 206 C 250 206, 280 206, 312 206" marker-end="url(#fa)"/>
+<text class="s" x="222" y="192">1 fetch</text>
+<path class="flow" d="M700 198 C 730 198, 752 198, 772 198" marker-end="url(#fa)"/>
+<text class="s" x="706" y="184">2 spawn</text>
+<path class="flow-g" d="M772 250 C 752 250, 730 250, 700 250" marker-end="url(#fg)"/>
+<text class="s" x="706" y="236">3 ready</text>
+<path class="flow-g" d="M312 280 C 280 280, 250 280, 216 280" marker-end="url(#fg)"/>
+<text class="s" x="222" y="266">4 result</text>
 
-<!-- step 5, routed above the boxes so nothing crosses -->
-<path class="flow" d="M142 150 C 142 96, 142 84, 200 84 L 392 84 C 420 84, 420 96, 420 112" marker-end="url(#fa)"/>
-<text class="s" x="214" y="74">5 stop: / list: act on the journal</text>
+<path class="flow" d="M116 140 C 116 88, 116 76, 170 76 L 400 76 C 420 76, 424 88, 424 102" marker-end="url(#fa)"/>
+<text class="s" x="182" y="66">5 stop: / list: act on the journal</text>
 
-<!-- gate strip, two rows of four -->
-<text class="lbl" x="24" y="566">Gate order, every one fail-closed</text>
-<g transform="translate(24,584)">
-  <rect class="pill" x="0" y="0" width="270" height="34" rx="17"/><text class="s" x="20" y="23">enabled + roots</text>
-  <rect class="pill" x="286" y="0" width="270" height="34" rx="17"/><text class="s" x="306" y="23">grammar</text>
-  <rect class="pill" x="572" y="0" width="270" height="34" rx="17"/><text class="s" x="592" y="23">authentication</text>
-  <rect class="pill" x="858" y="0" width="294" height="34" rx="17"/><text class="s" x="878" y="23">own marker (echo)</text>
-  <rect class="pill" x="0" y="46" width="270" height="34" rx="17"/><text class="s" x="20" y="69">channel</text>
-  <rect class="pill" x="286" y="46" width="270" height="34" rx="17"/><text class="s" x="306" y="69">replay</text>
-  <rect class="pill" x="572" y="46" width="270" height="34" rx="17"/><text class="s" x="592" y="69">freshness</text>
-  <rect class="pill" x="858" y="46" width="294" height="34" rx="17"/><text class="s" x="878" y="69">validation, then reserve</text>
+<text class="lbl" x="16" y="516">Gate order, every one fail-closed</text>
+<g transform="translate(16,532)">
+  <rect class="pill" x="0" y="0" width="232" height="34" rx="17"/><text class="s" x="18" y="23">enabled + roots</text>
+  <rect class="pill" x="244" y="0" width="232" height="34" rx="17"/><text class="s" x="262" y="23">grammar</text>
+  <rect class="pill" x="488" y="0" width="232" height="34" rx="17"/><text class="s" x="506" y="23">authentication</text>
+  <rect class="pill" x="732" y="0" width="252" height="34" rx="17"/><text class="s" x="750" y="23">own marker (echo)</text>
+  <rect class="pill" x="0" y="44" width="232" height="34" rx="17"/><text class="s" x="18" y="67">channel</text>
+  <rect class="pill" x="244" y="44" width="232" height="34" rx="17"/><text class="s" x="262" y="67">replay</text>
+  <rect class="pill" x="488" y="44" width="232" height="34" rx="17"/><text class="s" x="506" y="67">freshness</text>
+  <rect class="pill" x="732" y="44" width="252" height="34" rx="17"/><text class="s" x="750" y="67">validation, reserve</text>
 </g>
 </svg>
