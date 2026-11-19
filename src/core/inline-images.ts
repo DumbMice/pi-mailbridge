@@ -318,7 +318,7 @@ export function rasteriseSvg(path: string, maxBytes: number): Buffer | undefined
 			try {
 				rmSync(dir, { recursive: true, force: true })
 			} catch {
-				/* nothing useful to do; the OS will reap it */
+				/* A leftover directory is possible (a mount can pin it); losing the image over that is worse. */
 			}
 		}
 	}
@@ -524,6 +524,8 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 	const attachments: InlineAttachment[] = []
 	const skipped: SkippedImage[] = []
 	const byCid = new Map<string, InlineAttachment>()
+	/** Source path -> part, so a repeated reference is free and does not count against the caps again. */
+	const byPath = new Map<string, InlineAttachment>()
 	let total = 0
 
 	const replaced = html.replace(IMG_TAG, (tag) => {
@@ -532,12 +534,12 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 		// Remote, protocol-relative and already-inlined sources are left alone.
 		if (!src || /^(?:https?:)?\/\//i.test(src) || src.startsWith("cid:") || src.startsWith("data:")) return tag
 
-		if (attachments.length >= maxCount) {
+		const path = resolvePath(src, root)
+		// The count guards new files, not a repeat of one already attached: the second reference costs nothing.
+		if (attachments.length >= maxCount && !byPath.has(path)) {
 			skipped.push({ src, reason: "too-many" })
 			return note(alt || "image", "not attached, too many images")
 		}
-
-		const path = resolvePath(src, root)
 		const verdict = insideRoot(path, rootReal)
 		if (verdict !== "ok") {
 			skipped.push({ src, reason: verdict })
@@ -603,6 +605,7 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 				cid,
 			}
 			byCid.set(cid, attachment)
+			byPath.set(path, attachment)
 			attachments.push(attachment)
 			total += payload.length
 		}
@@ -623,7 +626,8 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 			skipped.push({ src: href, reason })
 			return `${inner} ${note("not attached", text)}`
 		}
-		if (attachments.length >= maxCount) return refuse("too-many", "too many attachments")
+		const already = byPath.get(path)
+		if (attachments.length >= maxCount && !already) return refuse("too-many", "too many attachments")
 		const verdict = insideRoot(path, rootReal)
 		if (verdict !== "ok") return refuse(verdict, refuseText(verdict).replace("not attached, ", ""))
 		const filename = safeFilename(decodeHref(href), "file")
@@ -678,6 +682,7 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 				contentDisposition: "attachment",
 			}
 			byCid.set(`file-${digest}`, attachment)
+			byPath.set(path, attachment)
 			attachments.push(attachment)
 			total += bytes.length
 		}

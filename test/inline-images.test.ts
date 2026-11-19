@@ -734,3 +734,23 @@ test("a failing converter is not retried for the same file", () => {
 	assert.equal(result.attachments.length, 1, "both references share the SVG fallback")
 	assert.equal(result.attachments[0]!.contentType, "image/svg+xml")
 })
+
+test("a repeated reference is not refused by the count cap", () => {
+	// The count check ran before dedupe, so with maxCount 1 the second reference was "too many" even though it
+	// shares the one part. It now guards new files only.
+	const root = dir()
+	writeFileSync(join(root, "diagram.svg"), SVG)
+	writeFileSync(
+		join(root, "other.svg"),
+		Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>'),
+	)
+	const result = inlineLocalImages('<img src="./diagram.svg"><img src="./diagram.svg"><img src="./other.svg">', {
+		root,
+		inlineSvg: true,
+		rasteriseSvg: true,
+		maxCount: 1,
+		rasteriser: () => PNG,
+	})
+	assert.equal(result.attachments.length, 1, "the repeat shares the part")
+	assert.equal(result.html.match(/not attached, too many images/g)?.length, 1, "only the new file is refused")
+})
