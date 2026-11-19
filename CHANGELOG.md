@@ -33,9 +33,12 @@ like a human's.
 - **`starter check` prints one extra line** after its result: that it is an offline configuration check and
   does not log in, pointing at `--smoke` for credentials. "check: ok" with a wrong authorisation code was
   read as success; the exit status is unchanged.
-- **`list-sessions` parsing no longer loses session names.** `tmux -F` does not expand `\t`, so the previous
-  format produced ids like `$0\tname` with an empty name; the sweep then failed to match a running session
-  and marked it ended. The separator is now a literal space, split at the first one.
+- **`list-sessions` parsing no longer loses session names.** The old format asked tmux for
+  `#{session_id}\t#{session_name}`, but tmux does not emit a tab there — it renders the separator as `_` on
+  tmux 3.3 (a literal `\t` in the format comes back as the two characters `\` `t`). Either way the parser,
+  which split on a tab, produced an id like `$0_probe one` with an **empty name**; the sweep then failed to
+  match a running session and marked it ended. The separator is now a literal space, split at the first one,
+  and the live harness keeps a session with a space in its name running without a `swept` line.
 - **An ignored mail is logged with its reason** (`ignored uid N: …`, including `unauthenticated:self` and
   `dmarc-missing`). These paths stay silent on the wire — no reply is sent — but a gate nobody can observe is
   a gate nobody can debug.
