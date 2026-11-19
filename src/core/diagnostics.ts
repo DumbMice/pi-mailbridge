@@ -12,11 +12,11 @@
  * the 2 000-character cut falls), so the difference is carried explicitly instead.
  */
 export function cleanDiagnostic(text: string, max = 1_500, normalizeCrlf = true): string {
-	const clean = text
+	const lineEndings = normalizeCrlf ? text.replace(/\r\n/g, "\n") : text
+	const clean = lineEndings
 		.replace(/\u001B\[[0-9;?]*[A-Za-z]/g, "")
 		// eslint-disable-next-line no-control-regex
 		.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
-		.replace(normalizeCrlf ? /\r\n/g : /(?!) /, "\n")
 		.trim()
 	return clean.length > max ? `${clean.slice(0, max)}…` : clean
 }
