@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.1 — 2026-11-19
+
+### A referenced SVG can be inlined
+
+`![](diagram.svg)` used to be reported as "not attached, not an image": SVG has no magic-byte signature, so
+the sniffing refused it. It is now recognised by its root element and inlined as a cid image with
+`image/svg+xml`, controlled by `notify.inlineSvg` (default true). Whether it displays depends on CID-SVG
+support: Gmail rasterises it and Outlook desktop 2007-2019 renders nothing. Setting it to false drops the
+reference with a note; link the file instead to attach it. The root element is tokenized quote-aware, so a
+`>` inside an attribute or a name like `svgé` cannot be mistaken for an SVG. XML strictness applies: quoted
+values, whitespace between attributes, unique names, XML whitespace only, no raw `<` or bare `&` in a value,
+and no reserved `xml` prefix. Only a simple shape is inlined: no doctype at all, no processing instruction
+other than a UTF-8 XML declaration, and at most one declaration. A DTD-bearing SVG (Illustrator writes one) is
+attached rather than inlined; linking it still delivers it. Inbound SVG is unchanged: a reply's SVG is still delivered as a file on disk.
+
+### An SVG reference is sent as a PNG when it can be
+
+Mobile Outlook and most Android galleries render no SVG, so a cid SVG arrived as a broken image. With
+`notify.rasteriseSvg` (default true) the referenced file is converted to PNG first, using `rsvg-convert`,
+ImageMagick `convert` or `inkscape` when one is on `PATH`; without a converter the SVG is inlined as before.
+`PI_MAILBRIDGE_SVG_RASTERISER=0` or the config switch turns it off. A plain link still attaches the SVG as a
+file, which is the reliable route when a client cannot display either form.
+
 ## 0.3.0 — 2026-11-19
 
 ### Start a session by mail
@@ -42,27 +65,6 @@ like a human's.
 - **An ignored mail is logged with its reason** (`ignored uid N: …`, including `unauthenticated:self` and
   `dmarc-missing`). These paths stay silent on the wire — no reply is sent — but a gate nobody can observe is
   a gate nobody can debug.
-
-### A referenced SVG can be inlined
-
-`![](diagram.svg)` used to be reported as "not attached, not an image": SVG has no magic-byte signature, so
-the sniffing refused it. It is now recognised by its root element and inlined as a cid image with
-`image/svg+xml`, controlled by `notify.inlineSvg` (default true). Whether it displays depends on CID-SVG
-support: Gmail rasterises it and Outlook desktop 2007-2019 renders nothing. Setting it to false drops the
-reference with a note; link the file instead to attach it. The root element is tokenized quote-aware, so a
-`>` inside an attribute or a name like `svgé` cannot be mistaken for an SVG. XML strictness applies: quoted
-values, whitespace between attributes, unique names, XML whitespace only, no raw `<` or bare `&` in a value,
-and no reserved `xml` prefix. Only a simple shape is inlined: no doctype at all, no processing instruction
-other than a UTF-8 XML declaration, and at most one declaration. A DTD-bearing SVG (Illustrator writes one) is
-attached rather than inlined; linking it still delivers it. Inbound SVG is unchanged: a reply's SVG is still delivered as a file on disk.
-
-### An SVG reference is sent as a PNG when it can be
-
-Mobile Outlook and most Android galleries render no SVG, so a cid SVG arrived as a broken image. With
-`notify.rasteriseSvg` (default true) the referenced file is converted to PNG first, using `rsvg-convert`,
-ImageMagick `convert` or `inkscape` when one is on `PATH`; without a converter the SVG is inlined as before.
-`PI_MAILBRIDGE_SVG_RASTERISER=0` or the config switch turns it off. A plain link still attaches the SVG as a
-file, which is the reliable route when a client cannot display either form.
 
 ### DMARC pinning no longer needs a human to read headers
 
