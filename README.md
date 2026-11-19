@@ -418,15 +418,16 @@ A notification carries what it needs to be useful away from the desk:
 
 | In the mail body | What arrives |
 | --- | --- |
-| `![shot](./shot.png)` | the image **inline**, embedded in the body where the agent put it, via `Content-ID` (`<img src="cid:…">`), so it renders there instead of sitting in the attachment tray. PNG/JPEG/GIF/WebP only, up to 5 MB each |
+| `![shot](./shot.png)` | the image **inline**, embedded in the body where the agent put it, via `Content-ID` (`<img src="cid:…">`), so it renders there instead of sitting in the attachment tray. PNG/JPEG/GIF/WebP, plus SVG while `notify.inlineSvg` is on; up to 5 MB each |
 | `[the log](./build.log)` | `build.log` as an **attachment**; nothing renders a PDF or a zip inside a mail body, so it is named beside the link: `the log [attached: build.log]` |
 
 An SVG is inlined too (`notify.inlineSvg`, default true): `![](diagram.svg)` becomes a cid image with
-`image/svg+xml`. Most clients render it; **Outlook desktop 2007-2019 shows nothing**, which is why the raster
-types remain the safe default for a notification. Set `notify.inlineSvg: false` to go back to the raster-only
-rule, or reference an SVG as a normal link (`[diagram.svg](./diagram.svg)`) to have it attached as a file.
-Heads-up for the reverse direction: an SVG you send in a reply is delivered to the agent as a file on disk,
-not as an image part.
+`image/svg+xml`. Whether you see it depends on the client's CID-SVG support: Gmail rasterises it, **Outlook
+desktop 2007-2019 renders nothing**, and a client that does not support it shows no image at all. That is why
+the raster types are still the safer choice for a notification you must be able to read anywhere.
+`notify.inlineSvg: false` drops such a reference with the "not attached" note rather than converting it to a
+file; to attach the SVG instead, link it (`[diagram.svg](./diagram.svg)`). In the reverse direction an SVG you
+send in a reply is delivered to the agent as a file on disk, not as an image part.
 
 Up to 10 attachments, 15 MB each for a linked file and 5 MB for an inline image, 18 MB in total
 by default (`notify.maxAttachmentMb`). Attachments are

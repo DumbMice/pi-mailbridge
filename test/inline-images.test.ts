@@ -503,9 +503,28 @@ test("a FIFO is refused instead of blocking the send, on both paths", { skip: pr
 
 const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>')
 
-test("sniffSvg recognises a document and not an ordinary XML file", () => {
+test("sniffSvg checks the first element, not a mention of <svg>", () => {
+	// Positives
 	assert.equal(sniffSvg(SVG), true)
 	assert.equal(sniffSvg(Buffer.from('\uFEFF<?xml version="1.0"?><svg width="1"/>')), true)
+	assert.equal(sniffSvg(Buffer.from('<svg/>')), true)
+	assert.equal(
+		sniffSvg(Buffer.from('<?xml version="1.0"?><!-- note <svg> --><!DOCTYPE svg PUBLIC "x" "y"><svg xmlns="http://www.w3.org/2000/svg"/>')),
+		true,
+		"BOM, declaration, comment and doctype before the root",
+	)
+	assert.equal(sniffSvg(Buffer.from('<svg:svg xmlns:svg="http://www.w3.org/2000/svg"/>')), true)
+
+	// Negatives: a comment or a nested element is not a root, and the root must be svg in the SVG namespace.
+	assert.equal(sniffSvg(Buffer.from('<!-- <svg xmlns="http://www.w3.org/2000/svg"/> -->')), false)
+	assert.equal(
+		sniffSvg(Buffer.from('<html><body><svg xmlns="http://www.w3.org/2000/svg"/></body></html>')),
+		false,
+		"an HTML page that embeds an SVG is not an SVG",
+	)
+	assert.equal(sniffSvg(Buffer.from('<rss><svg/></rss>')), false)
+	assert.equal(sniffSvg(Buffer.from('<SVG/>')), false, "XML element names are case-sensitive")
+	assert.equal(sniffSvg(Buffer.from('<svg xmlns="http://example.com/not-svg"/>')), false)
 	assert.equal(sniffSvg(Buffer.from('<?xml version="1.0"?><rss><channel/></rss>')), false)
 	assert.equal(sniffSvg(Buffer.from("not xml at all")), false)
 	assert.equal(sniffSvg(Buffer.alloc(0)), false)
@@ -536,4 +555,3 @@ test("an oversized SVG is refused before it is inlined", () => {
 	assert.equal(result.attachments.length, 0)
 	assert.match(result.html, /over the/)
 })
-

@@ -395,7 +395,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig
 	if (rawInlineSvg !== undefined && typeof rawInlineSvg !== "boolean") {
 		warnings.push("notify.inlineSvg must be true or false — using true")
 	}
-	resolved.notify = { ...resolved.notify, inlineSvg: typeof rawInlineSvg === "boolean" ? rawInlineSvg : resolved.notify.inlineSvg }
+	// Explicitly true, not "the value we read": `null`, `0` and `"false"` must not silence the switch.
+	resolved.notify = { ...resolved.notify, inlineSvg: typeof rawInlineSvg === "boolean" ? rawInlineSvg : true }
 
 	const rawMaxMb: unknown = resolved.notify.maxAttachmentMb
 	if (rawMaxMb !== undefined) {

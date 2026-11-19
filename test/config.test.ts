@@ -162,12 +162,12 @@ test("the attachment budget is validated, and the default is provider-safe", () 
 
 	assert.equal(loadConfig(env).notify.maxAttachmentMb, 18, "default")
 	for (const bad of [0, -1, 100, "20", null]) {
-		writeFileSync(configPath(env), JSON.stringify({ notify: { maxAttachmentMb: bad , inlineSvg: true} }))
+		writeFileSync(configPath(env), JSON.stringify({ notify: { maxAttachmentMb: bad } }))
 		const config = loadConfig(env)
 		assert.equal(config.notify.maxAttachmentMb, 18, `maxAttachmentMb: ${String(bad)} is refused`)
 		assert.ok(config.warnings.some((w) => /maxAttachmentMb/.test(w)))
 	}
-	writeFileSync(configPath(env), JSON.stringify({ notify: { maxAttachmentMb: 45 , inlineSvg: true} }))
+	writeFileSync(configPath(env), JSON.stringify({ notify: { maxAttachmentMb: 45 } }))
 	assert.equal(loadConfig(env).notify.maxAttachmentMb, 45, "a QQ-sized budget is allowed")
 })
 
@@ -384,6 +384,24 @@ test("a malformed security boolean cannot disable DMARC or relax self-replies", 
 			loaded.warnings.some((line) => line.includes(`security.${key}`)),
 			`the malformed value is reported: ${JSON.stringify(value)}`,
 		)
+	}
+})
+
+test("notify.inlineSvg resolves to a real boolean", () => {
+	// The warning said "using true" while the raw value was written back: null and 0 disabled inlining,
+	// and the string "false" enabled it.
+	const env = { XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "pmb-svg-")) }
+	mkdirSync(join(env.XDG_CONFIG_HOME, "pi-mailbridge"), { recursive: true })
+	const write = (notify: Record<string, unknown>) => {
+		writeFileSync(configPath(env), JSON.stringify({ notify }))
+		return loadConfig(env)
+	}
+	assert.equal(write({}).notify.inlineSvg, true, "missing means on")
+	assert.equal(write({ inlineSvg: false }).notify.inlineSvg, false, "explicit off is honoured")
+	for (const bad of [null, 0, "false", 1]) {
+		const config = write({ inlineSvg: bad })
+		assert.equal(config.notify.inlineSvg, true, `${JSON.stringify(bad)} falls back to true`)
+		assert.ok(config.warnings.some((w) => /inlineSvg/.test(w)), `${JSON.stringify(bad)} is reported`)
 	}
 })
 

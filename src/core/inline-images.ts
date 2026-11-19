@@ -137,14 +137,69 @@ const ALLOWED_FILE_EXTENSIONS: Record<string, string> = {
  * "invisible in Outlook desktop" caveat.
  */
 /**
- * Is this an SVG document? XML, so there is no magic number; look for the root element in the head.
- * Kept separate from `sniffImage` because an SVG is only ever inlined here - the inbound path must not
- * hand `image/svg+xml` to a model that accepts raster images only.
+ * Is this an SVG document? XML, so there is no magic number: walk a bounded prolog (BOM, whitespace,
+ * comments, processing instructions, doctype) and require the first *element* to be `svg` in the SVG
+ * namespace. A comment mentioning `<svg>`, an HTML page that embeds one, and XML with SVG somewhere below
+ * its root must all be rejected, or a mislabelled file becomes an image part that renders as nothing.
+ *
+ * No XML parsing and no entity expansion happens here; the scan is a bounded prefix and fails closed, so
+ * a large prolog simply is not detected.
+ *
+ * Kept separate from `sniffImage` because an SVG is only ever inlined here - the inbound path must not hand
+ * `image/svg+xml` to a model that accepts raster images only.
  */
 export function sniffSvg(buffer: Buffer): boolean {
-	const head = buffer.subarray(0, 4096).toString("utf8").replace(/^\uFEFF/, "").trimStart()
-	if (!/^(?:<\?xml|<svg|<!DOCTYPE svg|<!--)/i.test(head)) return false
-	return /<svg[\s>]/i.test(head.slice(0, 4096))
+	const head = buffer.subarray(0, 8192).toString("utf8")
+	const SVG_NS = "http://www.w3.org/2000/svg"
+	let i = head.charCodeAt(0) === 0xfeff ? 1 : 0
+	for (;;) {
+		while (i < head.length && /\s/.test(head[i]!)) i += 1
+		if (head.startsWith("<!--", i)) {
+			const close = head.indexOf("-->", i + 4)
+			if (close === -1) return false
+			i = close + 3
+			continue
+		}
+		if (head.startsWith("<?", i)) {
+			const close = head.indexOf("?>", i + 2)
+			if (close === -1) return false
+			i = close + 2
+			continue
+		}
+		if (/^<!doctype/i.test(head.slice(i, i + 9))) {
+			// The internal subset `[...]` may contain `>`, so track it rather than stopping at the first.
+			let depth = 0
+			let j = i
+			for (; j < head.length; j += 1) {
+				const ch = head[j]
+				if (ch === "[") depth += 1
+				else if (ch === "]") depth -= 1
+				else if (ch === ">" && depth <= 0) break
+			}
+			if (j >= head.length) return false
+			i = j + 1
+			continue
+		}
+		break
+	}
+
+	const root = /^<([A-Za-z][\w.:-]*)([^>]*)>/.exec(head.slice(i))
+	if (!root) return false
+	const name = root[1]!
+	if (name !== "svg" && name !== "svg:svg") return false
+	const attrs = root[2] ?? ""
+	const xmlns = /\bxmlns\s*=\s*("([^"]*)"|'([^']*)')/i.exec(attrs)
+	if (xmlns) {
+		const ns = xmlns[2] ?? xmlns[3] ?? ""
+		// A plain root must carry the SVG namespace when it declares one; a prefixed root must declare it
+		// on the prefix.
+		if (name !== "svg" || ns !== SVG_NS) return false
+	}
+	if (name === "svg:svg") {
+		const prefixed = /\bxmlns:svg\s*=\s*("([^"]*)"|'([^']*)')/i.exec(attrs)
+		if ((prefixed?.[2] ?? prefixed?.[3]) !== SVG_NS) return false
+	}
+	return true
 }
 
 export function sniffImage(buffer: Buffer): { contentType: string; ext: string } | undefined {

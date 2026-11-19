@@ -47,9 +47,10 @@ like a human's.
 
 `![](diagram.svg)` used to be reported as "not attached, not an image": SVG has no magic-byte signature, so
 the sniffing refused it. It is now recognised by its root element and inlined as a cid image with
-`image/svg+xml`, controlled by `notify.inlineSvg` (default true). Outlook desktop 2007-2019 renders no SVG, so
-set it to false there, or reference the file as a link to have it attached instead. Inbound SVG is unchanged:
-a reply's SVG is still delivered as a file on disk.
+`image/svg+xml`, controlled by `notify.inlineSvg` (default true). Whether it displays depends on CID-SVG
+support: Gmail rasterises it and Outlook desktop 2007-2019 renders nothing. Setting it to false drops the
+reference with a note; link the file instead to attach it. Inbound SVG is unchanged: a reply's SVG is still
+delivered as a file on disk.
 
 ### DMARC pinning no longer needs a human to read headers
 
