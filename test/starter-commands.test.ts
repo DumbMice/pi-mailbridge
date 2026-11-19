@@ -484,12 +484,21 @@ test("check says it is offline, and an auth failure is named as one", () => {
 	// "check said ok" was read as "my password must be right"; a wrong authorisation code failed later with a
 	// generic "Command failed" in the watcher log.
 	const out: string[] = []
+	// `check` also requires tmux and pi on PATH. A CI runner has neither, so this asserted exit 2 there while
+	// passing locally; stub both rather than pretending the tool check is optional.
+	const bin = mkdtempSync(join(tmpdir(), "pmb-chk-bin-"))
+	for (const tool of ["tmux", "pi"]) {
+		writeFileSync(join(bin, tool), "#!/bin/sh\nexit 0\n", { mode: 0o755 })
+	}
+	const path = process.env.PATH
+	process.env.PATH = `${bin}:${path ?? ""}`
 	return runStarterCommand(["check"], {
 		config: config({ roots: [mkdtempSync(join(tmpdir(), "pmb-chk-"))] }),
 		env: { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pmb-chk-state-")) },
 		stdout: (l: string) => out.push(l),
 		stderr: () => {},
 	}).then((code) => {
+		process.env.PATH = path
 		assert.equal(code, 0)
 		assert.match(out.join("\n"), /offline configuration check; it does not log in/)
 		// The real imapflow shape: message is just "Command failed"; the reason is on the fields.
