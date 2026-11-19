@@ -138,6 +138,14 @@ const ALLOWED_FILE_EXTENSIONS: Record<string, string> = {
  */
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 
+/** Numeric character references are pure syntax; decode them before comparing a namespace URI. */
+function decodeNumericReferences(value: string): string {
+	return value.replace(/&#(x[0-9A-Fa-f]+|[0-9]+);/g, (_whole, body: string) => {
+		const code = body.startsWith("x") ? Number.parseInt(body.slice(1), 16) : Number.parseInt(body, 10)
+		return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : "\uFFFD"
+	})
+}
+
 /** Whitespace as XML defines it, not JavaScript's `\s` (which includes NBSP and friends). */
 const XML_SPACE = new Set([" ", "\t", "\r", "\n"])
 
@@ -151,7 +159,7 @@ function readStartTag(
 	const nameStart = i
 	while (i < head.length && !XML_SPACE.has(head[i]!) && head[i] !== ">" && head[i] !== "/") i += 1
 	const name = head.slice(nameStart, i)
-	if (!name || !/^[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?$/.test(name)) return undefined
+	if (!name || !/^[\p{L}_][\p{L}\p{N}_.-]*(?::[\p{L}_][\p{L}\p{N}_.-]*)?$/u.test(name)) return undefined
 	const attrs = new Map<string, string>()
 	for (;;) {
 		if (i >= head.length) return undefined
@@ -164,7 +172,7 @@ function readStartTag(
 		const attrStart = i
 		while (i < head.length && !XML_SPACE.has(head[i]!) && head[i] !== "=" && head[i] !== ">" && head[i] !== "/") i += 1
 		const attr = head.slice(attrStart, i)
-		if (!attr || !/^[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?$/.test(attr)) return undefined
+		if (!attr || !/^[\p{L}_][\p{L}\p{N}_.-]*(?::[\p{L}_][\p{L}\p{N}_.-]*)?$/u.test(attr)) return undefined
 		while (i < head.length && XML_SPACE.has(head[i]!)) i += 1
 		if (head[i] !== "=") return undefined
 		i += 1
@@ -200,19 +208,28 @@ function readStartTag(
  * noted in the README. When a namespace is written, it must be the SVG one.
  */
 export function sniffSvg(buffer: Buffer): boolean {
-	let head: string
-	try {
-		head = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, 8192))
-	} catch {
-		return false
+	// The window can split a multi-byte character in the body. Drop up to three trailing bytes and retry,
+	// rather than letting a truncated tail decide that the whole document is not UTF-8.
+	const prefix = buffer.subarray(0, 8192)
+	let head: string | undefined
+	for (let drop = 0; drop <= 3 && prefix.length - drop >= 0; drop += 1) {
+		try {
+			head = new TextDecoder("utf-8", { fatal: true }).decode(prefix.subarray(0, prefix.length - drop))
+			break
+		} catch {
+			/* try a shorter window */
+		}
 	}
+	if (head === undefined) return false
 	let i = head.charCodeAt(0) === 0xfeff ? 1 : 0
 	let declaration = false
+	let beforeRoot = false
 	for (;;) {
 		while (i < head.length && XML_SPACE.has(head[i]!)) i += 1
 		if (head.startsWith("<!--", i)) {
 			const close = head.indexOf("-->", i + 4)
 			if (close === -1) return false
+			beforeRoot = true
 			i = close + 3
 			continue
 		}
@@ -223,8 +240,9 @@ export function sniffSvg(buffer: Buffer): boolean {
 			const targetMatch = /^([^\s?]+)([\s\S]*)$/.exec(body)
 			if (!targetMatch) return false
 			const target = targetMatch[1]!
-			// The XML declaration is the only PI this shape allows, it comes first, and it is UTF-8 only.
-			if (target !== "xml" || declaration) return false
+			// The XML declaration is the only PI this shape allows, it must precede everything (a comment
+			// before it is invalid XML), and it is UTF-8 only.
+			if (target !== "xml" || declaration || beforeRoot) return false
 			if (!/^\s+version\s*=\s*["']1\.[0-9]+["']/.test(targetMatch[2]!)) return false
 			const encoding = /\sencoding\s*=\s*["']([^"']+)["']/.exec(targetMatch[2]!)
 			if (encoding && encoding[1]!.toLowerCase() !== "utf-8") return false
@@ -232,22 +250,23 @@ export function sniffSvg(buffer: Buffer): boolean {
 			i = close + 2
 			continue
 		}
-		if (head.startsWith("<!")) return false
+		if (head.startsWith("<!", i)) return false
 		break
 	}
 
 	const root = readStartTag(head, i)
 	if (!root) return false
-	const prefixed = /^([A-Za-z_][\w.-]*):svg$/.exec(root.name)
+	const prefixed = /^([\p{L}_][\p{L}\p{N}_.-]*):svg$/u.exec(root.name)
 	if (root.name !== "svg" && !prefixed) return false
 	if (prefixed && (prefixed[1] === "xml" || prefixed[1] === "xmlns")) return false
 	if (prefixed) {
 		// The prefix must be bound to the SVG namespace; an unrelated default namespace is irrelevant to a
 		// prefixed name and does not make the document non-SVG.
-		return root.attrs.get(`xmlns:${prefixed[1]}`) === SVG_NAMESPACE
+		const bound = root.attrs.get(`xmlns:${prefixed[1]}`)
+		return bound !== undefined && decodeNumericReferences(bound) === SVG_NAMESPACE
 	}
 	const declared = root.attrs.get("xmlns")
-	return declared === undefined || declared === SVG_NAMESPACE
+	return declared === undefined || decodeNumericReferences(declared) === SVG_NAMESPACE
 }
 
 export function sniffImage(buffer: Buffer): { contentType: string; ext: string } | undefined {

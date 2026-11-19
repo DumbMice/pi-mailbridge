@@ -508,12 +508,23 @@ test("sniffSvg checks the first element, not a mention of <svg>", () => {
 	assert.equal(sniffSvg(SVG), true)
 	assert.equal(sniffSvg(Buffer.from('\uFEFF<?xml version="1.0"?><svg width="1"/>')), true)
 	assert.equal(sniffSvg(Buffer.from('<svg/>')), true)
+	// A comment at byte zero must not be mistaken for a doctype: the guard reads at the cursor, not index 0.
+	assert.equal(sniffSvg(Buffer.from('<!-- artwork --><svg xmlns="http://www.w3.org/2000/svg"/>')), true)
+	assert.equal(sniffSvg(Buffer.from('<!-- a --><!-- b --> <?xml version="1.0"?><svg/>')), false, "declaration must come first")
 	assert.equal(
 		sniffSvg(Buffer.from('<?xml version="1.0"?><!-- note <svg> --><svg xmlns="http://www.w3.org/2000/svg"/>')),
 		true,
 		"declaration and comment before the root",
 	)
 	assert.equal(sniffSvg(Buffer.from('<svg:svg xmlns:svg="http://www.w3.org/2000/svg"/>')), true)
+	// Unicode names, and a namespace URI spelled with numeric references, are valid XML.
+	assert.equal(sniffSvg(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" aria-ünïcode="x"/>')), true)
+	assert.equal(
+		sniffSvg(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg&#x2F;"/>')),
+		false,
+		"a namespace is not the SVG one when the decoded URI differs",
+	)
+	assert.equal(sniffSvg(Buffer.from('<svg xmlns="&#104;ttp://www.w3.org/2000/svg"/>')), true)
 	assert.equal(
 		sniffSvg(Buffer.from('<svg:svg xmlns:svg="http://www.w3.org/2000/svg" xmlns="http://www.w3.org/2000/svg"/>')),
 		true,
