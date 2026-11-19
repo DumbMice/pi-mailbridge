@@ -754,3 +754,16 @@ test("a repeated reference is not refused by the count cap", () => {
 	assert.equal(result.attachments.length, 1, "the repeat shares the part")
 	assert.equal(result.html.match(/not attached, too many images/g)?.length, 1, "only the new file is refused")
 })
+
+test("a link to a file already inlined still counts against the count cap", () => {
+	// The byPath map is keyed by mode: an inline image and a link to the same file are two MIME parts, so a
+	// link must not ride on the image's slot.
+	const root = dir()
+	writeFileSync(join(root, "diagram.svg"), SVG)
+	const result = inlineLocalImages(
+		'<img src="./diagram.svg"> <a href="./diagram.svg">diagram</a>',
+		{ root, inlineSvg: true, rasteriseSvg: true, maxCount: 1, rasteriser: () => PNG },
+	)
+	assert.equal(result.attachments.length, 1, "only the image part fits")
+	assert.match(result.html, /not attached: too many attachments/, "the link is refused, not silently added")
+})

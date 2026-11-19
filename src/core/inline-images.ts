@@ -524,7 +524,10 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 	const attachments: InlineAttachment[] = []
 	const skipped: SkippedImage[] = []
 	const byCid = new Map<string, InlineAttachment>()
-	/** Source path -> part, so a repeated reference is free and does not count against the caps again. */
+	/**
+	 * `mode:path` -> part, so a repeat of the *same* reference is free. The mode is part of the key: an inline
+	 * image and a link to the same file are two different MIME parts, and a link must still count at the cap.
+	 */
 	const byPath = new Map<string, InlineAttachment>()
 	let total = 0
 
@@ -536,7 +539,7 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 
 		const path = resolvePath(src, root)
 		// The count guards new files, not a repeat of one already attached: the second reference costs nothing.
-		if (attachments.length >= maxCount && !byPath.has(path)) {
+		if (attachments.length >= maxCount && !byPath.has(`img:${path}`)) {
 			skipped.push({ src, reason: "too-many" })
 			return note(alt || "image", "not attached, too many images")
 		}
@@ -605,7 +608,7 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 				cid,
 			}
 			byCid.set(cid, attachment)
-			byPath.set(path, attachment)
+			byPath.set(`img:${path}`, attachment)
 			attachments.push(attachment)
 			total += payload.length
 		}
@@ -626,7 +629,7 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 			skipped.push({ src: href, reason })
 			return `${inner} ${note("not attached", text)}`
 		}
-		const already = byPath.get(path)
+		const already = byPath.get(`file:${path}`)
 		if (attachments.length >= maxCount && !already) return refuse("too-many", "too many attachments")
 		const verdict = insideRoot(path, rootReal)
 		if (verdict !== "ok") return refuse(verdict, refuseText(verdict).replace("not attached, ", ""))
@@ -682,7 +685,7 @@ export function inlineLocalImages(html: string, options: InlineOptions = {}): In
 				contentDisposition: "attachment",
 			}
 			byCid.set(`file-${digest}`, attachment)
-			byPath.set(path, attachment)
+			byPath.set(`file:${path}`, attachment)
 			attachments.push(attachment)
 			total += bytes.length
 		}
